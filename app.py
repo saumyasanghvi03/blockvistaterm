@@ -12049,12 +12049,13 @@ def login_page():
             if auth_code:
                 try:
                     # Generate session
-                    session = accessToken.SessionModel(
+                    session = fyersModel.SessionModel(
                         client_id=app_id,
                         secret_key=secret_key,
                         redirect_uri=redirect_uri,
                         response_type='code',
-                        grant_type='authorization_code'
+                        grant_type='authorization_code',
+                        state='sample'
                     )
                    
                     session.set_token(auth_code)
@@ -12080,11 +12081,11 @@ def login_page():
                         try:
                             profile_response = fyers.get_profile()
                             if profile_response.get('s') == 'ok':
-                                profile_data = profile_response  # Assuming flat structure
+                                data = profile_response.get('data', {})
                                 st.session_state.profile = {
-                                    'user_name': profile_data.get('client_name', 'FYERS User'),
-                                    'email': profile_data.get('email', ''),
-                                    'user_id': response.get('fy_id', '')  # From token response
+                                    'user_name': data.get('name', data.get('client_name', 'FYERS User')),
+                                    'email': data.get('email', ''),
+                                    'user_id': response.get('fy_id', '')
                                 }
                             else:
                                 st.session_state.profile = {
@@ -12111,12 +12112,13 @@ def login_page():
                     st.query_params.clear()
             else:
                 # Generate login URL
-                session = accessToken.SessionModel(
+                session = fyersModel.SessionModel(
                     client_id=app_id,
                     secret_key=secret_key,
                     redirect_uri=redirect_uri,
                     response_type='code',
-                    grant_type='authorization_code'
+                    grant_type='authorization_code',
+                    state='sample'
                 )
                
                 login_url = session.generate_authcode()
