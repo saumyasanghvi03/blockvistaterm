@@ -6,9 +6,8 @@ import talib # Replace pandas_ta with talib
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from kiteconnect import KiteConnect, exceptions as kite_exceptions
-from fyers_api import fyersModel
-from fyers_api import accessToken
-from streamlit_autorefresh import st_autorefresh
+from fyers_apiv3 import fyersModel  # Updated to v3
+import streamlit_autorefresh
 from datetime import datetime, timedelta, time
 import pytz
 import feedparser
@@ -31,7 +30,6 @@ import io
 import requests
 import hashlib
 import random
-from streamlit_autorefresh import st_autorefresh
 import praw
 
 # <<<--- ENSURE THESE IMPORTS ARE PRESENT --->>>
@@ -781,36 +779,37 @@ def get_instrument_df():
         exchanges_to_try = ['NSE', 'BSE', 'NFO', 'MCX', 'CDS']
         all_instruments = []
 
+@st.cache_data(ttl=86400)
 def get_fyers_instruments():
-    """Fetches instrument list from FYERS API."""
+    """Fetches instrument list from FYERS symbol master CSV (v3 compatible)."""
     try:
-        fyers_model = st.session_state.get('fyers_model')
-        if not fyers_model:
-            return pd.DataFrame()
-            
-        # Get instruments for different exchanges
-        exchanges = ['NSE', 'BSE', 'NFO', 'MCX', 'CDS']
-        all_instruments = []
+        # Load multiple exchange CSVs and combine
+        exchanges = {
+            'NSE_EQ': 'https://public.fyers.in/sym_details/NSE_EQ.csv',
+            'NSE_FO': 'https://public.fyers.in/sym_details/NSE_FO.csv',
+            'BSE_EQ': 'https://public.fyers.in/sym_details/BSE_EQ.csv',
+            'MCX_FO': 'https://public.fyers.in/sym_details/MCX_FO.csv',
+            # Add more as needed
+        }
         
-        for exchange in exchanges:
+        all_instruments = []
+        for segment, url in exchanges.items():
             try:
-                response = fyers_model.get_quotes(symbol=f"{exchange}:*")
-                if response and response.get('s') == 'ok':
-                    for symbol, data in response.get('d', []):
-                        all_instruments.append({
-                            'tradingsymbol': symbol.split(':')[1] if ':' in symbol else symbol,
-                            'name': data.get('description', ''),
-                            'instrument_token': symbol,
-                            'exchange': exchange,
-                            'lot_size': data.get('lot_size', 1),
-                            'instrument_type': data.get('instrument_type', 'EQ')
-                        })
+                df_exchange = pd.read_csv(url)
+                df_exchange['exchange'] = segment.split('_')[0]
+                df_exchange['tradingsymbol'] = df_exchange['symbol']
+                df_exchange['instrument_type'] = df_exchange['instrument_type'].str.upper()
+                # Select relevant columns
+                df_exchange = df_exchange[['tradingsymbol', 'name', 'exchange', 'lot_size', 'instrument_type', 'expiry', 'strike']]
+                all_instruments.append(df_exchange)
             except Exception as e:
-                st.error(f"Failed to load instruments from {exchange}: {e}")
+                st.warning(f"Failed to load {segment}: {e}")
                 continue
         
         if all_instruments:
-            df = pd.DataFrame(all_instruments)
+            df = pd.concat(all_instruments, ignore_index=True)
+            if 'expiry' in df.columns:
+                df['expiry'] = pd.to_datetime(df['expiry'], errors='coerce')
             st.success(f"Loaded {len(df)} instruments from FYERS")
             return df
         else:
@@ -818,16 +817,15 @@ def get_fyers_instruments():
             return pd.DataFrame()
             
     except Exception as e:
-        st.error(f"FYERS API Error (Instruments): {e}")
+        st.error(f"FYERS Instruments Load Error: {e}")
         return pd.DataFrame()
-        
+     
     
 def get_instrument_token(symbol, instrument_df, exchange='NSE'):
     """Finds the instrument token for a given symbol and exchange."""
     if instrument_df.empty: return None
     match = instrument_df[(instrument_df['tradingsymbol'] == symbol.upper()) & (instrument_df['exchange'] == exchange)]
     return match.iloc[0]['instrument_token'] if not match.empty else None
-
 
 @st.cache_data(ttl=60)
 def get_historical_data(instrument_token, interval, period=None, from_date=None, to_date=None):
@@ -859,29 +857,32 @@ def get_historical_data(instrument_token, interval, period=None, from_date=None,
         except Exception as e:
             st.error(f"Kite API Error (Historical): {e}")
             return pd.DataFrame()
-    elif broker == "FYERS":  # ADD THIS BLOCK
+    elif broker == "FYERS":  # Updated for v3
         return get_fyers_historical_data(instrument_token, interval, period)
     
     else:
         st.warning(f"Historical data for {broker} not implemented.")
         return pd.DataFrame()
 
-def get_fyers_historical_data(instrument_token, interval, period=None):
-    """Fetches historical data from FYERS API."""
+def get_fyers_historical_data(symbol, interval, period=None):
+    """Fetches historical data from FYERS API v3."""
     try:
-        fyers_model = st.session_state.get('fyers_model')
-        if not fyers_model or not instrument_token:
+        fyers = st.session_state.get('fyers_model')
+        if not fyers or not symbol:
             return pd.DataFrame()
         
-        # Map interval to FYERS format
+        # Map interval to FYERS v3 resolution
         interval_map = {
-            'minute': 1,
-            '5minute': 5,
+            'minute': '1',
+            '5minute': '5',
+            '15minute': '15',
+            '30minute': '30',
+            '60minute': '60',
             'day': 'D',
-            'week': 'W'
+            'week': 'W',
+            'month': 'M'
         }
-        
-        fyers_interval = interval_map.get(interval, 'D')
+        resolution = interval_map.get(interval, 'D')
         
         # Calculate date range
         end_date = datetime.now()
@@ -903,17 +904,17 @@ def get_fyers_historical_data(instrument_token, interval, period=None):
         start_date_str = start_date.strftime(date_format)
         end_date_str = end_date.strftime(date_format)
         
-        # Fetch historical data
+        # Prepare data for v3 history
         data = {
-            "symbol": instrument_token,
-            "resolution": str(fyers_interval),
-            "date_format": "1",
+            "symbol": symbol,  # e.g., "NSE:SBIN-EQ"
+            "resolution": resolution,
+            "date_format": "1",  # 1 for YYYY-MM-DD
             "range_from": start_date_str,
             "range_to": end_date_str,
             "cont_flag": "1"
         }
         
-        response = fyers_model.history(data)
+        response = fyers.history(data)
         
         if response and response.get('s') == 'ok':
             candles = response.get('candles', [])
@@ -921,21 +922,20 @@ def get_fyers_historical_data(instrument_token, interval, period=None):
                 df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
                 df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
                 df.set_index('timestamp', inplace=True)
+                df.columns = ['open', 'high', 'low', 'close', 'volume']  # Standardize columns
                 return df
         else:
-            st.error(f"FYERS API Error: {response.get('message', 'Unknown error')}")
+            st.error(f"FYERS History Error: {response.get('message', 'Unknown error')}")
             
         return pd.DataFrame()
             
     except Exception as e:
-        st.error(f"FYERS API Error (Historical): {e}")
+        st.error(f"FYERS Historical Data Error: {e}")
         return pd.DataFrame()
-
-@st.cache_resource(ttl=3600)
 
 @st.cache_data(ttl=15)
 def get_watchlist_data(symbols_with_exchange):
-    """Fetches live prices - UPDATED FOR UPSTOX AND FYERS."""
+    """Fetches live prices - UPDATED FOR FYERS v3."""
     client = get_broker_client()
     if not client or not symbols_with_exchange: 
         return pd.DataFrame()
@@ -969,31 +969,25 @@ def get_watchlist_data(symbols_with_exchange):
             return pd.DataFrame()
             
     elif broker == "FYERS":
-        # FYERS implementation
+        # Updated for FYERS v3
         try:
-            # Prepare symbols in FYERS format
-            fyers_symbols = []
-            symbol_map = {}
+            fyers_symbols = [f"{item['exchange']}:{item['symbol']}-EQ" for item in symbols_with_exchange if item['exchange'] == 'NSE']  # Adjust for segment
+            # For simplicity, assume EQ; extend for FO etc.
+            if not fyers_symbols:
+                return pd.DataFrame()
             
-            for item in symbols_with_exchange:
-                symbol = item['symbol']
-                exchange = item['exchange']
-                fyers_symbol = f"{exchange}:{symbol}"
-                fyers_symbols.append(fyers_symbol)
-                symbol_map[fyers_symbol] = symbol
-            
-            # Get quotes in batch
-            response = client.get_quotes(symbols=fyers_symbols)
+            response = client.quotes({"symbols": fyers_symbols})
             
             watchlist = []
             if response and response.get('s') == 'ok':
                 for fyers_symbol, quote_data in response.get('d', {}).items():
-                    symbol = symbol_map.get(fyers_symbol, fyers_symbol)
                     last_price = quote_data.get('lp', 0)
-                    prev_close = quote_data.get('prev_close_price', last_price)
+                    # For prev_close, use 'close' if available, or approximate with 'o' for open of day
+                    prev_close = quote_data.get('close', quote_data.get('o', last_price))
                     change = last_price - prev_close
                     pct_change = (change / prev_close * 100) if prev_close != 0 else 0
                     
+                    symbol = fyers_symbol.split(':')[1].split('-')[0]  # Extract symbol
                     watchlist.append({
                         'Ticker': symbol,
                         'Exchange': fyers_symbol.split(':')[0],
@@ -1007,46 +1001,6 @@ def get_watchlist_data(symbols_with_exchange):
         except Exception as e:
             st.toast(f"Error fetching FYERS watchlist data: {e}", icon="⚠️")
             return pd.DataFrame()
-            
-    elif broker == "Upstox":
-        # Upstox implementation
-        try:
-            # Convert symbols to Upstox format
-            upstox_instruments = []
-            symbol_map = {}
-            
-            for item in symbols_with_exchange:
-                instrument_key = f"{item['exchange']}|{item['symbol']}"  # Adjust based on actual format
-                upstox_instruments.append(instrument_key)
-                symbol_map[instrument_key] = item['symbol']
-            
-            quotes = get_upstox_quote(upstox_instruments)
-            watchlist = []
-            
-            for instrument_key, quote_data in quotes.items():
-                symbol = symbol_map.get(instrument_key, instrument_key)
-                last_price = quote_data.get('last_price', 0)
-                prev_close = quote_data.get('close', last_price)
-                change = last_price - prev_close
-                pct_change = (change / prev_close * 100) if prev_close != 0 else 0
-                
-                watchlist.append({
-                    'Ticker': symbol,
-                    'Exchange': instrument_key.split('|')[0],
-                    'Price': last_price,
-                    'Change': change,
-                    '% Change': pct_change
-                })
-                
-            return pd.DataFrame(watchlist)
-            
-        except Exception as e:
-            st.toast(f"Error fetching Upstox watchlist data: {e}", icon="⚠️")
-            return pd.DataFrame()
-    
-    else:
-        st.warning(f"Watchlist for {broker} not implemented.")
-        return pd.DataFrame()
 
 
 @st.cache_data(ttl=2)
@@ -1061,6 +1015,8 @@ def get_market_depth(instrument_token):
     except Exception as e:
         st.toast(f"Error fetching market depth: {e}", icon="⚠️")
         return None
+
+
 
 @st.cache_data(ttl=30)
 def get_options_chain(underlying, instrument_df, expiry_date=None):
@@ -1144,8 +1100,9 @@ def get_portfolio():
         return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0
 
 
+
 def place_order(instrument_df, symbol, quantity, order_type, transaction_type, product, price=None):
-    """Places a single order - UPDATED FOR ALL BROKERS."""
+    """Places a single order - UPDATED FOR FYERS v3."""
     client = get_broker_client()
     if not client:
         st.error("Broker not connected.")
@@ -1194,72 +1151,8 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
                 "status": f"Failed: {e}"
             })
             
-    elif broker == "Upstox":
-        # Upstox implementation
-        try:
-            # Find instrument token
-            instrument = instrument_df[instrument_df['tradingsymbol'] == symbol.upper()]
-            if instrument.empty:
-                st.error(f"Symbol '{symbol}' not found.")
-                return
-                
-            instrument_token = instrument.iloc[0]['instrument_token']
-            
-            # Map product types
-            product_map = {
-                'MIS': 'intraday',
-                'CNC': 'delivery',
-                'NRML': 'normal'
-            }
-            
-            # Map order types
-            order_type_map = {
-                'MARKET': 'market',
-                'LIMIT': 'limit'
-            }
-            
-            order_params = {
-                'instrument_token': instrument_token,
-                'quantity': quantity,
-                'product': product_map.get(product, 'intraday'),
-                'validity': 'day',
-                'order_type': order_type_map.get(order_type, 'market'),
-                'transaction_type': transaction_type.lower(),
-                'price': price if order_type == 'LIMIT' else 0
-            }
-            
-            order_id = place_upstox_order(order_params)
-            if order_id:
-                st.toast(f"✅ Upstox order placed successfully! ID: {order_id}", icon="🎉")
-                st.session_state.order_history.insert(0, {
-                    "id": order_id, 
-                    "symbol": symbol, 
-                    "qty": quantity, 
-                    "type": transaction_type, 
-                    "status": "Success"
-                })
-            else:
-                st.toast(f"❌ Upstox order failed", icon="🔥")
-                st.session_state.order_history.insert(0, {
-                    "id": "N/A", 
-                    "symbol": symbol, 
-                    "qty": quantity, 
-                    "type": transaction_type, 
-                    "status": "Failed"
-                })
-                
-        except Exception as e:
-            st.toast(f"❌ Upstox order failed: {e}", icon="🔥")
-            st.session_state.order_history.insert(0, {
-                "id": "N/A", 
-                "symbol": symbol, 
-                "qty": quantity, 
-                "type": transaction_type, 
-                "status": f"Failed: {e}"
-            })
-            
     elif broker == "FYERS":
-        # FYERS implementation
+        # Updated for FYERS v3
         try:
             # Find instrument
             instrument = instrument_df[instrument_df['tradingsymbol'] == symbol.upper()]
@@ -1268,12 +1161,12 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
                 return
                 
             exchange = instrument.iloc[0]['exchange']
-            fyers_symbol = f"{exchange}:{symbol}"
+            fyers_symbol = f"{exchange}:{symbol}-EQ"  # Adjust segment if FO
             
-            # Map order parameters to FYERS format
-            order_type_map = {
-                'MARKET': 1,  # MARKET ORDER
-                'LIMIT': 2    # LIMIT ORDER
+            # Map order parameters to FYERS v3 format
+            type_map = {
+                'MARKET': 2,  # 2 for MARKET
+                'LIMIT': 1   # 1 for LIMIT
             }
             
             product_type_map = {
@@ -1286,30 +1179,24 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
                 'SELL': -1
             }
             
-            # Prepare order data
-            order_data = {
+            data = {
                 "symbol": fyers_symbol,
                 "qty": quantity,
-                "type": order_type_map.get(order_type, 2),
-                "side": side_map.get(transaction_type, 1),
+                "type": type_map.get(order_type, 2),
+                "side": side_map[transaction_type],
                 "productType": product_type_map.get(product, 'INTRADAY'),
                 "limitPrice": price if order_type == 'LIMIT' else 0,
                 "stopPrice": 0,
+                "validity": "DAY",
                 "disclosedQty": 0,
-                "validity": 'DAY',
                 "offlineOrder": False,
                 "stopLoss": 0,
-                "takeProfit": 0
+                "takeProfit": 0,
             }
             
-            # Remove zero values for market orders
-            if order_type == 'MARKET':
-                order_data.pop('limitPrice', None)
-            
-            response = client.place_order(order_data)
-            
+            response = client.place_order(data)
             if response and response.get('s') == 'ok':
-                order_id = response.get('id')
+                order_id = response.get('data', {}).get('order_id', 'N/A')
                 st.toast(f"✅ FYERS order placed successfully! ID: {order_id}", icon="🎉")
                 st.session_state.order_history.insert(0, {
                     "id": order_id, 
@@ -1325,7 +1212,7 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
                     "symbol": symbol, 
                     "qty": quantity, 
                     "type": transaction_type, 
-                    "status": f"Failed: {response.get('message', 'Unknown error')}"
+                    "status": f"Failed: {response}"
                 })
                 
         except Exception as e:
@@ -1337,9 +1224,7 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
                 "type": transaction_type, 
                 "status": f"Failed: {e}"
             })
-    
-    else:
-        st.warning(f"Order placement for {broker} not implemented.")
+
 
 
 
@@ -11992,7 +11877,7 @@ def login_page():
             auth_code = st.query_params.get("code")
 
 def get_fyers_login_url():
-    """Generate FYERS login URL."""
+    """Generate FYERS login URL for v3."""
     try:
         app_id = st.secrets.get("FYERS_APP_ID")
         secret_key = st.secrets.get("FYERS_SECRET_KEY")
@@ -12002,13 +11887,13 @@ def get_fyers_login_url():
             st.error("FYERS credentials not found in secrets")
             return None
             
-        # Create session model
-        session = accessToken.SessionModel(
+        # v3 SessionModel
+        session = fyersModel.SessionModel(
             client_id=app_id,
-            secret_key=secret_key, 
+            secret_key=secret_key,
             redirect_uri=redirect_uri,
-            response_type='code',
-            grant_type='authorization_code'
+            response_type="code",
+            grant_type="authorization_code"
         )
         
         # Generate login URL
@@ -12019,10 +11904,11 @@ def get_fyers_login_url():
         st.error(f"Error generating FYERS login URL: {e}")
         return None
 
+
 broker_options = ["Zerodha", "FYERS"] 
 
 def fyers_generate_session(authorization_code):
-    """Generate FYERS session using authorization code."""
+    """Generate FYERS session using authorization code for v3."""
     try:
         app_id = st.secrets.get("FYERS_APP_ID")
         secret_key = st.secrets.get("FYERS_SECRET_KEY")
@@ -12032,25 +11918,26 @@ def fyers_generate_session(authorization_code):
             st.error("Missing FYERS credentials in secrets")
             return False
             
-        session = accessToken.SessionModel(
+        session = fyersModel.SessionModel(
             client_id=app_id,
             secret_key=secret_key,
             redirect_uri=redirect_uri,
-            response_type='code',
-            grant_type='authorization_code'
+            response_type="code",
+            grant_type="authorization_code"
         )
         
         session.set_token(authorization_code)
         response = session.generate_token()
         
         if response.get('s') == 'ok':
-            access_token = f"{app_id}:{response['access_token']}"
+            access_token = response['access_token']  # No prefix in v3
             
             st.session_state.fyers_access_token = access_token
             st.session_state.fyers_model = fyersModel.FyersModel(
                 client_id=app_id,
-                token=access_token, 
-                log_path="/logs"
+                token=access_token,
+                is_async=False,
+                log_path=""  # Disable logging or set path
             )
             st.success("FYERS authentication successful!")
             return True
@@ -12063,15 +11950,16 @@ def fyers_generate_session(authorization_code):
         return False
 
 def fyers_logout():
-    """Logs out the user from the FYERS API."""
+    """Logs out the user from the FYERS API v3."""
     try:
-        # FYERS doesn't have explicit logout in API, just clear session
+        # Clear session state
         st.session_state.fyers_model = None
         st.session_state.fyers_access_token = None
         st.toast("Successfully logged out from FYERS.")
         
     except Exception as e:
         st.error(f"An error occurred during FYERS logout: {str(e)}")
+
             
 def main_app():
     """The main application interface after successful login."""
