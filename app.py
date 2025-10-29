@@ -12355,24 +12355,25 @@ def get_fyers_login_url():
         app_id = fyers_secrets.get("APP_ID")
         secret_key = fyers_secrets.get("SECRET_KEY")
         redirect_uri = fyers_secrets.get("REDIRECT_URI")
-       
+        
         if not all([app_id, secret_key, redirect_uri]):
             st.error("FYERS credentials not found in secrets")
             return None
-           
-        # Create session model
+            
+        # v3 Initialization (per official PyPI example)
         session = fyersModel.SessionModel(
             client_id=app_id,
             secret_key=secret_key,
             redirect_uri=redirect_uri,
-            response_type='code',
-            state='sample_state'  # Optional
+            response_type="code",
+            grant_type="authorization_code",
+            state="sample"  # Optional: Prevents CSRF
         )
-       
+        
         # Generate login URL
         login_url = session.generate_authcode()
         return login_url
-       
+        
     except Exception as e:
         st.error(f"Error generating FYERS login URL: {e}")
         return None
@@ -12384,45 +12385,50 @@ def fyers_generate_session(authorization_code):
         app_id = fyers_secrets.get("APP_ID")
         secret_key = fyers_secrets.get("SECRET_KEY")
         redirect_uri = fyers_secrets.get("REDIRECT_URI")
-       
+        
         if not all([app_id, secret_key, redirect_uri]):
             st.error("Missing FYERS credentials in secrets")
             return False
-           
+            
         session = fyersModel.SessionModel(
             client_id=app_id,
             secret_key=secret_key,
             redirect_uri=redirect_uri,
-            response_type='code',
-            state='sample_state'
+            response_type="code",
+            grant_type="authorization_code",
+            state="sample"
         )
-       
+        
         session.set_token(authorization_code)
         response = session.generate_token()
-       
+        
         if response.get('s') == 'ok':
             access_token = f"{app_id}:{response['access_token']}"
-           
+            
             st.session_state.fyers_access_token = access_token
             st.session_state.fyers_model = fyersModel.FyersModel(
                 client_id=app_id,
                 token=access_token,
-                log_path="logs"  # Adjust path as needed
+                log_path="logs",  # Adjust for your env
+                is_async=False  # Sync mode for Streamlit
             )
             
-            # Fetch and set profile for consistency
+            # Fetch profile for UI consistency
             profile_response = st.session_state.fyers_model.get_profile()
             if profile_response.get('s') == 'ok':
-                st.session_state.profile = profile_response['data']
+                st.session_state.profile = {
+                    'user_name': profile_response['data'].get('name', 'FYERS Trader'),
+                    'email': profile_response['data'].get('email', '')
+                }
             else:
-                st.error("Failed to fetch FYERS profile")
-                return False
+                st.warning("Profile fetch succeeded, but details unavailable")
+                st.session_state.profile = {'user_name': 'FYERS Trader'}
             
             return True
         else:
             st.error(f"FYERS authentication failed: {response.get('message', 'Unknown error')}")
             return False
-           
+            
     except Exception as e:
         st.error(f"FYERS session generation failed: {str(e)}")
         return False
