@@ -6,9 +6,20 @@ import talib # Replace pandas_ta with talib
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from kiteconnect import KiteConnect, exceptions as kite_exceptions
-from fyers_apiv3 import fyersModel
-from fyers_apiv3.FyersWebsocket import data_ws
-from fyers_apiv3 import accessToken
+try:
+    # Try importing v3 first
+    from fyers_apiv3 import fyersModel
+    from fyers_apiv3 import accessToken
+    FYERS_VERSION = "v3"
+except ImportError:
+    try:
+        # Fall back to v2
+        from fyers_api import fyersModel
+        from fyers_api import accessToken
+        FYERS_VERSION = "v2"
+    except ImportError:
+        st.error("FYERS API package not installed. Please install either fyers-apiv3 or fyers-apiv2")
+        FYERS_VERSION = None
 import streamlit_autorefresh
 from datetime import datetime, timedelta, time
 import pytz
@@ -240,12 +251,93 @@ ML_DATA_SOURCES = {
 }
 
 # FYERS configuration - SEPARATE DICTIONARY
+# FYERS configuration
 FYERS_CONFIG = {
-    "app_id": "your_fyers_app_id",  # Will be set from secrets
-    "secret_key": "your_fyers_secret_key",  # Will be set from secrets
-    "redirect_uri": "https://your-redirect-uri.com",  # Set in FYERS developer console
-    "app_type": "100"  # 100 for web login
+    "app_id": "your_fyers_app_id",
+    "secret_key": "your_fyers_secret_key", 
+    "redirect_uri": "https://your-redirect-uri.com",
+    "app_type": "100"
 }
+
+def get_fyers_login_url():
+    """Generate FYERS login URL."""
+    try:
+        app_id = st.secrets.get("FYERS_APP_ID")
+        secret_key = st.secrets.get("FYERS_SECRET_KEY")
+        redirect_uri = st.secrets.get("FYERS_REDIRECT_URI")
+        
+        if not all([app_id, secret_key, redirect_uri]):
+            st.error("FYERS credentials not found in secrets")
+            return None
+            
+        # Create session model
+        session = accessToken.SessionModel(
+            client_id=app_id,
+            secret_key=secret_key, 
+            redirect_uri=redirect_uri,
+            response_type='code',
+            grant_type='authorization_code'
+        )
+        
+        # Generate login URL
+        login_url = session.generate_authcode()
+        return login_url
+        
+    except Exception as e:
+        st.error(f"Error generating FYERS login URL: {e}")
+        return None
+
+def fyers_generate_session(authorization_code):
+    """Generate FYERS session using authorization code."""
+    try:
+        app_id = st.secrets.get("FYERS_APP_ID")
+        secret_key = st.secrets.get("FYERS_SECRET_KEY")
+        redirect_uri = st.secrets.get("FYERS_REDIRECT_URI")
+        
+        if not all([app_id, secret_key, redirect_uri]):
+            st.error("Missing FYERS credentials in secrets")
+            return False
+            
+        session = accessToken.SessionModel(
+            client_id=app_id,
+            secret_key=secret_key,
+            redirect_uri=redirect_uri,
+            response_type='code',
+            grant_type='authorization_code'
+        )
+        
+        session.set_token(authorization_code)
+        response = session.generate_token()
+        
+        if response.get('s') == 'ok':
+            access_token = f"{app_id}:{response['access_token']}"
+            
+            st.session_state.fyers_access_token = access_token
+            st.session_state.fyers_model = fyersModel.FyersModel(
+                client_id=app_id,
+                token=access_token, 
+                log_path="/logs"
+            )
+            st.success("FYERS authentication successful!")
+            return True
+        else:
+            st.error(f"FYERS authentication failed: {response.get('message', 'Unknown error')}")
+            return False
+            
+    except Exception as e:
+        st.error(f"FYERS session generation failed: {str(e)}")
+        return False
+
+def fyers_logout():
+    """Logs out the user from the FYERS API."""
+    try:
+        # FYERS doesn't have explicit logout in API, just clear session
+        st.session_state.fyers_model = None
+        st.session_state.fyers_access_token = None
+        st.toast("Successfully logged out from FYERS.")
+        
+    except Exception as e:
+        st.error(f"An error occurred during FYERS logout: {str(e)}")
 
 # ================ 1.5 INITIALIZATION ========================
 
@@ -11946,89 +12038,7 @@ def login_page():
             # Check for authorization code in URL parameters
             auth_code = st.query_params.get("code")
 
-def get_fyers_login_url():
-    """Generate FYERS login URL for v3."""
-    try:
-        app_id = st.secrets.get("FYERS_APP_ID")
-        secret_key = st.secrets.get("FYERS_SECRET_KEY")
-        redirect_uri = st.secrets.get("FYERS_REDIRECT_URI")
-        
-        if not all([app_id, secret_key, redirect_uri]):
-            st.error("FYERS credentials not found in secrets")
-            return None
-            
-        # v3 SessionModel
-        session = fyersModel.SessionModel(
-            client_id=app_id,
-            secret_key=secret_key,
-            redirect_uri=redirect_uri,
-            response_type="code",
-            grant_type="authorization_code"
-        )
-        
-        # Generate login URL
-        login_url = session.generate_authcode()
-        return login_url
-        
-    except Exception as e:
-        st.error(f"Error generating FYERS login URL: {e}")
-        return None
 
-
-broker_options = ["Zerodha", "FYERS"] 
-
-def fyers_generate_session(authorization_code):
-    """Generate FYERS session using authorization code for v3."""
-    try:
-        app_id = st.secrets.get("FYERS_APP_ID")
-        secret_key = st.secrets.get("FYERS_SECRET_KEY")
-        redirect_uri = st.secrets.get("FYERS_REDIRECT_URI")
-        
-        if not all([app_id, secret_key, redirect_uri]):
-            st.error("Missing FYERS credentials in secrets")
-            return False
-            
-        session = fyersModel.SessionModel(
-            client_id=app_id,
-            secret_key=secret_key,
-            redirect_uri=redirect_uri,
-            response_type="code",
-            grant_type="authorization_code"
-        )
-        
-        session.set_token(authorization_code)
-        response = session.generate_token()
-        
-        if response.get('s') == 'ok':
-            access_token = response['access_token']  # No prefix in v3
-            
-            st.session_state.fyers_access_token = access_token
-            st.session_state.fyers_model = fyersModel.FyersModel(
-                client_id=app_id,
-                token=access_token,
-                is_async=False,
-                log_path=""  # Disable logging or set path
-            )
-            st.success("FYERS authentication successful!")
-            return True
-        else:
-            st.error(f"FYERS authentication failed: {response.get('message', 'Unknown error')}")
-            return False
-            
-    except Exception as e:
-        st.error(f"FYERS session generation failed: {str(e)}")
-        return False
-
-def fyers_logout():
-    """Logs out the user from the FYERS API v3."""
-    try:
-        # Clear session state
-        st.session_state.fyers_model = None
-        st.session_state.fyers_access_token = None
-        st.toast("Successfully logged out from FYERS.")
-        
-    except Exception as e:
-        st.error(f"An error occurred during FYERS logout: {str(e)}")
 
             
 def main_app():
