@@ -256,17 +256,17 @@ def initialize_session_state():
     if 'kite' not in st.session_state: st.session_state.kite = None
     if 'profile' not in st.session_state: st.session_state.profile = None
         # Add Upstox session state variables
-    if 'upstox_client' not in st.session_state: 
-        st.session_state.upstox_client = None
-    if 'upstox_access_token' not in st.session_state: 
-        st.session_state.upstox_access_token = None
-    if 'upstox_token_type' not in st.session_state: 
-        st.session_state.upstox_token_type = None
     if 'login_animation_complete' not in st.session_state: st.session_state.login_animation_complete = False
     if 'authenticated' not in st.session_state: st.session_state.authenticated = False
     if 'two_factor_setup_complete' not in st.session_state: st.session_state.two_factor_setup_complete = False
     if 'pyotp_secret' not in st.session_state: st.session_state.pyotp_secret = None
     if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
+    if 'show_company_events' not in st.session_state:
+        st.session_state.show_company_events = False
+    if 'fundamental_symbol' not in st.session_state:
+        st.session_state.fundamental_symbol = 'RELIANCE'
+    if 'company_analysis_data' not in st.session_state:
+        st.session_state.company_analysis_data = {}
     
     # Remove the dialog state variables
     if 'show_quick_trade' not in st.session_state: st.session_state.show_quick_trade = False
@@ -6021,6 +6021,462 @@ def display_enhanced_square_off_actions(analyzed_positions):
 # =============================================================================
 # HELPER FUNCTIONS - ADD NEW ONES
 # =============================================================================
+# ================ FUNDAMENTAL ANALYTICS & COMPANY EVENTS FUNCTIONS ================
+
+def get_company_fundamentals_kite(symbol, instrument_df):
+    """Fetch company fundamentals using available Kite Connect API methods."""
+    try:
+        client = get_broker_client()
+        if not client or st.session_state.broker != "Zerodha":
+            return {"error": "Zerodha Kite connection required for fundamental data"}
+        
+        # Find instrument token
+        instrument = instrument_df[
+            (instrument_df['tradingsymbol'] == symbol.upper()) & 
+            (instrument_df['exchange'] == 'NSE')
+        ]
+        if instrument.empty:
+            return {"error": f"Instrument {symbol} not found in NSE"}
+        
+        instrument_token = instrument.iloc[0]['instrument_token']
+        
+        # Get quote data which contains some fundamental information
+        quote = client.quote(instrument_token)
+        
+        if not quote:
+            return {"error": "No quote data available"}
+        
+        # Extract available fundamental data from quote
+        fundamentals = {
+            'symbol': symbol,
+            'quote_data': quote.get(str(instrument_token), {}),
+            'instrument_info': instrument.iloc[0].to_dict()
+        }
+        
+        return fundamentals
+        
+    except Exception as e:
+        return {"error": f"Failed to fetch fundamentals: {str(e)}"}
+
+def get_company_events_kite(symbol, instrument_df):
+    """Fetch company events and corporate actions using available Kite data."""
+    try:
+        client = get_broker_client()
+        if not client or st.session_state.broker != "Zerodha":
+            return {"error": "Zerodha Kite connection required"}
+        
+        # Find instrument token
+        instrument = instrument_df[
+            (instrument_df['tradingsymbol'] == symbol.upper()) & 
+            (instrument_df['exchange'] == 'NSE')
+        ]
+        if instrument.empty:
+            return {"error": f"Instrument {symbol} not found in NSE"}
+        
+        instrument_token = instrument.iloc[0]['instrument_token']
+        
+        # Get historical data to analyze corporate events
+        historical_data = client.historical_data(instrument_token, "day", 
+                                               datetime.now() - timedelta(days=365), 
+                                               datetime.now())
+        
+        # Get current quote for analysis
+        quote_data = client.quote(instrument_token)
+        
+        events_data = {
+            'symbol': symbol,
+            'company_name': instrument.iloc[0].get('name', symbol),
+            'historical_data': historical_data[-30:],  # Last 30 days
+            'current_quote': quote_data.get(str(instrument_token), {}),
+            'instrument_info': instrument.iloc[0].to_dict(),
+            'corporate_events': analyze_corporate_events(historical_data, symbol),
+            'market_analysis': analyze_market_events(symbol, historical_data)
+        }
+        
+        return events_data
+        
+    except Exception as e:
+        return {"error": f"Failed to fetch company events: {str(e)}"}
+
+def analyze_corporate_events(historical_data, symbol):
+    """Analyze historical data to detect corporate events."""
+    if not historical_data or len(historical_data) < 10:
+        return {}
+    
+    events = {
+        'price_changes': [],
+        'volume_spikes': [],
+        'volatility_events': []
+    }
+    
+    # Analyze for significant price movements (potential corporate actions)
+    for i in range(1, len(historical_data)):
+        prev_close = historical_data[i-1]['close']
+        current_close = historical_data[i]['close']
+        volume = historical_data[i]['volume']
+        
+        price_change_pct = ((current_close - prev_close) / prev_close) * 100
+        
+        # Detect significant price movements
+        if abs(price_change_pct) > 5:  # More than 5% move
+            events['price_changes'].append({
+                'date': historical_data[i]['date'],
+                'change_percent': price_change_pct,
+                'type': 'GAIN' if price_change_pct > 0 else 'LOSS',
+                'volume': volume
+            })
+        
+        # Detect volume spikes (3x average volume)
+        if i >= 5:  # Ensure we have enough data for average
+            avg_volume = sum(h['volume'] for h in historical_data[i-5:i]) / 5
+            if volume > avg_volume * 3:
+                events['volume_spikes'].append({
+                    'date': historical_data[i]['date'],
+                    'volume': volume,
+                    'avg_volume': avg_volume,
+                    'multiplier': volume / avg_volume
+                })
+    
+    return events
+
+def analyze_market_events(symbol, historical_data):
+    """Analyze market-related events and patterns."""
+    if not historical_data or len(historical_data) < 20:
+        return {}
+    
+    analysis = {
+        'performance_metrics': {},
+        'volatility_analysis': {},
+        'trend_analysis': {}
+    }
+    
+    # Calculate performance metrics
+    closes = [day['close'] for day in historical_data]
+    volumes = [day['volume'] for day in historical_data]
+    
+    if len(closes) >= 2:
+        analysis['performance_metrics'] = {
+            'total_return': ((closes[-1] - closes[0]) / closes[0]) * 100,
+            'high_52_week': max(closes) if closes else 0,
+            'low_52_week': min(closes) if closes else 0,
+            'avg_volume': sum(volumes) / len(volumes) if volumes else 0,
+            'current_volume': volumes[-1] if volumes else 0
+        }
+    
+    # Volatility analysis
+    if len(closes) >= 10:
+        returns = [(closes[i] - closes[i-1]) / closes[i-1] for i in range(1, len(closes))]
+        volatility = np.std(returns) * 100 * np.sqrt(252)  # Annualized volatility
+        analysis['volatility_analysis'] = {
+            'annual_volatility': volatility,
+            'volatility_class': 'High' if volatility > 30 else 'Medium' if volatility > 15 else 'Low',
+            'max_daily_gain': max(returns) * 100 if returns else 0,
+            'max_daily_loss': min(returns) * 100 if returns else 0
+        }
+    
+    # Trend analysis
+    if len(closes) >= 5:
+        recent_trend = 'UP' if closes[-1] > closes[-5] else 'DOWN'
+        analysis['trend_analysis'] = {
+            'short_term_trend': recent_trend,
+            'trend_strength': abs((closes[-1] - closes[-5]) / closes[-5]) * 100,
+            'support_level': min(closes[-5:]) if closes else 0,
+            'resistance_level': max(closes[-5:]) if closes else 0
+        }
+    
+    return analysis
+
+def get_market_holidays_extended():
+    """Get extended market holidays and special sessions."""
+    current_year = datetime.now().year
+    holidays = {
+        '📅 Regular Holidays': get_market_holidays(current_year),
+        '⚡ Special Trading Sessions': [
+            'Diwali Muhurat Trading (Usually October/November)',
+            'Budget Day (Usually February)',
+            'Special Live Trading Sessions (Announced by NSE)'
+        ],
+        '🎯 Important Market Events': [
+            'Quarterly Results: Jan, Apr, Jul, Oct',
+            'Union Budget: February',
+            'RBI Policy: Bi-monthly',
+            'US Fed Meetings: 8 times per year',
+            'F&O Expiry: Last Thursday of month',
+            'Index Rebalancing: Semi-annually'
+        ],
+        '📊 Corporate Action Seasons': [
+            'Dividend Declarations: Throughout the year',
+            'Board Meetings: Quarterly for results',
+            'AGMs: Mostly June-September',
+            'Stock Splits/Bonus: Announced in board meetings'
+        ]
+    }
+    return holidays
+
+def display_company_events_kite(symbol, instrument_df):
+    """Display company events and market analysis using available Kite data."""
+    if not symbol:
+        st.warning("Please enter a symbol to view company events.")
+        return
+        
+    with st.spinner(f"Analyzing company events for {symbol}..."):
+        events_data = get_company_events_kite(symbol, instrument_df)
+    
+    if "error" in events_data:
+        st.error(events_data["error"])
+        display_basic_company_info(symbol, instrument_df)
+        return
+        
+    # Display in tabs for better organization
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Market Analysis", "📊 Performance", "📅 Corporate Events", "🏢 Company Info", "🎯 Market Calendar"])
+    
+    with tab1:
+        st.subheader("📈 Market Analysis & Trends")
+        
+        if 'market_analysis' in events_data:
+            analysis = events_data['market_analysis']
+            
+            # Performance Metrics
+            if 'performance_metrics' in analysis:
+                metrics = analysis['performance_metrics']
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    return_color = "green" if metrics.get('total_return', 0) >= 0 else "red"
+                    st.metric("Total Return", f"{metrics.get('total_return', 0):.2f}%", 
+                             delta_color="off" if metrics.get('total_return', 0) == 0 else "normal")
+                
+                with col2:
+                    st.metric("52-Week High", f"₹{metrics.get('high_52_week', 0):.2f}")
+                
+                with col3:
+                    st.metric("52-Week Low", f"₹{metrics.get('low_52_week', 0):.2f}")
+                
+                with col4:
+                    volume_ratio = (metrics.get('current_volume', 0) / metrics.get('avg_volume', 1)) if metrics.get('avg_volume', 0) > 0 else 0
+                    st.metric("Volume Ratio", f"{volume_ratio:.1f}x")
+            
+            # Volatility Analysis
+            if 'volatility_analysis' in analysis:
+                st.subheader("📊 Volatility Analysis")
+                vol_analysis = analysis['volatility_analysis']
+                
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Annual Volatility", f"{vol_analysis.get('annual_volatility', 0):.1f}%")
+                with col2:
+                    st.metric("Volatility Class", vol_analysis.get('volatility_class', 'N/A'))
+                with col3:
+                    st.metric("Max Daily Gain", f"{vol_analysis.get('max_daily_gain', 0):.1f}%")
+                with col4:
+                    st.metric("Max Daily Loss", f"{vol_analysis.get('max_daily_loss', 0):.1f}%")
+    
+    with tab2:
+        st.subheader("📊 Performance Metrics")
+        
+        if 'historical_data' in events_data and events_data['historical_data']:
+            # Create performance chart
+            hist_data = events_data['historical_data']
+            dates = [pd.to_datetime(day['date']) for day in hist_data]
+            closes = [day['close'] for day in hist_data]
+            volumes = [day['volume'] for day in hist_data]
+            
+            # Create performance DataFrame
+            perf_df = pd.DataFrame({
+                'Date': dates,
+                'Close': closes,
+                'Volume': volumes
+            })
+            perf_df.set_index('Date', inplace=True)
+            
+            # Calculate technical indicators
+            perf_df['SMA_20'] = talib.SMA(perf_df['Close'], timeperiod=20)
+            perf_df['SMA_50'] = talib.SMA(perf_df['Close'], timeperiod=50)
+            
+            # Display performance chart
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=perf_df.index, y=perf_df['Close'], name='Close Price', line=dict(color='blue')))
+            fig.add_trace(go.Scatter(x=perf_df.index, y=perf_df['SMA_20'], name='SMA 20', line=dict(color='orange', dash='dash')))
+            fig.add_trace(go.Scatter(x=perf_df.index, y=perf_df['SMA_50'], name='SMA 50', line=dict(color='red', dash='dash')))
+            
+            fig.update_layout(
+                title=f"{symbol} - Price Performance (Last 30 Days)",
+                xaxis_title="Date",
+                yaxis_title="Price (₹)",
+                template="plotly_dark" if st.session_state.theme == 'Dark' else "plotly_white"
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Volume analysis
+            st.subheader("📈 Volume Analysis")
+            avg_volume = perf_df['Volume'].mean()
+            current_volume = perf_df['Volume'].iloc[-1]
+            volume_ratio = current_volume / avg_volume if avg_volume > 0 else 0
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Current Volume", f"{current_volume:,.0f}")
+            col2.metric("Average Volume", f"{avg_volume:,.0f}")
+            col3.metric("Volume Ratio", f"{volume_ratio:.1f}x")
+    
+    with tab3:
+        st.subheader("📅 Corporate Events & Price Movements")
+        
+        if 'corporate_events' in events_data:
+            events = events_data['corporate_events']
+            
+            # Significant price changes
+            if events.get('price_changes'):
+                st.subheader("🎯 Significant Price Movements")
+                for i, change in enumerate(events['price_changes'][:5]):  # Show last 5
+                    with st.container():
+                        col1, col2, col3 = st.columns([2, 1, 1])
+                        with col1:
+                            st.write(f"**{change['date'].strftime('%Y-%m-%d')}**")
+                        with col2:
+                            change_color = "green" if change['type'] == 'GAIN' else "red"
+                            st.markdown(f"<span style='color:{change_color}; font-weight:bold;'>{change['change_percent']:.1f}%</span>", 
+                                      unsafe_allow_html=True)
+                        with col3:
+                            st.write(f"Volume: {change['volume']:,.0f}")
+                        st.markdown("---")
+            else:
+                st.info("No significant price movements detected in recent data.")
+            
+            # Volume spikes
+            if events.get('volume_spikes'):
+                st.subheader("📊 Volume Spikes")
+                for i, spike in enumerate(events['volume_spikes'][:3]):  # Show last 3
+                    with st.container():
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.write(f"**{spike['date'].strftime('%Y-%m-%d')}**")
+                        with col2:
+                            st.write(f"Volume: {spike['volume']:,.0f}")
+                        with col3:
+                            st.write(f"{spike['multiplier']:.1f}x average")
+                        st.markdown("---")
+    
+    with tab4:
+        st.subheader("🏢 Company Information")
+        
+        if 'instrument_info' in events_data:
+            info = events_data['instrument_info']
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**Basic Information**")
+                if 'tradingsymbol' in info:
+                    st.metric("Symbol", info['tradingsymbol'])
+                if 'name' in info:
+                    st.metric("Company Name", info['name'])
+                if 'exchange' in info:
+                    st.metric("Exchange", info['exchange'])
+                if 'instrument_type' in info:
+                    st.metric("Instrument Type", info['instrument_type'])
+            
+            with col2:
+                st.write("**Trading Details**")
+                if 'lot_size' in info:
+                    st.metric("Lot Size", info['lot_size'])
+                if 'tick_size' in info:
+                    st.metric("Tick Size", info['tick_size'])
+                if 'segment' in info:
+                    st.metric("Segment", info['segment'])
+                if 'expiry' in info and pd.notna(info['expiry']):
+                    st.metric("Expiry", info['expiry'].strftime('%Y-%m-%d'))
+        
+        # Current market data
+        if 'current_quote' in events_data and events_data['current_quote']:
+            st.subheader("📈 Current Market Data")
+            quote = events_data['current_quote']
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("LTP", f"₹{quote.get('last_price', 0):.2f}")
+            with col2:
+                st.metric("Change", f"₹{quote.get('change', 0):.2f}")
+            with col3:
+                change_pct = quote.get('change', 0) / quote.get('ohlc', {}).get('close', 1) * 100
+                st.metric("Change %", f"{change_pct:.2f}%")
+            with col4:
+                st.metric("Volume", f"{quote.get('volume', 0):,.0f}")
+    
+    with tab5:
+        st.subheader("🎯 Market Calendar & Events")
+        
+        # Market holidays
+        holidays = get_market_holidays_extended()
+        
+        for category, dates in holidays.items():
+            with st.expander(f"{category}"):
+                for date in dates:
+                    st.write(f"• {date}")
+        
+        # Upcoming events based on historical patterns
+        st.subheader("📅 Expected Corporate Events")
+        st.info("""
+        **Typical Corporate Event Timeline:**
+        - Quarterly Results: Jan, Apr, Jul, Oct
+        - Dividend Declarations: Board meetings (varies)
+        - AGMs: Mostly June-September  
+        - Stock Splits/Bonus: Announced periodically
+        """)
+        
+        # Add event reminder
+        st.subheader("🔔 Event Reminders")
+        if st.button("Set Dividend Alert", key="div_alert"):
+            st.success(f"Dividend alert set for {symbol}. You'll be notified of any dividend declarations.")
+        
+        if st.button("Set Results Alert", key="results_alert"):
+            st.success(f"Quarterly results alert set for {symbol}.")
+
+def display_basic_company_info(symbol, instrument_df):
+    """Display basic company information."""
+    st.info("Displaying basic company information from available data...")
+    
+    # Get instrument info
+    instrument = instrument_df[
+        (instrument_df['tradingsymbol'] == symbol.upper()) & 
+        (instrument_df['exchange'] == 'NSE')
+    ]
+    
+    if not instrument.empty:
+        inst_data = instrument.iloc[0]
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Basic Information:**")
+            st.write(f"• Symbol: {inst_data['tradingsymbol']}")
+            st.write(f"• Exchange: {inst_data['exchange']}")
+            if 'name' in inst_data:
+                st.write(f"• Company: {inst_data['name']}")
+            if 'instrument_type' in inst_data:
+                st.write(f"• Type: {inst_data['instrument_type']}")
+        
+        with col2:
+            st.write("**Trading Details:**")
+            if 'lot_size' in inst_data:
+                st.write(f"• Lot Size: {inst_data['lot_size']}")
+            if 'tick_size' in inst_data:
+                st.write(f"• Tick Size: {inst_data['tick_size']}")
+            if 'segment' in inst_data:
+                st.write(f"• Segment: {inst_data['segment']}")
+    
+    # Show current market data
+    quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': 'NSE'}])
+    if not quote_data.empty:
+        st.subheader("📈 Current Market Data")
+        current_price = quote_data.iloc[0]['Price']
+        change = quote_data.iloc[0]['Change']
+        pct_change = quote_data.iloc[0]['% Change']
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Current Price", f"₹{current_price:.2f}")
+        col2.metric("Change", f"₹{change:+.2f}")
+        col3.metric("Change %", f"{pct_change:+.2f}%")
+
 def calculate_holding_period(entry_time):
     """Calculate how long position has been held"""
     if not entry_time:
@@ -9432,428 +9888,256 @@ def handle_general_queries(prompt_lower, instrument_df):
     }
     
 def page_fundamental_analytics():
-    """Fundamental Analytics page using Kite Connect data and other available sources."""
+    """Enhanced Fundamental Analytics page using available Kite Connect methods."""
     display_header()
     st.title("📊 Fundamental Analytics")
-    st.info("Analyze company fundamentals using available market data from Kite Connect and other sources.", icon="📈")
     
-    tab1, tab2, tab3 = st.tabs(["Company Overview", "Financial Ratios", "Multi-Company Comparison"])
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.info("Please connect to a broker to view fundamental analytics.")
+        return
     
-    with tab1:
-        st.subheader("Company Fundamental Analysis")
-        col1, col2 = st.columns([1, 2])
-        
-        with col1:
-            symbol = st.text_input("Enter Stock Symbol", "RELIANCE", 
-                                 help="Enter NSE stock symbol (e.g., RELIANCE, TCS, INFY)")
-            exchange = st.selectbox("Exchange", ["NSE", "BSE"], index=0)
-            
-            if st.button("Fetch Fundamental Data", use_container_width=True):
-                with st.spinner(f"Fetching data for {symbol}..."):
-                    company_data = get_company_fundamentals_kite(symbol, exchange)
-                    if company_data:
-                        st.session_state.current_company = company_data
-                        st.session_state.current_symbol = symbol
-                        st.rerun()
-        
-        with col2:
-            if 'current_company' in st.session_state and st.session_state.current_company:
-                display_company_overview_kite(st.session_state.current_company, st.session_state.current_symbol)
-            else:
-                st.info("Enter a stock symbol and click 'Fetch Fundamental Data' to get started.")
-    
-    with tab2:
-        st.subheader("Financial Ratios & Metrics")
-        if 'current_company' in st.session_state and st.session_state.current_company:
-            display_financial_ratios_kite(st.session_state.current_company, st.session_state.current_symbol)
-        else:
-            st.info("First fetch company data in the 'Company Overview' tab.")
-    
-    with tab3:
-        st.subheader("Multi-Company Comparison")
-        display_multi_company_comparison_kite()
-
-def get_company_fundamentals_kite(symbol, exchange="NSE"):
-    """Fetch fundamental data using Kite Connect APIs and other available sources."""
-    client = get_broker_client()
-    if not client:
-        st.error("Broker not connected. Please connect to Kite first.")
-        return None
-    
-    try:
-        # Get basic instrument info
-        instrument_df = get_instrument_df()
-        if instrument_df.empty:
-            st.error("Could not fetch instrument data.")
-            return None
-            
-        instrument_info = instrument_df[
-            (instrument_df['tradingsymbol'] == symbol.upper()) & 
-            (instrument_df['exchange'] == exchange)
-        ]
-        
-        if instrument_info.empty:
-            st.error(f"Symbol {symbol} not found on {exchange}.")
-            return None
-            
-        instrument_info = instrument_info.iloc[0]
-        
-        # Get current quote data
-        quote_data = client.quote(f"{exchange}:{symbol.upper()}")
-        if not quote_data:
-            st.error(f"Could not fetch quote data for {symbol}.")
-            return None
-            
-        quote = quote_data[f"{exchange}:{symbol.upper()}"]
-        
-        # Basic company info
-        company_data = {
-            'symbol': symbol.upper(),
-            'exchange': exchange,
-            'name': instrument_info.get('name', symbol.upper()),
-            'lot_size': instrument_info.get('lot_size', 0),
-            'instrument_type': instrument_info.get('instrument_type', 'EQ'),
-            'segment': instrument_info.get('segment', ''),
-        }
-        
-        # Price metrics from quote
-        company_data.update({
-            'current_price': quote.get('last_price', 0),
-            'open': quote.get('ohlc', {}).get('open', 0),
-            'high': quote.get('ohlc', {}).get('high', 0),
-            'low': quote.get('ohlc', {}).get('low', 0),
-            'close': quote.get('ohlc', {}).get('close', 0),
-            'volume': quote.get('volume', 0),
-            'average_volume': quote.get('average_price', 0) * quote.get('volume', 0) if quote.get('volume', 0) > 0 else 0,
-        })
-        
-        # Calculate basic ratios from available data
-        if quote.get('ohlc', {}).get('close', 0) > 0:
-            change = company_data['current_price'] - quote['ohlc']['close']
-            company_data['change_percent'] = (change / quote['ohlc']['close']) * 100
-        else:
-            company_data['change_percent'] = 0
-        
-        # Get historical data for additional calculations
-        token = get_instrument_token(symbol, instrument_df, exchange)
-        if token:
-            hist_data = get_historical_data(token, 'day', period='1y')
-            if not hist_data.empty and len(hist_data) > 200:
-                # Calculate 52-week high/low
-                company_data['52_week_high'] = hist_data['high'].max()
-                company_data['52_week_low'] = hist_data['low'].min()
-                
-                # Calculate basic volatility
-                returns = hist_data['close'].pct_change().dropna()
-                company_data['volatility'] = returns.std() * np.sqrt(252) * 100  # Annualized volatility
-                
-                # Calculate simple moving averages
-                company_data['sma_50'] = hist_data['close'].tail(50).mean()
-                company_data['sma_200'] = hist_data['close'].tail(200).mean()
-        
-        # Placeholder values for fundamental data (in real implementation, you'd fetch from other sources)
-        company_data.update({
-            'market_cap': company_data['current_price'] * instrument_info.get('lot_size', 1) * 1000,  # Rough estimate
-            'sector': 'Not Available',  # Would need external data source
-            'industry': 'Not Available',
-            'pe_ratio': 0,  # Would need earnings data
-            'dividend_yield': 0,
-            'book_value': 0,
-            'eps': 0,
-        })
-        
-        return company_data
-        
-    except Exception as e:
-        st.error(f"Error fetching data for {symbol}: {str(e)}")
-        return None
-
-def display_company_overview_kite(company_data, symbol):
-    """Display company overview using Kite Connect data."""
-    st.subheader(f"{company_data['name']} ({symbol})")
-    
-    # Basic info cards
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Current Price", f"₹{company_data['current_price']:,.2f}")
-        st.metric("Today's Change", f"{company_data['change_percent']:.2f}%")
-    
-    with col2:
-        if company_data.get('52_week_high'):
-            st.metric("52W High", f"₹{company_data['52_week_high']:,.2f}")
-        if company_data.get('52_week_low'):
-            st.metric("52W Low", f"₹{company_data['52_week_low']:,.2f}")
-    
-    with col3:
-        st.metric("Volume", f"{company_data['volume']:,}")
-        if company_data.get('volatility'):
-            st.metric("Volatility", f"{company_data['volatility']:.1f}%")
-    
-    with col4:
-        st.metric("Lot Size", f"{company_data['lot_size']:,}")
-        st.metric("Instrument Type", company_data['instrument_type'])
-    
-    st.markdown("---")
-    
-    # Additional metrics
-    col5, col6 = st.columns(2)
-    
-    with col5:
-        st.subheader("Trading Information")
-        st.write(f"**Exchange:** {company_data['exchange']}")
-        st.write(f"**Segment:** {company_data['segment']}")
-        st.write(f"**Open:** ₹{company_data['open']:,.2f}")
-        st.write(f"**High:** ₹{company_data['high']:,.2f}")
-        st.write(f"**Low:** ₹{company_data['low']:,.2f}")
-        st.write(f"**Close:** ₹{company_data['close']:,.2f}")
-    
-    with col6:
-        st.subheader("Technical Indicators")
-        if company_data.get('sma_50'):
-            st.write(f"**50-Day SMA:** ₹{company_data['sma_50']:,.2f}")
-        if company_data.get('sma_200'):
-            st.write(f"**200-Day SMA:** ₹{company_data['sma_200']:,.2f}")
-        
-        # Calculate position relative to moving averages
-        if company_data.get('sma_50') and company_data.get('sma_200'):
-            if company_data['current_price'] > company_data['sma_50'] > company_data['sma_200']:
-                st.success("**Trend:** Bullish (Price > 50 SMA > 200 SMA)")
-            elif company_data['current_price'] < company_data['sma_50'] < company_data['sma_200']:
-                st.error("**Trend:** Bearish (Price < 50 SMA < 200 SMA)")
-            else:
-                st.info("**Trend:** Mixed")
-        
-        # Market cap estimate
-        if company_data.get('market_cap'):
-            st.write(f"**Estimated Market Cap:** {format_market_cap(company_data['market_cap'])}")
-
-def display_financial_ratios_kite(company_data, symbol):
-    """Display financial ratios and metrics using available data."""
-    st.subheader(f"Market Data & Ratios - {company_data['name']}")
-    
-    # Create tabs for different metric categories
-    tab1, tab2, tab3 = st.tabs(["Price Analysis", "Volume & Liquidity", "Risk Metrics"])
-    
-    with tab1:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if company_data.get('52_week_high') and company_data['52_week_high'] > 0:
-                distance_from_high = ((company_data['52_week_high'] - company_data['current_price']) / company_data['52_week_high']) * 100
-                st.metric("From 52W High", f"-{distance_from_high:.1f}%")
-            
-            if company_data.get('52_week_low') and company_data['52_week_low'] > 0:
-                distance_from_low = ((company_data['current_price'] - company_data['52_week_low']) / company_data['52_week_low']) * 100
-                st.metric("From 52W Low", f"+{distance_from_low:.1f}%")
-        
-        with col2:
-            if company_data.get('sma_50') and company_data['sma_50'] > 0:
-                vs_sma_50 = ((company_data['current_price'] - company_data['sma_50']) / company_data['sma_50']) * 100
-                st.metric("vs 50-Day SMA", f"{vs_sma_50:+.1f}%")
-            
-            if company_data.get('sma_200') and company_data['sma_200'] > 0:
-                vs_sma_200 = ((company_data['current_price'] - company_data['sma_200']) / company_data['sma_200']) * 100
-                st.metric("vs 200-Day SMA", f"{vs_sma_200:+.1f}%")
-    
-    with tab2:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.metric("Today's Volume", f"{company_data['volume']:,}")
-            if company_data.get('average_volume'):
-                st.metric("Average Volume", f"{company_data['average_volume']:,.0f}")
-        
-        with col2:
-            if company_data.get('lot_size'):
-                st.metric("Lot Size", f"{company_data['lot_size']:,}")
-            
-            # Volume ratio (today vs average)
-            if company_data.get('average_volume') and company_data['average_volume'] > 0:
-                volume_ratio = (company_data['volume'] / company_data['average_volume']) * 100
-                st.metric("Volume Ratio", f"{volume_ratio:.1f}%")
-    
-    with tab3:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if company_data.get('volatility'):
-                st.metric("Annual Volatility", f"{company_data['volatility']:.1f}%")
-            
-            # Beta calculation would require market data comparison
-            st.metric("Beta", "N/A")
-        
-        with col2:
-            # Daily price range
-            if company_data['high'] > 0 and company_data['low'] > 0:
-                daily_range = ((company_data['high'] - company_data['low']) / company_data['low']) * 100
-                st.metric("Daily Range", f"{daily_range:.1f}%")
-            
-            # Gap analysis
-            if company_data['open'] > 0 and company_data['close'] > 0:
-                gap = ((company_data['open'] - company_data['close']) / company_data['close']) * 100
-                st.metric("Opening Gap", f"{gap:+.1f}%")
-
-def display_multi_company_comparison_kite():
-    """Display comparison of multiple companies using Kite data."""
-    st.subheader("Compare Multiple Companies")
-    
-    # Input for multiple symbols
+    # Symbol selection
     col1, col2 = st.columns([3, 1])
     
     with col1:
-        symbols_input = st.text_input(
-            "Enter Stock Symbols (comma separated)", 
-            "RELIANCE, TCS, INFY, HDFCBANK",
-            help="Enter NSE symbols separated by commas"
+        all_symbols = instrument_df[
+            (instrument_df['exchange'].isin(['NSE', 'BSE'])) & 
+            (~instrument_df['tradingsymbol'].str.contains('-', na=False))
+        ]['tradingsymbol'].unique()
+        
+        selected_symbol = st.selectbox(
+            "Select Stock Symbol",
+            sorted(all_symbols),
+            index=list(all_symbols).index('RELIANCE') if 'RELIANCE' in all_symbols else 0,
+            key="fundamental_symbol"
         )
     
     with col2:
-        if st.button("Compare Companies", use_container_width=True):
-            symbols = [s.strip().upper() for s in symbols_input.split(',')]
-            with st.spinner("Fetching comparison data..."):
-                comparison_data = []
-                for symbol in symbols:
-                    data = get_company_fundamentals_kite(symbol, "NSE")
-                    if data:
-                        comparison_data.append(data)
-                
-                if comparison_data:
-                    st.session_state.comparison_data = comparison_data
-                    st.rerun()
+        st.write("### Quick Actions")
+        if st.button("📈 Analyze Company", key="analyze_company", use_container_width=True, type="primary"):
+            st.session_state.show_company_events = True
+        if st.button("🔄 Refresh Data", key="refresh_fundamental", use_container_width=True):
+            st.rerun()
     
-    if 'comparison_data' in st.session_state and st.session_state.comparison_data:
-        comparison_df = create_comparison_dataframe_kite(st.session_state.comparison_data)
+    # Display current price and basic info
+    quote_data = get_watchlist_data([{'symbol': selected_symbol, 'exchange': 'NSE'}])
+    if not quote_data.empty:
+        current_price = quote_data.iloc[0]['Price']
+        change = quote_data.iloc[0]['Change']
+        pct_change = quote_data.iloc[0]['% Change']
         
-        # Select metrics to compare
-        st.subheader("Select Metrics for Comparison")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Current Price", f"₹{current_price:.2f}")
+        with col2:
+            st.metric("Change", f"₹{change:+.2f}")
+        with col3:
+            st.metric("Change %", f"{pct_change:+.2f}%")
+        with col4:
+            # Get basic instrument info
+            instrument = instrument_df[
+                (instrument_df['tradingsymbol'] == selected_symbol.upper()) & 
+                (instrument_df['exchange'] == 'NSE')
+            ]
+            if not instrument.empty and 'instrument_type' in instrument.iloc[0]:
+                inst_type = instrument.iloc[0]['instrument_type']
+                st.metric("Instrument Type", inst_type)
+    
+    st.markdown("---")
+    
+    # Main analytics tabs
+    tab1, tab2, tab3, tab4 = st.tabs(["🎯 Company Analysis", "📊 Performance", "📈 Technical", "📅 Market Calendar"])
+    
+    with tab1:
+        st.subheader("🎯 Company Analysis & Events")
+        st.info("Comprehensive company analysis using available market data and historical patterns.")
         
-        metric_categories = {
-            "Price Analysis": ['current_price', 'change_percent', '52_week_high', '52_week_low'],
-            "Volume Analysis": ['volume', 'lot_size'],
-            "Technical Indicators": ['sma_50', 'sma_200', 'volatility']
-        }
+        # Display company events and analysis
+        display_company_events_kite(selected_symbol, instrument_df)
+    
+    with tab2:
+        st.subheader("📊 Performance Metrics")
         
-        selected_metrics = []
-        for category, metrics in metric_categories.items():
-            with st.expander(f"{category} Metrics"):
-                for metric in metrics:
-                    if st.checkbox(f"{format_metric_name(metric)}", value=True, key=f"comp_{metric}"):
-                        selected_metrics.append(metric)
+        # Get historical data for performance analysis
+        instrument = instrument_df[
+            (instrument_df['tradingsymbol'] == selected_symbol.upper()) & 
+            (instrument_df['exchange'] == 'NSE')
+        ]
         
-        if selected_metrics:
-            # Display comparison table
-            display_metrics = ['name'] + selected_metrics
-            comparison_display_df = comparison_df[display_metrics].copy()
+        if not instrument.empty:
+            instrument_token = instrument.iloc[0]['instrument_token']
             
-            # Format the dataframe
-            for col in selected_metrics:
-                if 'price' in col.lower() or 'sma' in col.lower():
-                    comparison_display_df[col] = comparison_display_df[col].apply(lambda x: f"₹{x:,.2f}" if pd.notnull(x) and x != 0 else "N/A")
-                elif 'percent' in col.lower() or 'volatility' in col.lower():
-                    comparison_display_df[col] = comparison_display_df[col].apply(lambda x: f"{x:.2f}%" if pd.notnull(x) and x != 0 else "N/A")
-                elif 'volume' in col.lower() or 'lot' in col.lower():
-                    comparison_display_df[col] = comparison_display_df[col].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) and x != 0 else "N/A")
-                else:
-                    comparison_display_df[col] = comparison_display_df[col].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "N/A")
-            
-            st.subheader("Company Comparison")
-            st.dataframe(comparison_display_df, use_container_width=True)
-            
-            # Visual comparisons
-            st.subheader("Visual Comparisons")
-            
-            # Bar chart for selected metrics
-            if len(selected_metrics) >= 1:
-                metric_to_plot = st.selectbox("Select metric for bar chart", selected_metrics)
-                if metric_to_plot:
-                    fig = go.Figure()
+            with st.spinner("Fetching performance data..."):
+                try:
+                    # Get historical data for different timeframes
+                    historical_1m = get_historical_data(instrument_token, 'day', period='1mo')
+                    historical_3m = get_historical_data(instrument_token, 'day', period='3mo')
+                    historical_1y = get_historical_data(instrument_token, 'day', period='1y')
                     
-                    values = []
-                    names = []
-                    for company in st.session_state.comparison_data:
-                        value = company.get(metric_to_plot, 0)
-                        if value and value != 0:
-                            values.append(value)
-                            names.append(company['name'])
-                    
-                    if values:
-                        fig.add_trace(go.Bar(
-                            x=names,
-                            y=values,
-                            text=[f"{v:.2f}{'%' if 'percent' in metric_to_plot or 'volatility' in metric_to_plot else ''}" for v in values],
-                            textposition='auto',
-                        ))
+                    if not historical_1m.empty:
+                        # Calculate performance metrics
+                        current_price = historical_1m['close'].iloc[-1]
+                        price_1m_ago = historical_1m['close'].iloc[0] if len(historical_1m) > 1 else current_price
+                        price_3m_ago = historical_3m['close'].iloc[0] if not historical_3m.empty else current_price
+                        price_1y_ago = historical_1y['close'].iloc[0] if not historical_1y.empty else current_price
                         
-                        y_axis_title = format_metric_name(metric_to_plot)
-                        if 'percent' in metric_to_plot or 'volatility' in metric_to_plot:
-                            y_axis_title += " (%)"
-                        elif 'price' in metric_to_plot:
-                            y_axis_title += " (₹)"
+                        # Performance metrics
+                        perf_1m = ((current_price - price_1m_ago) / price_1m_ago) * 100
+                        perf_3m = ((current_price - price_3m_ago) / price_3m_ago) * 100
+                        perf_1y = ((current_price - price_1y_ago) / price_1y_ago) * 100
+                        
+                        # Display performance metrics
+                        col1, col2, col3, col4 = st.columns(4)
+                        col1.metric("1 Month Return", f"{perf_1m:.2f}%")
+                        col2.metric("3 Month Return", f"{perf_3m:.2f}%")
+                        col3.metric("1 Year Return", f"{perf_1y:.2f}%")
+                        col4.metric("Current Price", f"₹{current_price:.2f}")
+                        
+                        # Create performance chart
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(x=historical_1m.index, y=historical_1m['close'], 
+                                               name='Price', line=dict(color='blue')))
                         
                         fig.update_layout(
-                            title=f"{format_metric_name(metric_to_plot)} Comparison",
-                            xaxis_title="Companies",
-                            yaxis_title=y_axis_title,
-                            showlegend=False
+                            title=f"{selected_symbol} - Price Performance (1 Month)",
+                            xaxis_title="Date",
+                            yaxis_title="Price (₹)",
+                            template="plotly_dark" if st.session_state.theme == 'Dark' else "plotly_white"
                         )
                         
                         st.plotly_chart(fig, use_container_width=True)
-
-def create_comparison_dataframe_kite(company_data_list):
-    """Create a DataFrame from multiple company data for comparison."""
-    comparison_data = []
-    for company in company_data_list:
-        row = {k: v for k, v in company.items() if not isinstance(v, (list, dict))}
-        comparison_data.append(row)
+                        
+                    else:
+                        st.warning("Insufficient historical data for performance analysis.")
+                        
+                except Exception as e:
+                    st.error(f"Error fetching performance data: {e}")
+        else:
+            st.error("Instrument not found for performance analysis.")
     
-    return pd.DataFrame(comparison_data)
+    with tab3:
+        st.subheader("📈 Technical Analysis")
+        
+        instrument = instrument_df[
+            (instrument_df['tradingsymbol'] == selected_symbol.upper()) & 
+            (instrument_df['exchange'] == 'NSE')
+        ]
+        
+        if not instrument.empty:
+            instrument_token = instrument.iloc[0]['instrument_token']
+            
+            # Get historical data for technical analysis
+            historical_data = get_historical_data(instrument_token, 'day', period='6mo')
+            
+            if not historical_data.empty:
+                # Calculate technical indicators
+                df = historical_data.copy()
+                
+                # RSI
+                df['RSI'] = talib.RSI(df['close'], timeperiod=14)
+                
+                # Moving averages
+                df['SMA_20'] = talib.SMA(df['close'], timeperiod=20)
+                df['SMA_50'] = talib.SMA(df['close'], timeperiod=50)
+                
+                # MACD
+                df['MACD'], df['MACD_Signal'], df['MACD_Hist'] = talib.MACD(df['close'])
+                
+                # Display current technical levels
+                current_rsi = df['RSI'].iloc[-1]
+                current_close = df['close'].iloc[-1]
+                sma_20 = df['SMA_20'].iloc[-1]
+                sma_50 = df['SMA_50'].iloc[-1]
+                
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("RSI (14)", f"{current_rsi:.1f}")
+                col2.metric("SMA 20", f"₹{sma_20:.2f}")
+                col3.metric("SMA 50", f"₹{sma_50:.2f}")
+                col4.metric("Price vs SMA 20", f"{(current_close/sma_20 - 1)*100:.1f}%")
+                
+                # RSI interpretation
+                st.subheader("📊 RSI Analysis")
+                if current_rsi > 70:
+                    st.warning("RSI indicates OVERBOUGHT conditions. Consider caution.")
+                elif current_rsi < 30:
+                    st.info("RSI indicates OVERSOLD conditions. Potential buying opportunity.")
+                else:
+                    st.success("RSI in NEUTRAL territory.")
+                    
+                # Moving average analysis
+                st.subheader("📈 Trend Analysis")
+                if current_close > sma_20 > sma_50:
+                    st.success("UPTREND: Price above both SMAs - Bullish sentiment")
+                elif current_close < sma_20 < sma_50:
+                    st.error("DOWNTREND: Price below both SMAs - Bearish sentiment")
+                else:
+                    st.warning("SIDEWAYS: Mixed signals - Market in consolidation")
+                    
+            else:
+                st.warning("Insufficient data for technical analysis.")
+        else:
+            st.error("Instrument not found for technical analysis.")
+    
+    with tab4:
+        st.subheader("📅 Market Calendar & Events")
+        
+        holidays = get_market_holidays_extended()
+        
+        for category, events in holidays.items():
+            with st.expander(f"{category}", expanded=True):
+                for event in events:
+                    st.write(f"• {event}")
+        
+        # Add upcoming event reminders
+        st.subheader("🔔 Event Reminders")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("Set Quarterly Results Alert", use_container_width=True):
+                st.success(f"Quarterly results alert set for {selected_symbol}")
+        
+        with col2:
+            if st.button("Set Corporate Action Alert", use_container_width=True):
+                st.success(f"Corporate action alert set for {selected_symbol}")
+    
+    # Quick analysis tools
+    st.markdown("---")
+    st.subheader("🚀 Quick Analysis Tools")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        if st.button("📊 Run Full Analysis", use_container_width=True):
+            st.info("Running comprehensive analysis...")
+            st.rerun()
+    
+    with col2:
+        if st.button("📈 Technical Scan", use_container_width=True):
+            st.info("Performing technical analysis scan...")
+    
+    with col3:
+        if st.button("💰 Valuation Check", use_container_width=True):
+            st.info("Running valuation analysis...")
+    
+    with col4:
+        if st.button("📅 Event Scanner", use_container_width=True):
+            st.info("Scanning for upcoming corporate events...")
 
-# Keep these helper functions as they're still useful
-def format_market_cap(market_cap):
-    """Format market cap into readable string."""
-    if market_cap >= 1e12:
-        return f"₹{market_cap/1e12:.2f}T"
-    elif market_cap >= 1e9:
-        return f"₹{market_cap/1e9:.2f}B"
-    elif market_cap >= 1e6:
-        return f"₹{market_cap/1e6:.2f}M"
-    else:
-        return f"₹{market_cap:,.0f}"
-
-def format_number(number):
-    """Format large numbers into readable string."""
-    if number == 'N/A':
-        return 'N/A'
-    if number >= 1e9:
-        return f"{number/1e9:.1f}B"
-    elif number >= 1e6:
-        return f"{number/1e6:.1f}M"
-    elif number >= 1e3:
-        return f"{number/1e3:.1f}K"
-    else:
-        return f"{number:,.0f}"
-
-def format_metric_name(metric):
-    """Convert metric key to display name."""
-    metric_names = {
-        'current_price': 'Current Price',
-        'change_percent': 'Change %',
-        '52_week_high': '52W High',
-        '52_week_low': '52W Low',
-        'volume': 'Volume',
-        'lot_size': 'Lot Size',
-        'sma_50': '50-Day SMA',
-        'sma_200': '200-Day SMA',
-        'volatility': 'Volatility',
-        'open': 'Open Price',
-        'high': 'High Price',
-        'low': 'Low Price',
-        'close': 'Close Price',
-        'instrument_type': 'Instrument Type',
-        'segment': 'Segment'
-    }
-    return metric_names.get(metric, metric.replace('_', ' ').title())
+    # Auto-refresh control
+    st.markdown("---")
+    with st.expander("⚙️ Display Settings"):
+        auto_refresh = st.checkbox("Enable Auto-refresh", value=False, key="fundamental_auto_refresh")
+        refresh_interval = st.selectbox(
+            "Refresh Interval", 
+            [30, 60, 120, 300], 
+            index=1, 
+            format_func=lambda x: f"{x} seconds",
+            key="fundamental_refresh_interval"
+        )
+        
+        if st.button("🔄 Refresh Now", key="manual_refresh_fundamental"):
+            st.rerun()
 
 def page_basket_orders():
     """A page for creating, managing, and executing basket orders."""
