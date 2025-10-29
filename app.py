@@ -6,7 +6,9 @@ import talib # Replace pandas_ta with talib
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from kiteconnect import KiteConnect, exceptions as kite_exceptions
-from fyers_apiv3 import fyersModel  # Updated to v3
+from fyers_apiv3 import fyersModel
+from fyers_apiv3.FyersWebsocket import data_ws
+from fyers_apiv3 import accessToken
 import streamlit_autorefresh
 from datetime import datetime, timedelta, time
 import pytz
@@ -1502,15 +1504,17 @@ def execute_basket_order(basket_items, instrument_df):
         st.error("Broker not connected.")
         return
     
-    orders_to_place = []
+    broker = st.session_state.broker
     
-    if st.session_state.broker == "Zerodha":
+    if broker == "Zerodha":
+        orders_to_place = []
         for item in basket_items:
             instrument = instrument_df[instrument_df['tradingsymbol'] == item['symbol']]
             if instrument.empty:
                 st.toast(f"❌ Could not find symbol {item['symbol']} in instrument list. Skipping.", icon="🔥")
                 continue
             exchange = instrument.iloc[0]['exchange']
+
             order = {
                 "tradingsymbol": item['symbol'],
                 "exchange": exchange,
@@ -1526,85 +1530,151 @@ def execute_basket_order(basket_items, instrument_df):
         if not orders_to_place:
             st.warning("No valid orders to place in the basket.")
             return
-        
+
         try:
-            # For Zerodha, place orders individually or use basket if supported; assuming individual for simplicity
-            placed_orders = []
-            for order in orders_to_place:
-                order_id = client.place_order(
-                    variety=client.VARIETY_REGULAR,
-                    tradingsymbol=order['tradingsymbol'],
-                    symbol=order['tradingsymbol'],
-                    exchange=order['exchange'],
-                    transaction_type=order['transaction_type'],
-                    quantity=order['quantity'],
-                    product=order['product'],
-                    order_type=order['order_type'],
-                    price=order.get('price', 0)
-                )
-                placed_orders.append(order_id)
-            st.toast("✅ Zerodha basket orders placed successfully!", icon="🎉")
+            client.place_order(variety=client.VARIETY_REGULAR, orders=orders_to_place)
+            st.toast("✅ Basket order placed successfully!", icon="🎉")
             st.session_state.basket = []
             st.rerun()
         except Exception as e:
-            st.toast(f"❌ Zerodha basket order failed: {e}", icon="🔥")
+            st.toast(f"❌ Basket order failed: {e}", icon="🔥")
     
-    elif st.session_state.broker == "FYERS":
-        if st.session_state.fyers_model is None:
-            # Show FYERS login
-            login_url = get_fyers_login_url()
-            if login_url:
-                st.markdown(f"[Click here to login with FYERS]({login_url})")
-            
-            auth_code = st.text_input("Enter authorization code", key="fyers_auth_code")
-            if st.button("Authenticate FYERS"):
-                if auth_code:
-                    if fyers_generate_session(auth_code):
-                        st.rerun()
-                else:
-                    st.error("Please enter authorization code")
-            return  # Exit early if not authenticated
+    elif broker == "FYERS":
+        # FYERS implementation - place orders sequentially since FYERS doesn't support basket orders
+        successful_orders = 0
+        failed_orders = 0
         
-        st.success("✅ FYERS Connected")
-        if st.button("Logout from FYERS"):
-            fyers_logout()
-            st.rerun()
-            return
-        
-        # Build orders for FYERS
         for item in basket_items:
-            instrument = instrument_df[instrument_df['tradingsymbol'] == item['symbol']]
-            if instrument.empty:
-                st.toast(f"❌ Could not find symbol {item['symbol']} in instrument list. Skipping.", icon="🔥")
-                continue
-            
-            # FYERS order format (adjust based on actual API; assuming similar structure)
-            order = {
-                "symbol": item['symbol'],  # FYERS uses symbol
-                "qty": int(item['quantity']),
-                "type": 2 if item['order_type'] == 'MARKET' else 1,  # 2=MARKET, 1=LIMIT (check docs)
-                "side": 1 if item['transaction_type'] == 'BUY' else -1,  # 1=BUY, -1=SELL
-                "productType": "INTRADAY" if item['product'] == 'MIS' else "CNC",  # Adjust as per FYERS
-                "limitPrice": item.get('price', 0) if item['order_type'] == 'LIMIT' else 0,
-                "validity": "DAY",  # Assuming DAY
-                "disclosedQty": 0,
-                "offlineOrder": False,
-                "stopPrice": 0,
-                "varietyCode": "NORMAL"  # Regular variety
-            }
-            orders_to_place.append(order)
+            try:
+                # Find instrument
+                instrument = instrument_df[instrument_df['tradingsymbol'] == item['symbol']]
+                if instrument.empty:
+                    st.toast(f"❌ Could not find symbol {item['symbol']} in instrument list. Skipping.", icon="🔥")
+                    failed_orders += 1
+                    continue
+                    
+                exchange = instrument.iloc[0]['exchange']
+                fyers_symbol = f"{exchange}:{item['symbol']}"
+                
+                # Map order parameters to FYERS format
+                order_type_map = {
+                    'MARKET': 1,  # MARKET ORDER
+                    'LIMIT': 2    # LIMIT ORDER
+                }
+                
+                product_type_map = {
+                    'MIS': 'INTRADAY',
+                    'CNC': 'CNC'
+                }
+                
+                side_map = {
+                    'BUY': 1,
+                    'SELL': -1
+                }
+                
+                # Prepare order data
+                order_data = {
+                    "symbol": fyers_symbol,
+                    "qty": int(item['quantity']),
+                    "type": order_type_map.get(item['order_type'], 2),
+                    "side": side_map.get(item['transaction_type'], 1),
+                    "productType": product_type_map.get(item['product'], 'INTRADAY'),
+                    "limitPrice": item.get('price', 0) if item['order_type'] == 'LIMIT' else 0,
+                    "stopPrice": 0,
+                    "disclosedQty": 0,
+                    "validity": 'DAY',
+                    "offlineOrder": False,
+                    "stopLoss": 0,
+                    "takeProfit": 0
+                }
+                
+                # Remove zero values for market orders
+                if item['order_type'] == 'MARKET':
+                    order_data.pop('limitPrice', None)
+                
+                # Place individual order
+                response = client.place_order(order_data)
+                
+                if response and response.get('s') == 'ok':
+                    successful_orders += 1
+                    st.toast(f"✅ {item['symbol']} order placed successfully! ID: {response.get('id')}", icon="🎉")
+                else:
+                    failed_orders += 1
+                    st.toast(f"❌ {item['symbol']} order failed: {response.get('message', 'Unknown error')}", icon="🔥")
+                    
+            except Exception as e:
+                failed_orders += 1
+                st.toast(f"❌ {item['symbol']} order failed: {e}", icon="🔥")
         
-        if not orders_to_place:
-            st.warning("No valid orders to place in the basket.")
-            return
-        
-        try:
-            response = client.place_order(variety=client.VARIETY_REGULAR, orders=orders_to_place)
-            st.toast("✅ FYERS basket order placed successfully!", icon="🎉")
+        # Summary
+        if successful_orders > 0:
+            st.success(f"✅ Basket order completed! {successful_orders} successful, {failed_orders} failed")
             st.session_state.basket = []
             st.rerun()
-        except Exception as e:
-            st.toast(f"❌ FYERS basket order failed: {e}", icon="🔥")
+        else:
+            st.error(f"❌ All orders failed! {failed_orders} orders failed")
+    
+    elif broker == "Upstox":
+        # Upstox implementation - place orders sequentially
+        successful_orders = 0
+        failed_orders = 0
+        
+        for item in basket_items:
+            try:
+                # Find instrument token
+                instrument = instrument_df[instrument_df['tradingsymbol'] == item['symbol']]
+                if instrument.empty:
+                    st.toast(f"❌ Could not find symbol {item['symbol']} in instrument list. Skipping.", icon="🔥")
+                    failed_orders += 1
+                    continue
+                    
+                instrument_token = instrument.iloc[0]['instrument_token']
+                
+                # Map product types
+                product_map = {
+                    'MIS': 'intraday',
+                    'CNC': 'delivery'
+                }
+                
+                # Map order types
+                order_type_map = {
+                    'MARKET': 'market',
+                    'LIMIT': 'limit'
+                }
+                
+                order_params = {
+                    'instrument_token': instrument_token,
+                    'quantity': int(item['quantity']),
+                    'product': product_map.get(item['product'], 'intraday'),
+                    'validity': 'day',
+                    'order_type': order_type_map.get(item['order_type'], 'market'),
+                    'transaction_type': item['transaction_type'].lower(),
+                    'price': item.get('price', 0) if item['order_type'] == 'LIMIT' else 0
+                }
+                
+                # Place individual order
+                order_id = place_upstox_order(order_params)
+                if order_id:
+                    successful_orders += 1
+                    st.toast(f"✅ {item['symbol']} order placed successfully! ID: {order_id}", icon="🎉")
+                else:
+                    failed_orders += 1
+                    st.toast(f"❌ {item['symbol']} order failed", icon="🔥")
+                    
+            except Exception as e:
+                failed_orders += 1
+                st.toast(f"❌ {item['symbol']} order failed: {e}", icon="🔥")
+        
+        # Summary
+        if successful_orders > 0:
+            st.success(f"✅ Basket order completed! {successful_orders} successful, {failed_orders} failed")
+            st.session_state.basket = []
+            st.rerun()
+        else:
+            st.error(f"❌ All orders failed! {failed_orders} orders failed")
+    
+    else:
+        st.warning(f"Basket orders for {broker} not implemented.")
 
 @st.cache_data(ttl=3600)
 def get_sector_data():
