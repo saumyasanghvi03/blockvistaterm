@@ -12002,7 +12002,7 @@ def login_page():
     st.title("BlockVista Terminal")
     st.subheader("Broker Login")
    
-    broker = st.selectbox("Select Your Broker", ["Zerodha", "Upstox"])
+    broker = st.selectbox("Select Your Broker", ["Zerodha", "FYERS"])
    
     if broker == "Zerodha":
         # Your existing Zerodha code remains the same
@@ -12033,120 +12033,98 @@ def login_page():
             st.link_button("Login with Zerodha Kite", kite.login_url())
             st.info("Please login with Zerodha Kite to begin. You will be redirected back to the app.")
    
-    elif broker == "Upstox":
+    elif broker == "FYERS":
         try:
-            import urllib.parse
-            import hashlib
-            import base64
-            import secrets
+            app_id = st.secrets.get("FYERS_APP_ID")
+            secret_key = st.secrets.get("FYERS_SECRET_KEY")
+            redirect_uri = st.secrets.get("FYERS_REDIRECT_URI", "https://your-app-name.streamlit.app/")
            
-            api_key = st.secrets.get("UPSTOX_API_KEY")
-            api_secret = st.secrets.get("UPSTOX_API_SECRET")
-            redirect_uri = st.secrets.get("UPSTOX_REDIRECT_URI", "https://your-app-name.streamlit.app/")
-           
-            if not api_key or not api_secret:
-                st.error("Upstox API credentials not found. Please set UPSTOX_API_KEY and UPSTOX_API_SECRET in your Streamlit secrets.")
+            if not all([app_id, secret_key, redirect_uri]):
+                st.error("FYERS API credentials not found. Please set FYERS_APP_ID, FYERS_SECRET_KEY, and FYERS_REDIRECT_URI in your Streamlit secrets.")
                 st.stop()
-           
-            # Generate PKCE code verifier and challenge (required for Upstox v2)
-            code_verifier = secrets.token_urlsafe(64)
-            code_challenge = base64.urlsafe_b64encode(
-                hashlib.sha256(code_verifier.encode()).digest()
-            ).decode().rstrip('=')
-           
-            # Store code_verifier in session state for later use
-            st.session_state.upstox_code_verifier = code_verifier
            
             # Check for authorization code in URL parameters
             auth_code = st.query_params.get("code")
            
             if auth_code:
                 try:
-                    # Exchange authorization code for access token
-                    token_url = "https://api.upstox.com/v2/login/authorization/token"
-                    token_data = {
-                        'code': auth_code,
-                        'client_id': api_key,
-                        'client_secret': api_secret,
-                        'redirect_uri': redirect_uri,
-                        'grant_type': 'authorization_code',
-                        'code_verifier': st.session_state.upstox_code_verifier
-                    }
+                    # Generate session
+                    session = accessToken.SessionModel(
+                        client_id=app_id,
+                        secret_key=secret_key,
+                        redirect_uri=redirect_uri,
+                        response_type='code',
+                        grant_type='authorization_code'
+                    )
                    
-                    headers = {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'Accept': 'application/json'
-                    }
+                    session.set_token(auth_code)
+                    response = session.generate_token()
                    
-                    response = requests.post(token_url, data=token_data, headers=headers)
-                   
-                    if response.status_code == 200:
-                        token_data = response.json()
-                        access_token = token_data['access_token']
+                    if response.get('s') == 'ok':
+                        access_token = f"{app_id}:{response['access_token']}"
                        
                         # Store in session state
-                        st.session_state.upstox_access_token = access_token
-                        st.session_state.broker = "Upstox"
+                        st.session_state.fyers_access_token = access_token
+                        st.session_state.broker = "FYERS"
+                       
+                        # Create FyersModel
+                        fyers = fyersModel.FyersModel(
+                            client_id=app_id,
+                            token=access_token,
+                            log_path="",
+                            is_async=False
+                        )
+                        st.session_state.fyers_model = fyers
                        
                         # Get user profile
                         try:
-                            profile_url = "https://api.upstox.com/v2/user/profile"
-                            profile_headers = {
-                                'Authorization': f'Bearer {access_token}',
-                                'Accept': 'application/json'
-                            }
-                           
-                            profile_response = requests.get(profile_url, headers=profile_headers)
-                            if profile_response.status_code == 200:
-                                profile_data = profile_response.json()
+                            profile_response = fyers.get_profile()
+                            if profile_response.get('s') == 'ok':
+                                profile_data = profile_response  # Assuming flat structure
                                 st.session_state.profile = {
-                                    'user_name': profile_data['data']['name'],
-                                    'email': profile_data['data']['email'],
-                                    'user_id': profile_data['data']['client_code']
+                                    'user_name': profile_data.get('client_name', 'FYERS User'),
+                                    'email': profile_data.get('email', ''),
+                                    'user_id': response.get('fy_id', '')  # From token response
                                 }
                             else:
                                 st.session_state.profile = {
-                                    'user_name': 'Upstox User',
+                                    'user_name': 'FYERS User',
                                     'email': '',
-                                    'user_id': 'upstox_user'
+                                    'user_id': response.get('fy_id', '')
                                 }
                         except Exception as profile_error:
                             st.session_state.profile = {
-                                'user_name': 'Upstox User',
+                                'user_name': 'FYERS User',
                                 'email': '',
-                                'user_id': 'upstox_user'
+                                'user_id': response.get('fy_id', '')
                             }
                        
-                        st.success("Upstox login successful!")
+                        st.success("FYERS login successful!")
                         st.query_params.clear()
-                        # Clean up code verifier
-                        if 'upstox_code_verifier' in st.session_state:
-                            del st.session_state.upstox_code_verifier
                         st.rerun()
                     else:
-                        st.error(f"Upstox token exchange failed: {response.text}")
+                        st.error(f"FYERS token exchange failed: {response.get('message', 'Unknown error')}")
                         st.query_params.clear()
                        
                 except Exception as e:
-                    st.error(f"Upstox authentication failed: {e}")
+                    st.error(f"FYERS authentication failed: {e}")
                     st.query_params.clear()
             else:
-                # Generate login URL for Upstox v2
-                base_url = "https://api.upstox.com/v2/login/authorization/dialog"
-                params = {
-                    'response_type': 'code',
-                    'client_id': api_key,
-                    'redirect_uri': redirect_uri,
-                    'code_challenge': code_challenge,
-                    'code_challenge_method': 'S256'
-                }
+                # Generate login URL
+                session = accessToken.SessionModel(
+                    client_id=app_id,
+                    secret_key=secret_key,
+                    redirect_uri=redirect_uri,
+                    response_type='code',
+                    grant_type='authorization_code'
+                )
                
-                login_url = f"{base_url}?{urllib.parse.urlencode(params)}"
-                st.link_button("Login with Upstox", login_url)
-                st.info("Please login with Upstox to begin. You will be redirected back to the app.")
+                login_url = session.generate_authcode()
+                st.link_button("Login with FYERS", login_url)
+                st.info("Please login with FYERS to begin. You will be redirected back to the app.")
                
         except Exception as e:
-            st.error(f"Upstox initialization failed: {e}")
+            st.error(f"FYERS initialization failed: {e}")
 
 def main_app():
     """The main application interface after successful login."""
