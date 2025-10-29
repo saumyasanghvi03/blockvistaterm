@@ -1145,6 +1145,7 @@ def get_portfolio():
 
 
 def place_order(instrument_df, symbol, quantity, order_type, transaction_type, product, price=None):
+    """Places a single order - UPDATED FOR ALL BROKERS."""
     client = get_broker_client()
     if not client:
         st.error("Broker not connected.")
@@ -1193,6 +1194,14 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
                 "status": f"Failed: {e}"
             })
             
+    elif broker == "Upstox":
+        # Upstox implementation
+        try:
+            # Find instrument token
+            instrument = instrument_df[instrument_df['tradingsymbol'] == symbol.upper()]
+            if instrument.empty:
+                st.error(f"Symbol '{symbol}' not found.")
+                return
                 
             instrument_token = instrument.iloc[0]['instrument_token']
             
@@ -1218,10 +1227,107 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
                 'transaction_type': transaction_type.lower(),
                 'price': price if order_type == 'LIMIT' else 0
             }
-    elif broker == "FYERS":  # ADD THIS BLOCK
+            
+            order_id = place_upstox_order(order_params)
+            if order_id:
+                st.toast(f"✅ Upstox order placed successfully! ID: {order_id}", icon="🎉")
+                st.session_state.order_history.insert(0, {
+                    "id": order_id, 
+                    "symbol": symbol, 
+                    "qty": quantity, 
+                    "type": transaction_type, 
+                    "status": "Success"
+                })
+            else:
+                st.toast(f"❌ Upstox order failed", icon="🔥")
+                st.session_state.order_history.insert(0, {
+                    "id": "N/A", 
+                    "symbol": symbol, 
+                    "qty": quantity, 
+                    "type": transaction_type, 
+                    "status": "Failed"
+                })
+                
+        except Exception as e:
+            st.toast(f"❌ Upstox order failed: {e}", icon="🔥")
+            st.session_state.order_history.insert(0, {
+                "id": "N/A", 
+                "symbol": symbol, 
+                "qty": quantity, 
+                "type": transaction_type, 
+                "status": f"Failed: {e}"
+            })
+            
+    elif broker == "FYERS":
         # FYERS implementation
         try:
-            # ... (paste the complete FYERS order placement implementation here)
+            # Find instrument
+            instrument = instrument_df[instrument_df['tradingsymbol'] == symbol.upper()]
+            if instrument.empty:
+                st.error(f"Symbol '{symbol}' not found.")
+                return
+                
+            exchange = instrument.iloc[0]['exchange']
+            fyers_symbol = f"{exchange}:{symbol}"
+            
+            # Map order parameters to FYERS format
+            order_type_map = {
+                'MARKET': 1,  # MARKET ORDER
+                'LIMIT': 2    # LIMIT ORDER
+            }
+            
+            product_type_map = {
+                'MIS': 'INTRADAY',
+                'CNC': 'CNC'
+            }
+            
+            side_map = {
+                'BUY': 1,
+                'SELL': -1
+            }
+            
+            # Prepare order data
+            order_data = {
+                "symbol": fyers_symbol,
+                "qty": quantity,
+                "type": order_type_map.get(order_type, 2),
+                "side": side_map.get(transaction_type, 1),
+                "productType": product_type_map.get(product, 'INTRADAY'),
+                "limitPrice": price if order_type == 'LIMIT' else 0,
+                "stopPrice": 0,
+                "disclosedQty": 0,
+                "validity": 'DAY',
+                "offlineOrder": False,
+                "stopLoss": 0,
+                "takeProfit": 0
+            }
+            
+            # Remove zero values for market orders
+            if order_type == 'MARKET':
+                order_data.pop('limitPrice', None)
+            
+            response = client.place_order(order_data)
+            
+            if response and response.get('s') == 'ok':
+                order_id = response.get('id')
+                st.toast(f"✅ FYERS order placed successfully! ID: {order_id}", icon="🎉")
+                st.session_state.order_history.insert(0, {
+                    "id": order_id, 
+                    "symbol": symbol, 
+                    "qty": quantity, 
+                    "type": transaction_type, 
+                    "status": "Success"
+                })
+            else:
+                st.toast(f"❌ FYERS order failed: {response.get('message', 'Unknown error')}", icon="🔥")
+                st.session_state.order_history.insert(0, {
+                    "id": "N/A", 
+                    "symbol": symbol, 
+                    "qty": quantity, 
+                    "type": transaction_type, 
+                    "status": f"Failed: {response.get('message', 'Unknown error')}"
+                })
+                
         except Exception as e:
             st.toast(f"❌ FYERS order failed: {e}", icon="🔥")
             st.session_state.order_history.insert(0, {
@@ -1231,6 +1337,7 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
                 "type": transaction_type, 
                 "status": f"Failed: {e}"
             })
+    
     else:
         st.warning(f"Order placement for {broker} not implemented.")
 
