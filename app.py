@@ -259,6 +259,8 @@ FYERS_CONFIG = {
     "app_type": "100"
 }
 
+# ================ FYERS AUTHENTICATION FUNCTIONS ================
+
 def get_fyers_login_url():
     """Generate FYERS login URL."""
     try:
@@ -343,25 +345,31 @@ def fyers_logout():
 
 def initialize_session_state():
     """Initializes all necessary session state variables."""
-    if 'broker' not in st.session_state: st.session_state.broker = None
+    # Broker selection
+    if 'broker' not in st.session_state: 
+        st.session_state.broker = "Zerodha"  # Default broker
+    
+    # Zerodha
     if 'kite' not in st.session_state: st.session_state.kite = None
     if 'profile' not in st.session_state: st.session_state.profile = None
-    if 'fyers_client' not in st.session_state: 
-        st.session_state.fyers_client = None
-    if 'fyers_access_token' not in st.session_state: 
-        st.session_state.fyers_access_token = None
-    if 'fyers_model' not in st.session_state: 
-        st.session_state.fyers_model = None
-    if 'login_animation_complete' not in st.session_state: st.session_state.login_animation_complete = False
+    
+    # FYERS
+    if 'fyers_client' not in st.session_state: st.session_state.fyers_client = None
+    if 'fyers_access_token' not in st.session_state: st.session_state.fyers_access_token = None
+    if 'fyers_model' not in st.session_state: st.session_state.fyers_model = None
+    
+    # Authentication status
     if 'authenticated' not in st.session_state: st.session_state.authenticated = False
     if 'two_factor_setup_complete' not in st.session_state: st.session_state.two_factor_setup_complete = False
-    if 'pyotp_secret' not in st.session_state: st.session_state.pyotp_secret = None
+    if 'login_animation_complete' not in st.session_state: st.session_state.login_animation_complete = False
+    
+    # Other existing session state variables
     if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
-    
-    # Remove the dialog state variables
+    if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = 'Cash'
     if 'show_quick_trade' not in st.session_state: st.session_state.show_quick_trade = False
+    if 'quick_trade_symbol' not in st.session_state: st.session_state.quick_trade_symbol = None
     
-    # Add other existing initializations...
+    # Watchlists
     if 'watchlists' not in st.session_state:
         st.session_state.watchlists = {
             "Watchlist 1": [{'symbol': 'RELIANCE', 'exchange': 'NSE'}, {'symbol': 'HDFCBANK', 'exchange': 'NSE'}],
@@ -501,7 +509,117 @@ def get_broker_client():
     
     return None
 
+def display_broker_authentication():
+    """Display broker authentication options for Zerodha and FYERS."""
+    st.header("🔐 Broker Authentication")
+    
+    # Broker selection
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        st.subheader("Select Broker")
+        broker_options = ["Zerodha", "FYERS"]  # ONLY ZERODHA AND FYERS
+        selected_broker = st.radio(
+            "Choose your broker:",
+            options=broker_options,
+            key="broker_selection"
+        )
+        st.session_state.broker = selected_broker
+        
+        # Broker info
+        broker_info = {
+            "Zerodha": "• Indian broker with free equity delivery\n• Advanced charting and API\n• Most popular in India",
+            "FYERS": "• Advanced charting tools\n• Free equity delivery trading\n• Good API documentation"
+        }
+        
+        st.info(f"**{selected_broker}**\n\n{broker_info.get(selected_broker, '')}")
+    
+    with col2:
+        st.subheader("Authentication")
+        
+        if selected_broker == "Zerodha":
+            display_zerodha_auth()
+        elif selected_broker == "FYERS":
+            display_fyers_auth()
 
+def display_zerodha_auth():
+    """Display Zerodha authentication."""
+    if st.session_state.kite is None:
+        st.info("Zerodha Kite Connect Authentication")
+        
+        api_key = st.text_input("API Key", key="zerodha_api_key", type="password")
+        api_secret = st.text_input("API Secret", key="zerodha_api_secret", type="password")
+        request_token = st.text_input("Request Token", key="zerodha_request_token")
+        
+        if st.button("Connect Zerodha", key="zerodha_connect"):
+            if api_key and api_secret and request_token:
+                try:
+                    kite = KiteConnect(api_key=api_key)
+                    data = kite.generate_session(request_token, api_secret=api_secret)
+                    st.session_state.kite = kite
+                    st.session_state.profile = data
+                    st.session_state.authenticated = True
+                    st.success("✅ Zerodha connected successfully!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Zerodha connection failed: {e}")
+            else:
+                st.warning("Please fill all fields")
+    else:
+        st.success("✅ Zerodha Connected")
+        if st.button("Disconnect Zerodha", key="zerodha_disconnect"):
+            st.session_state.kite = None
+            st.session_state.profile = None
+            st.session_state.authenticated = False
+            st.rerun()
+
+def display_fyers_auth():
+    """Display FYERS authentication."""
+    if st.session_state.fyers_model is None:
+        st.info("FYERS Authentication")
+        
+        # Show FYERS login URL
+        login_url = get_fyers_login_url()
+        if login_url:
+            st.markdown(f"""
+            **Steps to connect FYERS:**
+            1. [Click here to login with FYERS]({login_url})
+            2. Authorize the application
+            3. Copy the authorization code from the redirect URL
+            4. Paste the code below
+            """)
+        
+        auth_code = st.text_input("Authorization Code", key="fyers_auth_code", 
+                                 placeholder="Paste authorization code here")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Connect FYERS", key="fyers_connect", type="primary", use_container_width=True):
+                if auth_code:
+                    if fyers_generate_session(auth_code):
+                        st.session_state.authenticated = True
+                        st.rerun()
+                else:
+                    st.warning("Please enter authorization code")
+        
+        with col2:
+            if st.button("Refresh Login URL", key="fyers_refresh", use_container_width=True):
+                st.rerun()
+                
+    else:
+        st.success("✅ FYERS Connected")
+        
+        # Show connection details
+        if st.session_state.fyers_access_token:
+            st.code(f"Access Token: {st.session_state.fyers_access_token[:20]}...")
+        
+        if st.button("Disconnect FYERS", key="fyers_disconnect"):
+            fyers_logout()
+            st.session_state.fyers_model = None
+            st.session_state.fyers_access_token = None
+            st.session_state.authenticated = False
+            st.rerun()
+        
 # @st.dialog("Quick Trade")
 def quick_trade_interface(symbol=None, exchange=None):
     """A quick trade interface that doesn't use dialogs."""
@@ -12038,30 +12156,33 @@ def login_page():
             # Check for authorization code in URL parameters
             auth_code = st.query_params.get("code")
 
-
-
-            
 def main_app():
     """The main application interface after successful login."""
     apply_custom_styling()
     display_overnight_changes_bar()
     
-    # --- 2FA Check - Handle authentication flow first
-    profile = st.session_state.get('profile')
-    if not profile:
-        st.error("User profile not found. Please log in again.")
+    # --- 2FA Check - Handle authentication flow first for ALL brokers
+    # Check if user has completed broker authentication
+    broker_authenticated = False
+    if st.session_state.broker == "Zerodha":
+        broker_authenticated = st.session_state.get('kite') is not None
+    elif st.session_state.broker == "FYERS":
+        broker_authenticated = st.session_state.get('fyers_model') is not None
+    
+    if not broker_authenticated:
+        st.error("Broker connection not found. Please log in again.")
         if st.button("Return to Login"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
         return
     
-    # Show 2FA setup if needed (without dialogs)
+    # Show 2FA setup if needed (without dialogs) - FOR ALL BROKERS
     if not st.session_state.get('two_factor_setup_complete', False):
         show_two_factor_setup()
         return
     
-    # Show 2FA authentication if needed (without dialogs)
+    # Show 2FA authentication if needed (without dialogs) - FOR ALL BROKERS
     if not st.session_state.get('authenticated', False):
         show_two_factor_auth()
         return
@@ -12069,15 +12190,15 @@ def main_app():
     # Only show main content after 2FA is complete
     # Handle quick trade without dialogs
     if st.session_state.get('show_quick_trade', False):
-        st.markdown("---")
-        st.subheader("Quick Trade")
-        symbol = st.session_state.get('quick_trade_symbol')
-        if symbol:
-            st.info(f"Trading: {symbol}")
-        # Add your quick trade form here without using dialogs
+        quick_trade_interface()
     
     # Rest of your main app content...
-    st.sidebar.title(f"Welcome, {st.session_state.profile['user_name']}")
+    # Display appropriate welcome message based on broker
+    if st.session_state.broker == "Zerodha":
+        st.sidebar.title(f"Welcome, {st.session_state.profile['user_name']}")
+    elif st.session_state.broker == "FYERS":
+        st.sidebar.title("Welcome, FYERS Trader")
+    
     st.sidebar.caption(f"Connected via {st.session_state.broker}")
     st.sidebar.divider()
     
@@ -12101,22 +12222,22 @@ def main_app():
     
     st.sidebar.header("Navigation")
     pages = {
-    "Cash": {
-        "Dashboard": page_dashboard,
-        "AI Trading Bots": page_algo_bots,
-        "AI Market Sentiment": page_market_sentiment_ai,  # NEW
-        "AI Discovery Engine": page_ai_discovery,
-        "AI Portfolio Assistant": page_ai_assistant,  # ENHANCED
-        "Premarket Pulse": page_premarket_pulse,
-        "Advanced Charting": page_advanced_charting,
-        "Market Scanners": page_momentum_and_trend_finder,
-        "Portfolio & Risk": page_portfolio_and_risk,
-        "Fundamental Analytics": page_fundamental_analytics,
-        "Basket Orders": page_basket_orders,
-        "Forecasting (ML)": page_forecasting_ml,
-        "Algo Strategy Hub": page_algo_strategy_maker,
-        "Economic Calendar": page_economic_calendar,
-        "Settings": page_settings
+        "Cash": {
+            "Dashboard": page_dashboard,
+            "AI Trading Bots": page_algo_bots,
+            "AI Market Sentiment": page_market_sentiment_ai,
+            "AI Discovery Engine": page_ai_discovery,
+            "AI Portfolio Assistant": page_ai_assistant,
+            "Premarket Pulse": page_premarket_pulse,
+            "Advanced Charting": page_advanced_charting,
+            "Market Scanners": page_momentum_and_trend_finder,
+            "Portfolio & Risk": page_portfolio_and_risk,
+            "Fundamental Analytics": page_fundamental_analytics,
+            "Basket Orders": page_basket_orders,
+            "Forecasting (ML)": page_forecasting_ml,
+            "Algo Strategy Hub": page_algo_strategy_maker,
+            "Economic Calendar": page_economic_calendar,
+            "Settings": page_settings
         },
         "Options": {
             "F&O Analytics": page_fo_analytics,
@@ -12141,10 +12262,23 @@ def main_app():
     selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
     
     st.sidebar.divider()
-    if st.sidebar.button("Logout"):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        st.rerun()
+    
+    # Broker-specific disconnect buttons
+    if st.session_state.broker == "Zerodha":
+        if st.sidebar.button("Disconnect Zerodha"):
+            st.session_state.kite = None
+            st.session_state.profile = None
+            st.session_state.authenticated = False
+            st.session_state.two_factor_setup_complete = False
+            st.rerun()
+    elif st.session_state.broker == "FYERS":
+        if st.sidebar.button("Disconnect FYERS"):
+            fyers_logout()
+            st.session_state.fyers_model = None
+            st.session_state.fyers_access_token = None
+            st.session_state.authenticated = False
+            st.session_state.two_factor_setup_complete = False
+            st.rerun()
 
     no_refresh_pages = ["Forecasting (ML)", "AI Assistant", "AI Discovery", "Algo Strategy Hub", "Algo Trading Bots"]
     if auto_refresh and selection not in no_refresh_pages:
@@ -12156,10 +12290,223 @@ def main_app():
 if __name__ == "__main__":
     initialize_session_state()
     
-    if 'profile' in st.session_state and st.session_state.profile:
+    # Check if user has completed broker authentication AND 2FA
+    broker_authenticated = False
+    if st.session_state.broker == "Zerodha":
+        broker_authenticated = 'profile' in st.session_state and st.session_state.profile
+    elif st.session_state.broker == "FYERS":
+        broker_authenticated = st.session_state.get('fyers_model') is not None
+    
+    # Check if 2FA is completed
+    two_fa_completed = st.session_state.get('two_factor_setup_complete', False) and st.session_state.get('authenticated', False)
+    
+    if broker_authenticated and two_fa_completed:
         if st.session_state.get('login_animation_complete', False):
             main_app()
         else:
             show_login_animation()
+    elif broker_authenticated and not two_fa_completed:
+        # Show 2FA flow
+        if not st.session_state.get('two_factor_setup_complete', False):
+            show_two_factor_setup()
+        else:
+            show_two_factor_auth()
     else:
-        login_page()
+        # Show broker authentication page
+        display_broker_authentication()
+
+def display_broker_authentication():
+    """Display broker authentication options for Zerodha and FYERS."""
+    st.header("🔐 Broker Authentication")
+    
+    # Broker selection
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        st.subheader("Select Broker")
+        broker_options = ["Zerodha", "FYERS"]
+        selected_broker = st.radio(
+            "Choose your broker:",
+            options=broker_options,
+            key="broker_selection"
+        )
+        st.session_state.broker = selected_broker
+        
+        # Broker info
+        broker_info = {
+            "Zerodha": "• Indian broker with free equity delivery\n• Advanced charting and API\n• Most popular in India",
+            "FYERS": "• Advanced charting tools\n• Free equity delivery trading\n• Good API documentation"
+        }
+        
+        st.info(f"**{selected_broker}**\n\n{broker_info.get(selected_broker, '')}")
+    
+    with col2:
+        st.subheader("Authentication")
+        
+        if selected_broker == "Zerodha":
+            display_zerodha_auth()
+        elif selected_broker == "FYERS":
+            display_fyers_auth()
+
+def display_zerodha_auth():
+    """Display Zerodha authentication."""
+    if st.session_state.kite is None:
+        st.info("Zerodha Kite Connect Authentication")
+        
+        api_key = st.text_input("API Key", key="zerodha_api_key", type="password")
+        api_secret = st.text_input("API Secret", key="zerodha_api_secret", type="password")
+        request_token = st.text_input("Request Token", key="zerodha_request_token")
+        
+        if st.button("Connect Zerodha", key="zerodha_connect"):
+            if api_key and api_secret and request_token:
+                try:
+                    kite = KiteConnect(api_key=api_key)
+                    data = kite.generate_session(request_token, api_secret=api_secret)
+                    st.session_state.kite = kite
+                    st.session_state.profile = data
+                    # DO NOT set authenticated=True here - wait for 2FA
+                    st.success("✅ Zerodha connected successfully! Proceeding to 2FA setup...")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Zerodha connection failed: {e}")
+            else:
+                st.warning("Please fill all fields")
+    else:
+        st.success("✅ Zerodha Connected")
+        if st.button("Disconnect Zerodha", key="zerodha_disconnect"):
+            st.session_state.kite = None
+            st.session_state.profile = None
+            st.session_state.authenticated = False
+            st.session_state.two_factor_setup_complete = False
+            st.rerun()
+
+def display_fyers_auth():
+    """Display FYERS authentication."""
+    if st.session_state.fyers_model is None:
+        st.info("FYERS Authentication")
+        
+        # Show FYERS login URL
+        login_url = get_fyers_login_url()
+        if login_url:
+            st.markdown(f"""
+            **Steps to connect FYERS:**
+            1. [Click here to login with FYERS]({login_url})
+            2. Authorize the application
+            3. Copy the authorization code from the redirect URL
+            4. Paste the code below
+            """)
+        
+        auth_code = st.text_input("Authorization Code", key="fyers_auth_code", 
+                                 placeholder="Paste authorization code here")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Connect FYERS", key="fyers_connect", type="primary", use_container_width=True):
+                if auth_code:
+                    if fyers_generate_session(auth_code):
+                        # DO NOT set authenticated=True here - wait for 2FA
+                        st.success("✅ FYERS connected successfully! Proceeding to 2FA setup...")
+                        st.rerun()
+                else:
+                    st.warning("Please enter authorization code")
+        
+        with col2:
+            if st.button("Refresh Login URL", key="fyers_refresh", use_container_width=True):
+                st.rerun()
+                
+    else:
+        st.success("✅ FYERS Connected")
+        
+        # Show connection details
+        if st.session_state.fyers_access_token:
+            st.code(f"Access Token: {st.session_state.fyers_access_token[:20]}...")
+        
+        if st.button("Disconnect FYERS", key="fyers_disconnect"):
+            fyers_logout()
+            st.session_state.fyers_model = None
+            st.session_state.fyers_access_token = None
+            st.session_state.authenticated = False
+            st.session_state.two_factor_setup_complete = False
+            st.rerun()
+
+# ================ FYERS AUTHENTICATION FUNCTIONS ================
+
+def get_fyers_login_url():
+    """Generate FYERS login URL."""
+    try:
+        app_id = st.secrets.get("FYERS_APP_ID")
+        secret_key = st.secrets.get("FYERS_SECRET_KEY")
+        redirect_uri = st.secrets.get("FYERS_REDIRECT_URI")
+        
+        if not all([app_id, secret_key, redirect_uri]):
+            st.error("FYERS credentials not found in secrets")
+            return None
+            
+        # Create session model
+        session = accessToken.SessionModel(
+            client_id=app_id,
+            secret_key=secret_key, 
+            redirect_uri=redirect_uri,
+            response_type='code',
+            grant_type='authorization_code'
+        )
+        
+        # Generate login URL
+        login_url = session.generate_authcode()
+        return login_url
+        
+    except Exception as e:
+        st.error(f"Error generating FYERS login URL: {e}")
+        return None
+
+def fyers_generate_session(authorization_code):
+    """Generate FYERS session using authorization code."""
+    try:
+        app_id = st.secrets.get("FYERS_APP_ID")
+        secret_key = st.secrets.get("FYERS_SECRET_KEY")
+        redirect_uri = st.secrets.get("FYERS_REDIRECT_URI")
+        
+        if not all([app_id, secret_key, redirect_uri]):
+            st.error("Missing FYERS credentials in secrets")
+            return False
+            
+        session = accessToken.SessionModel(
+            client_id=app_id,
+            secret_key=secret_key,
+            redirect_uri=redirect_uri,
+            response_type='code',
+            grant_type='authorization_code'
+        )
+        
+        session.set_token(authorization_code)
+        response = session.generate_token()
+        
+        if response.get('s') == 'ok':
+            access_token = f"{app_id}:{response['access_token']}"
+            
+            st.session_state.fyers_access_token = access_token
+            st.session_state.fyers_model = fyersModel.FyersModel(
+                client_id=app_id,
+                token=access_token, 
+                log_path="/logs"
+            )
+            st.success("FYERS authentication successful!")
+            return True
+        else:
+            st.error(f"FYERS authentication failed: {response.get('message', 'Unknown error')}")
+            return False
+            
+    except Exception as e:
+        st.error(f"FYERS session generation failed: {str(e)}")
+        return False
+
+def fyers_logout():
+    """Logs out the user from the FYERS API."""
+    try:
+        # FYERS doesn't have explicit logout in API, just clear session
+        st.session_state.fyers_model = None
+        st.session_state.fyers_access_token = None
+        st.toast("Successfully logged out from FYERS.")
+        
+    except Exception as e:
+        st.error(f"An error occurred during FYERS logout: {str(e)}")
