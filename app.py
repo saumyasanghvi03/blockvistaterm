@@ -6,21 +6,7 @@ import talib # Replace pandas_ta with talib
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from kiteconnect import KiteConnect, exceptions as kite_exceptions
-try:
-    # Try importing v3 first
-    from fyers_apiv3 import fyersModel
-    from fyers_apiv3 import accessToken
-    FYERS_VERSION = "v3"
-except ImportError:
-    try:
-        # Fall back to v2
-        from fyers_api import fyersModel
-        from fyers_api import accessToken
-        FYERS_VERSION = "v2"
-    except ImportError:
-        st.error("FYERS API package not installed. Please install either fyers-apiv3 or fyers-apiv2")
-        FYERS_VERSION = None
-import streamlit_autorefresh
+from streamlit_autorefresh import st_autorefresh
 from datetime import datetime, timedelta, time
 import pytz
 import feedparser
@@ -43,11 +29,15 @@ import io
 import requests
 import hashlib
 import random
+from streamlit_autorefresh import st_autorefresh
 import praw
-
 
 # <<<--- ENSURE THESE IMPORTS ARE PRESENT --->>>
 # If any are missing, add them above
+
+# ================ UPSTOX API INTEGRATION ================
+import requests
+import json
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 
@@ -249,48 +239,39 @@ ML_DATA_SOURCES = {
         "tradingsymbol": "^GSPC",
         "exchange": "yfinance"
     }
+    
 }
+# Upstox configuration
+UPSTOX_CONFIG = {
+    "api_key": "your_upstox_api_key",  # Will be set from secrets
+    "redirect_uri": "https://your-redirect-uri.com",  # Set in Upstox developer console
+    "api_secret": "your_upstox_api_secret"  # Will be set from secrets
 
-# FYERS configuration - SEPARATE DICTIONARY
-# FYERS configuration
-FYERS_CONFIG = {
-    "app_id": "your_fyers_app_id",
-    "secret_key": "your_fyers_secret_key", 
-    "redirect_uri": "https://your-redirect-uri.com",
-    "app_type": "100"
 }
-
-# ================ FYERS AUTHENTICATION FUNCTIONS ==============
-
 # ================ 1.5 INITIALIZATION ========================
 
 def initialize_session_state():
     """Initializes all necessary session state variables."""
-    # Broker selection
-    if 'broker' not in st.session_state: 
-        st.session_state.broker = "Zerodha"  # Default broker
-    
-    # Zerodha
+    if 'broker' not in st.session_state: st.session_state.broker = None
     if 'kite' not in st.session_state: st.session_state.kite = None
     if 'profile' not in st.session_state: st.session_state.profile = None
-    
-    # FYERS
-    if 'fyers_client' not in st.session_state: st.session_state.fyers_client = None
-    if 'fyers_access_token' not in st.session_state: st.session_state.fyers_access_token = None
-    if 'fyers_model' not in st.session_state: st.session_state.fyers_model = None
-    
-    # Authentication status
+        # Add Upstox session state variables
+    if 'upstox_client' not in st.session_state: 
+        st.session_state.upstox_client = None
+    if 'upstox_access_token' not in st.session_state: 
+        st.session_state.upstox_access_token = None
+    if 'upstox_token_type' not in st.session_state: 
+        st.session_state.upstox_token_type = None
+    if 'login_animation_complete' not in st.session_state: st.session_state.login_animation_complete = False
     if 'authenticated' not in st.session_state: st.session_state.authenticated = False
     if 'two_factor_setup_complete' not in st.session_state: st.session_state.two_factor_setup_complete = False
-    if 'login_animation_complete' not in st.session_state: st.session_state.login_animation_complete = False
-    
-    # Other existing session state variables
+    if 'pyotp_secret' not in st.session_state: st.session_state.pyotp_secret = None
     if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
-    if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = 'Cash'
-    if 'show_quick_trade' not in st.session_state: st.session_state.show_quick_trade = False
-    if 'quick_trade_symbol' not in st.session_state: st.session_state.quick_trade_symbol = None
     
-    # Watchlists
+    # Remove the dialog state variables
+    if 'show_quick_trade' not in st.session_state: st.session_state.show_quick_trade = False
+    
+    # Add other existing initializations...
     if 'watchlists' not in st.session_state:
         st.session_state.watchlists = {
             "Watchlist 1": [{'symbol': 'RELIANCE', 'exchange': 'NSE'}, {'symbol': 'HDFCBANK', 'exchange': 'NSE'}],
@@ -416,7 +397,6 @@ def record_user_interaction():
     if 'refresh_control' in st.session_state:
         st.session_state.refresh_control['user_interaction_time'] = datetime.now()
 
-# UPDATE THE EXISTING get_broker_client() FUNCTION
 def get_broker_client():
     """Gets current broker client from session state."""
     broker = st.session_state.get('broker')
@@ -424,123 +404,522 @@ def get_broker_client():
     if broker == "Zerodha":
         return st.session_state.get('kite')
     elif broker == "Upstox":
+        # For Upstox, we use the access token directly in API calls
         return st.session_state.get('upstox_access_token')
-    elif broker == "FYERS":  # ADD THIS BLOCK
-        return st.session_state.get('fyers_model')
     
     return None
 
-def display_broker_authentication():
-    """Display broker authentication options for Zerodha and FYERS."""
-    st.header("🔐 Broker Authentication")
-    
-    # Broker selection
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        st.subheader("Select Broker")
-        broker_options = ["Zerodha", "FYERS"]  # ONLY ZERODHA AND FYERS
-        selected_broker = st.radio(
-            "Choose your broker:",
-            options=broker_options,
-            key="broker_selection"
-        )
-        st.session_state.broker = selected_broker
+def debug_upstox_installation():
+    """Debug function to check Upstox installation."""
+    try:
+        from upstox_api.api import Upstox
+        st.success("✓ Upstox package imported successfully")
         
-        # Broker info
-        broker_info = {
-            "Zerodha": "• Indian broker with free equity delivery\n• Advanced charting and API\n• Most popular in India",
-            "FYERS": "• Advanced charting tools\n• Free equity delivery trading\n• Good API documentation"
+        # Check available methods
+        methods = [method for method in dir(Upstox) if not method.startswith('_')]
+        st.write("Available Upstox methods:", methods[:10])  # Show first 10 methods
+        
+        return True
+    except ImportError as e:
+        st.error(f"✗ Upstox import failed: {e}")
+        return False
+    except Exception as e:
+        st.error(f"✗ Upstox check failed: {e}")
+        return False
+
+def debug_upstox_exchanges(access_token):
+    """Debug function to find available exchanges in Upstox API v2."""
+    if not access_token:
+        st.error("No access token available")
+        return
+    
+    st.subheader("🔧 Upstox API Debug - Available Exchanges")
+    
+    # Test various possible exchange codes
+    possible_exchanges = [
+        'NSE_EQ', 'NSE_FO', 'NSE_CD', 'BSE_EQ', 'BSE_FO', 
+        'MCX_FO', 'MCX_COMM', 'NSE', 'BSE', 'NFO', 'MCX', 'CDS'
+    ]
+    
+    available_exchanges = []
+    
+    for exchange in possible_exchanges:
+        try:
+            url = f"https://api.upstox.com/v2/master-contract/{exchange}"
+            headers = {
+                'Authorization': f'Bearer {access_token}',
+                'Accept': 'application/json'
+            }
+            
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('status') == 'success':
+                    count = len(data.get('data', []))
+                    available_exchanges.append(exchange)
+                    st.success(f"✓ {exchange}: {count} instruments available")
+                else:
+                    st.warning(f"⚠ {exchange}: API returned error - {data.get('message', 'Unknown')}")
+            else:
+                st.info(f"✗ {exchange}: Not available (HTTP {response.status_code})")
+                
+        except Exception as e:
+            st.error(f"✗ {exchange} error: {e}")
+    
+    return available_exchanges
+
+def debug_upstox_api(access_token):
+    """Debug function to test Upstox API connectivity."""
+    if not access_token:
+        st.error("No access token available")
+        return
+    
+    # Test profile endpoint
+    try:
+        profile_url = "https://api.upstox.com/v2/user/profile"
+        headers = {
+            'Authorization': f'Bearer {access_token}',
+            'Accept': 'application/json'
         }
         
-        st.info(f"**{selected_broker}**\n\n{broker_info.get(selected_broker, '')}")
+        response = requests.get(profile_url, headers=headers)
+        if response.status_code == 200:
+            st.success("✓ Upstox profile API working")
+            profile_data = response.json()
+            st.write("Profile data:", profile_data)
+        else:
+            st.error(f"✗ Profile API failed: {response.status_code} - {response.text}")
+    except Exception as e:
+        st.error(f"✗ Profile API error: {e}")
     
-    with col2:
-        st.subheader("Authentication")
-        
-        if selected_broker == "Zerodha":
-            display_zerodha_auth()
-        elif selected_broker == "FYERS":
-            display_fyers_auth()
-
-def display_zerodha_auth():
-    """Display Zerodha authentication."""
-    if st.session_state.kite is None:
-        st.info("Zerodha Kite Connect Authentication")
-        
-        api_key = st.text_input("API Key", key="zerodha_api_key", type="password")
-        api_secret = st.text_input("API Secret", key="zerodha_api_secret", type="password")
-        request_token = st.text_input("Request Token", key="zerodha_request_token")
-        
-        if st.button("Connect Zerodha", key="zerodha_connect"):
-            if api_key and api_secret and request_token:
-                try:
-                    kite = KiteConnect(api_key=api_key)
-                    data = kite.generate_session(request_token, api_secret=api_secret)
-                    st.session_state.kite = kite
-                    st.session_state.profile = data
-                    st.session_state.authenticated = True
-                    st.success("✅ Zerodha connected successfully!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Zerodha connection failed: {e}")
-            else:
-                st.warning("Please fill all fields")
-    else:
-        st.success("✅ Zerodha Connected")
-        if st.button("Disconnect Zerodha", key="zerodha_disconnect"):
-            st.session_state.kite = None
-            st.session_state.profile = None
-            st.session_state.authenticated = False
-            st.rerun()
-
-def display_fyers_auth():
-    """Display FYERS authentication."""
-    if st.session_state.fyers_model is None:
-        st.info("FYERS Authentication")
-        
-        # Show FYERS login URL
-        login_url = get_fyers_login_url()
-        if login_url:
-            st.markdown(f"""
-            **Steps to connect FYERS:**
-            1. [Click here to login with FYERS]({login_url})
-            2. Authorize the application
-            3. Copy the authorization code from the redirect URL
-            4. Paste the code below
-            """)
-        
-        auth_code = st.text_input("Authorization Code", key="fyers_auth_code", 
-                                 placeholder="Paste authorization code here")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Connect FYERS", key="fyers_connect", type="primary", use_container_width=True):
-                if auth_code:
-                    if fyers_generate_session(auth_code):
-                        st.session_state.authenticated = True
-                        st.rerun()
+    # Test available exchanges
+    exchanges = ['NSE', 'BSE', 'NFO', 'MCX', 'CDS']
+    for exchange in exchanges:
+        try:
+            url = f"https://api.upstox.com/v2/master-contract/{exchange}"
+            headers = {
+                'Authorization': f'Bearer {access_token}',
+                'Accept': 'application/json'
+            }
+            
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('status') == 'success':
+                    count = len(data.get('data', []))
+                    st.success(f"✓ {exchange}: {count} instruments")
                 else:
-                    st.warning("Please enter authorization code")
+                    st.warning(f"⚠ {exchange}: {data.get('message', 'Unknown error')}")
+            else:
+                st.error(f"✗ {exchange}: {response.status_code} - {response.text}")
+        except Exception as e:
+            st.error(f"✗ {exchange} error: {e}")
+# ===== END DEBUG FUNCTION =====
+
+def get_upstox_login_url():
+    """Generate Upstox login URL."""
+    try:
+        api_key = st.secrets.get("UPSTOX_API_KEY")
+        redirect_uri = st.secrets.get("UPSTOX_REDIRECT_URI")
         
-        with col2:
-            if st.button("Refresh Login URL", key="fyers_refresh", use_container_width=True):
-                st.rerun()
+        if not api_key:
+            st.error("UPSTOX_API_KEY not found in secrets")
+            return None
+            
+        if not redirect_uri:
+            st.error("UPSTOX_REDIRECT_URI not found in secrets")
+            return None
+        
+        # URL encode the redirect_uri
+        import urllib.parse
+        encoded_redirect_uri = urllib.parse.quote(redirect_uri, safe='')
+        
+        # Upstox login URL format
+        login_url = f"https://api.upstox.com/v2/login/authorization/dialog?response_type=code&client_id={api_key}&redirect_uri={encoded_redirect_uri}"
+        
+        st.info(f"Login URL generated. Redirect URI: {redirect_uri}")
+        return login_url
+        
+    except Exception as e:
+        st.error(f"Error generating login URL: {e}")
+        return None
+
+def upstox_generate_session(authorization_code):
+    """Generate Upstox session using authorization code via direct API call."""
+    try:
+        api_key = st.secrets.get("UPSTOX_API_KEY")
+        api_secret = st.secrets.get("UPSTOX_API_SECRET")
+        redirect_uri = st.secrets.get("UPSTOX_REDIRECT_URI")
+        
+        if not all([api_key, api_secret, redirect_uri]):
+            st.error("Missing Upstox credentials in secrets")
+            return False
+            
+        url = 'https://api.upstox.com/v2/login/authorization/token'
+        headers = {
+            'accept': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded',
+        }
+        data = {
+            'code': authorization_code,
+            'client_id': api_key,
+            'client_secret': api_secret,
+            'redirect_uri': redirect_uri,
+            'grant_type': 'authorization_code',
+        }
+
+        response = requests.post(url, headers=headers, data=data)
+        response.raise_for_status() # Raise an exception for bad status codes
+        
+        token_data = response.json()
+        
+        if 'access_token' in token_data:
+            st.session_state.upstox_access_token = token_data['access_token']
+            st.session_state.upstox_token_type = token_data.get('token_type', 'bearer')
+            st.success("Upstox authentication successful!")
+            return True
+        else:
+            st.error(f"No access token in response: {token_data.get('error_description', 'Unknown error')}")
+            return False
+            
+    except requests.exceptions.HTTPError as http_err:
+        st.error(f"Upstox session generation failed (HTTP Error): {http_err.response.status_code} - {http_err.response.text}")
+        return False
+    except Exception as e:
+        st.error(f"Upstox session generation failed: {str(e)}")
+        return False
+
+def upstox_logout():
+    """Logs out the user from the Upstox API."""
+    try:
+        access_token = st.session_state.get('upstox_access_token')
+        if not access_token:
+            st.warning("No active Upstox session to log out from.")
+            return
+
+        url = 'https://api.upstox.com/v2/logout'
+        headers = {
+            'Accept': 'application/json',
+            'Authorization': f'Bearer {access_token}'
+        }
+
+        response = requests.delete(url, headers=headers)
+        response.raise_for_status()
+        
+        logout_data = response.json()
+        if logout_data.get("status") == "success":
+            st.toast("Successfully logged out from Upstox.")
+        else:
+            st.warning(f"Upstox logout may not have been fully successful: {logout_data.get('message', '')}")
+
+    except requests.exceptions.HTTPError as http_err:
+        st.error(f"Upstox logout failed (HTTP Error): {http_err.response.status_code} - {http_err.response.text}")
+    except Exception as e:
+        st.error(f"An error occurred during Upstox logout: {str(e)}")
+
+
+def get_upstox_instruments(access_token, exchange='NSE_EQ'):
+    """Fetches instrument list from Upstox REST API v2 with correct exchange codes."""
+    if not access_token:
+        return pd.DataFrame()
+    
+    try:
+        # Correct exchange codes for Upstox v2 (from their documentation)
+        exchange_map = {
+            'NSE': 'NSE_EQ',    # NSE Equity
+            'BSE': 'BSE_EQ',    # BSE Equity  
+            'NFO': 'NSE_FO',    # NSE Futures & Options
+            'MCX': 'MCX_FO',    # MCX Commodities
+            'CDS': 'NSE_CD',    # NSE Currency Derivatives
+        }
+        
+        upstox_exchange = exchange_map.get(exchange, 'NSE_EQ')
+        
+        url = f"https://api.upstox.com/v2/master-contract/{upstox_exchange}"
+        headers = {
+            'Authorization': f'Bearer {access_token}',
+            'Accept': 'application/json'
+        }
+        
+        st.info(f"Fetching instruments for {exchange} -> {upstox_exchange}")
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code == 200:
+            data = response.json()
+            instrument_list = []
+            
+            if data.get('status') == 'success' and 'data' in data:
+                instruments_data = data['data']
+                if not isinstance(instruments_data, list):
+                    st.error(f"Unexpected data format: {type(instruments_data)}")
+                    return pd.DataFrame()
                 
-    else:
-        st.success("✅ FYERS Connected")
+                for instrument in instruments_data:
+                    instrument_list.append({
+                        'tradingsymbol': instrument.get('trading_symbol', ''),
+                        'name': instrument.get('name', ''),
+                        'instrument_token': instrument.get('instrument_key', ''),
+                        'exchange': exchange,  # Keep our internal exchange code
+                        'lot_size': instrument.get('lot_size', 1),
+                        'instrument_type': instrument.get('instrument_type', 'EQ'),
+                        'strike_price': instrument.get('strike_price', 0),
+                        'expiry': instrument.get('expiry', '')
+                    })
+                
+                st.success(f"Loaded {len(instrument_list)} instruments from {exchange}")
+                return pd.DataFrame(instrument_list)
+            else:
+                st.error(f"Upstox API response error: {data}")
+        else:
+            st.error(f"Upstox API Error (Instruments): {response.status_code} - {response.text}")
+            
+        return pd.DataFrame()
         
-        # Show connection details
-        if st.session_state.fyers_access_token:
-            st.code(f"Access Token: {st.session_state.fyers_access_token[:20]}...")
+    except Exception as e:
+        st.error(f"Upstox API Error (Instruments): {e}")
+        return pd.DataFrame()
+
+def get_upstox_historical_data(access_token, instrument_key, interval, period=None):
+    """Fetches historical data from Upstox REST API v2."""
+    if not access_token or not instrument_key:
+        return pd.DataFrame()
+    
+    try:
+        from datetime import datetime, timedelta
         
-        if st.button("Disconnect FYERS", key="fyers_disconnect"):
-            fyers_logout()
-            st.session_state.fyers_model = None
-            st.session_state.fyers_access_token = None
-            st.session_state.authenticated = False
-            st.rerun()
+        # Map interval to Upstox v2 format
+        interval_map = {
+            'minute': '1minute',
+            '5minute': '5minute', 
+            'day': 'day',
+            'week': 'week'
+        }
         
+        upstox_interval = interval_map.get(interval, 'day')
+        
+        # Calculate date range based on period
+        end_date = datetime.now()
+        if period == '1d':
+            start_date = end_date - timedelta(days=2)
+        elif period == '5d':
+            start_date = end_date - timedelta(days=7)
+        elif period == '1mo':
+            start_date = end_date - timedelta(days=31)
+        elif period == '6mo':
+            start_date = end_date - timedelta(days=182)
+        elif period == '1y':
+            start_date = end_date - timedelta(days=365)
+        else:
+            start_date = end_date - timedelta(days=30)
+        
+        # Format dates for API
+        start_date_str = start_date.strftime('%Y-%m-%d')
+        end_date_str = end_date.strftime('%Y-%m-%d')
+        
+        # Fetch historical data from Upstox v2
+        url = f"https://api.upstox.com/v2/historical-candle/{instrument_key}/{upstox_interval}/{start_date_str}/{end_date_str}"
+        headers = {
+            'Authorization': f'Bearer {access_token}',
+            'Accept': 'application/json'
+        }
+        
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('status') == 'success' and 'data' in data and 'candles' in data['data']:
+                candles = data['data']['candles']
+                df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'oi'])
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df.set_index('timestamp', inplace=True)
+                return df
+            else:
+                st.error(f"Upstox API response error: {data}")
+        else:
+            st.error(f"Upstox API Error: {response.status_code} - {response.text}")
+            
+        return pd.DataFrame()
+            
+    except Exception as e:
+        st.error(f"Upstox API Error (Historical): {e}")
+        return pd.DataFrame()
+
+def get_upstox_instruments(access_token, exchange='NSE_EQ'):
+    """Fetches instrument list from Upstox REST API v2."""
+    if not access_token:
+        return pd.DataFrame()
+    
+    try:
+        url = f"https://api.upstox.com/v2/master-contract/{exchange}"
+        headers = {
+            'Authorization': f'Bearer {access_token}',
+            'Accept': 'application/json'
+        }
+        
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code == 200:
+            data = response.json()
+            instrument_list = []
+            
+            if data['status'] == 'success' and 'data' in data:
+                for instrument in data['data']:
+                    instrument_list.append({
+                        'tradingsymbol': instrument.get('trading_symbol', ''),
+                        'name': instrument.get('name', ''),
+                        'instrument_token': instrument.get('instrument_key', ''),
+                        'exchange': exchange,
+                        'lot_size': instrument.get('lot_size', 1),
+                        'instrument_type': instrument.get('instrument_type', 'EQ')
+                    })
+                
+                return pd.DataFrame(instrument_list)
+        else:
+            st.error(f"Upstox API Error (Instruments): {response.text}")
+            
+        return pd.DataFrame()
+        
+    except Exception as e:
+        st.error(f"Upstox API Error (Instruments): {e}")
+        return pd.DataFrame()
+
+def get_upstox_quote(upstox_client, instrument_key):
+    """Fetches quote data from Upstox."""
+    if not upstox_client or not instrument_key:
+        return None
+    
+    try:
+        # Get live quote
+        quote_data = upstox_client.get_live_feed(instrument_key, 'quote')
+        return quote_data
+        
+    except Exception as e:
+        st.error(f"Upstox API Error (Quote): {e}")
+        return None
+
+
+def place_upstox_order(order_params):
+    """Place order through Upstox."""
+    try:
+        client = get_broker_client()
+        if not client or st.session_state.broker != "Upstox":
+            return None
+            
+        api_instance = upstox.OrderApi(client['api_client'])
+        
+        # Prepare order parameters
+        order_request = upstox.PlaceOrderRequest(
+            quantity=order_params['quantity'],
+            product=order_params['product'],
+            validity=order_params['validity'],
+            price=order_params.get('price', 0),
+            tag=order_params.get('tag', ''),
+            instrument_token=order_params['instrument_token'],
+            order_type=order_params['order_type'],
+            transaction_type=order_params['transaction_type'],
+            disclosed_quantity=order_params.get('disclosed_quantity', 0),
+            trigger_price=order_params.get('trigger_price', 0),
+            is_amo=order_params.get('is_amo', False)
+        )
+        
+        response = api_instance.place_order(order_request)
+        return response.data.order_id
+        
+    except ApiException as e:
+        st.error(f"Upstox order failed: {e}")
+        return None
+    except Exception as e:
+        st.error(f"Upstox order error: {e}")
+        return None
+
+def get_upstox_positions():
+    """Fetch positions from Upstox."""
+    try:
+        client = get_broker_client()
+        if not client or st.session_state.broker != "Upstox":
+            return pd.DataFrame()
+            
+        api_instance = upstox.PortfolioApi(client['api_client'])
+        response = api_instance.get_positions()
+        
+        positions = []
+        if response and hasattr(response, 'data'):
+            for position in response.data:
+                positions.append({
+                    'tradingsymbol': position.tradingsymbol,
+                    'quantity': position.quantity,
+                    'average_price': position.average_price,
+                    'last_price': position.last_price,
+                    'pnl': position.pnl,
+                    'product': position.product
+                })
+                
+        return pd.DataFrame(positions)
+        
+    except Exception as e:
+        st.error(f"Error fetching Upstox positions: {e}")
+        return pd.DataFrame()
+
+def get_upstox_holdings():
+    """Fetch holdings from Upstox."""
+    try:
+        client = get_broker_client()
+        if not client or st.session_state.broker != "Upstox":
+            return pd.DataFrame()
+            
+        api_instance = upstox.PortfolioApi(client['api_client'])
+        response = api_instance.get_holdings()
+        
+        holdings = []
+        if response and hasattr(response, 'data'):
+            for holding in response.data:
+                holdings.append({
+                    'tradingsymbol': holding.tradingsymbol,
+                    'quantity': holding.quantity,
+                    'average_price': holding.average_price,
+                    'last_price': holding.last_price,
+                    'pnl': holding.pnl,
+                    'product': holding.product
+                })
+                
+        return pd.DataFrame(holdings)
+        
+    except Exception as e:
+        st.error(f"Error fetching Upstox holdings: {e}")
+        return pd.DataFrame()
+
+def get_upstox_order_book():
+    """Fetch order book from Upstox."""
+    try:
+        client = get_broker_client()
+        if not client or st.session_state.broker != "Upstox":
+            return pd.DataFrame()
+            
+        api_instance = upstox.OrderApi(client['api_client'])
+        response = api_instance.get_order_book()
+        
+        orders = []
+        if response and hasattr(response, 'data'):
+            for order in response.data:
+                orders.append({
+                    'order_id': order.order_id,
+                    'tradingsymbol': order.tradingsymbol,
+                    'transaction_type': order.transaction_type,
+                    'order_type': order.order_type,
+                    'product': order.product,
+                    'quantity': order.quantity,
+                    'filled_quantity': order.filled_quantity,
+                    'price': order.price,
+                    'status': order.status,
+                    'order_timestamp': order.order_timestamp
+                })
+                
+        return pd.DataFrame(orders)
+        
+    except Exception as e:
+        st.error(f"Error fetching Upstox order book: {e}")
+        return pd.DataFrame()
+
 # @st.dialog("Quick Trade")
 def quick_trade_interface(symbol=None, exchange=None):
     """A quick trade interface that doesn't use dialogs."""
@@ -880,8 +1259,6 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_in
 
 @st.cache_resource(ttl=3600)
 @st.cache_resource(ttl=3600)
-# REPLACE THE ENTIRE get_instrument_df() FUNCTION with this corrected version:
-@st.cache_resource(ttl=3600)
 def get_instrument_df():
     """Fetches the full list of tradable instruments from the broker."""
     client = get_broker_client()
@@ -901,64 +1278,51 @@ def get_instrument_df():
         except Exception as e:
             st.error(f"Error loading Zerodha instruments: {e}")
             return pd.DataFrame()
-    elif broker == "FYERS":  # ADD THIS BLOCK
-        return get_fyers_instruments()
-    else:
-        st.warning(f"Instrument list for {broker} not implemented.")
-        return pd.DataFrame()
     
+    elif broker == "Upstox":
+        access_token = st.session_state.get('upstox_access_token')
+        if not access_token:
+            st.error("Upstox access token not found. Please login again.")
+            return pd.DataFrame()
         
         # Try the most common exchanges first
         exchanges_to_try = ['NSE', 'BSE', 'NFO', 'MCX', 'CDS']
         all_instruments = []
-
-@st.cache_data(ttl=86400)
-def get_fyers_instruments():
-    """Fetches instrument list from FYERS symbol master CSV (v3 compatible)."""
-    try:
-        # Load multiple exchange CSVs and combine
-        exchanges = {
-            'NSE_EQ': 'https://public.fyers.in/sym_details/NSE_EQ.csv',
-            'NSE_FO': 'https://public.fyers.in/sym_details/NSE_FO.csv',
-            'BSE_EQ': 'https://public.fyers.in/sym_details/BSE_EQ.csv',
-            'MCX_FO': 'https://public.fyers.in/sym_details/MCX_FO.csv',
-            # Add more as needed
-        }
         
-        all_instruments = []
-        for segment, url in exchanges.items():
+        for exchange in exchanges_to_try:
             try:
-                df_exchange = pd.read_csv(url)
-                df_exchange['exchange'] = segment.split('_')[0]
-                df_exchange['tradingsymbol'] = df_exchange['symbol']
-                df_exchange['instrument_type'] = df_exchange['instrument_type'].str.upper()
-                # Select relevant columns
-                df_exchange = df_exchange[['tradingsymbol', 'name', 'exchange', 'lot_size', 'instrument_type', 'expiry', 'strike']]
-                all_instruments.append(df_exchange)
+                exchange_instruments = get_upstox_instruments(access_token, exchange)
+                if not exchange_instruments.empty:
+                    all_instruments.append(exchange_instruments)
             except Exception as e:
-                st.warning(f"Failed to load {segment}: {e}")
+                st.error(f"Failed to load instruments from {exchange}: {e}")
                 continue
         
         if all_instruments:
-            df = pd.concat(all_instruments, ignore_index=True)
-            if 'expiry' in df.columns:
-                df['expiry'] = pd.to_datetime(df['expiry'], errors='coerce')
-            st.success(f"Loaded {len(df)} instruments from FYERS")
-            return df
+            combined_df = pd.concat(all_instruments, ignore_index=True)
+            st.success(f"Successfully loaded {len(combined_df)} instruments from Upstox")
+            return combined_df
         else:
-            st.error("Could not load any instruments from FYERS")
-            return pd.DataFrame()
+            st.error("""
+            Could not load any instruments from Upstox. Possible reasons:
+            1. Your Upstox account may not have access to these market segments
+            2. There might be temporary API issues
+            3. Your API key might not have the required permissions
             
-    except Exception as e:
-        st.error(f"FYERS Instruments Load Error: {e}")
-        return pd.DataFrame()
-     
+            Please use the debug button to check available exchanges.
+            """)
+            return pd.DataFrame()
     
+    else:
+        st.warning(f"Instrument list for {broker} not implemented.")
+        return pd.DataFrame()
+
 def get_instrument_token(symbol, instrument_df, exchange='NSE'):
     """Finds the instrument token for a given symbol and exchange."""
     if instrument_df.empty: return None
     match = instrument_df[(instrument_df['tradingsymbol'] == symbol.upper()) & (instrument_df['exchange'] == exchange)]
     return match.iloc[0]['instrument_token'] if not match.empty else None
+
 
 @st.cache_data(ttl=60)
 def get_historical_data(instrument_token, interval, period=None, from_date=None, to_date=None):
@@ -990,85 +1354,21 @@ def get_historical_data(instrument_token, interval, period=None, from_date=None,
         except Exception as e:
             st.error(f"Kite API Error (Historical): {e}")
             return pd.DataFrame()
-    elif broker == "FYERS":  # Updated for v3
-        return get_fyers_historical_data(instrument_token, interval, period)
+    
+    elif broker == "Upstox":
+        # Use Upstox REST API
+        access_token = st.session_state.get('upstox_access_token')
+        return get_upstox_historical_data(access_token, instrument_token, interval, period)
     
     else:
         st.warning(f"Historical data for {broker} not implemented.")
         return pd.DataFrame()
 
-def get_fyers_historical_data(symbol, interval, period=None):
-    """Fetches historical data from FYERS API v3."""
-    try:
-        fyers = st.session_state.get('fyers_model')
-        if not fyers or not symbol:
-            return pd.DataFrame()
-        
-        # Map interval to FYERS v3 resolution
-        interval_map = {
-            'minute': '1',
-            '5minute': '5',
-            '15minute': '15',
-            '30minute': '30',
-            '60minute': '60',
-            'day': 'D',
-            'week': 'W',
-            'month': 'M'
-        }
-        resolution = interval_map.get(interval, 'D')
-        
-        # Calculate date range
-        end_date = datetime.now()
-        if period == '1d':
-            start_date = end_date - timedelta(days=2)
-        elif period == '5d':
-            start_date = end_date - timedelta(days=7)
-        elif period == '1mo':
-            start_date = end_date - timedelta(days=31)
-        elif period == '6mo':
-            start_date = end_date - timedelta(days=182)
-        elif period == '1y':
-            start_date = end_date - timedelta(days=365)
-        else:
-            start_date = end_date - timedelta(days=30)
-        
-        # Format dates
-        date_format = "%Y-%m-%d"
-        start_date_str = start_date.strftime(date_format)
-        end_date_str = end_date.strftime(date_format)
-        
-        # Prepare data for v3 history
-        data = {
-            "symbol": symbol,  # e.g., "NSE:SBIN-EQ"
-            "resolution": resolution,
-            "date_format": "1",  # 1 for YYYY-MM-DD
-            "range_from": start_date_str,
-            "range_to": end_date_str,
-            "cont_flag": "1"
-        }
-        
-        response = fyers.history(data)
-        
-        if response and response.get('s') == 'ok':
-            candles = response.get('candles', [])
-            if candles:
-                df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
-                df.set_index('timestamp', inplace=True)
-                df.columns = ['open', 'high', 'low', 'close', 'volume']  # Standardize columns
-                return df
-        else:
-            st.error(f"FYERS History Error: {response.get('message', 'Unknown error')}")
-            
-        return pd.DataFrame()
-            
-    except Exception as e:
-        st.error(f"FYERS Historical Data Error: {e}")
-        return pd.DataFrame()
+@st.cache_resource(ttl=3600)
 
 @st.cache_data(ttl=15)
 def get_watchlist_data(symbols_with_exchange):
-    """Fetches live prices - UPDATED FOR FYERS v3."""
+    """Fetches live prices - UPDATED FOR UPSTOX."""
     client = get_broker_client()
     if not client or not symbols_with_exchange: 
         return pd.DataFrame()
@@ -1101,39 +1401,46 @@ def get_watchlist_data(symbols_with_exchange):
             st.toast(f"Error fetching watchlist data: {e}", icon="⚠️")
             return pd.DataFrame()
             
-    elif broker == "FYERS":
-        # Updated for FYERS v3
+    elif broker == "Upstox":
+        # Upstox implementation
         try:
-            fyers_symbols = [f"{item['exchange']}:{item['symbol']}-EQ" for item in symbols_with_exchange if item['exchange'] == 'NSE']  # Adjust for segment
-            # For simplicity, assume EQ; extend for FO etc.
-            if not fyers_symbols:
-                return pd.DataFrame()
+            # Convert symbols to Upstox format
+            upstox_instruments = []
+            symbol_map = {}
             
-            response = client.quotes({"symbols": fyers_symbols})
+            for item in symbols_with_exchange:
+                # This mapping would depend on your instrument key format
+                instrument_key = f"{item['exchange']}|{item['symbol']}"  # Adjust based on actual format
+                upstox_instruments.append(instrument_key)
+                symbol_map[instrument_key] = item['symbol']
             
+            quotes = get_upstox_quote(upstox_instruments)
             watchlist = []
-            if response and response.get('s') == 'ok':
-                for fyers_symbol, quote_data in response.get('d', {}).items():
-                    last_price = quote_data.get('lp', 0)
-                    # For prev_close, use 'close' if available, or approximate with 'o' for open of day
-                    prev_close = quote_data.get('close', quote_data.get('o', last_price))
-                    change = last_price - prev_close
-                    pct_change = (change / prev_close * 100) if prev_close != 0 else 0
-                    
-                    symbol = fyers_symbol.split(':')[1].split('-')[0]  # Extract symbol
-                    watchlist.append({
-                        'Ticker': symbol,
-                        'Exchange': fyers_symbol.split(':')[0],
-                        'Price': last_price,
-                        'Change': change,
-                        '% Change': pct_change
-                    })
-                    
+            
+            for instrument_key, quote_data in quotes.items():
+                symbol = symbol_map.get(instrument_key, instrument_key)
+                last_price = quote_data.get('last_price', 0)
+                prev_close = quote_data.get('close', last_price)
+                change = last_price - prev_close
+                pct_change = (change / prev_close * 100) if prev_close != 0 else 0
+                
+                watchlist.append({
+                    'Ticker': symbol,
+                    'Exchange': instrument_key.split('|')[0],
+                    'Price': last_price,
+                    'Change': change,
+                    '% Change': pct_change
+                })
+                
             return pd.DataFrame(watchlist)
             
         except Exception as e:
-            st.toast(f"Error fetching FYERS watchlist data: {e}", icon="⚠️")
+            st.toast(f"Error fetching Upstox watchlist data: {e}", icon="⚠️")
             return pd.DataFrame()
+    
+    else:
+        st.warning(f"Watchlist for {broker} not implemented.")
+        return pd.DataFrame()
 
 
 @st.cache_data(ttl=2)
@@ -1148,8 +1455,6 @@ def get_market_depth(instrument_token):
     except Exception as e:
         st.toast(f"Error fetching market depth: {e}", icon="⚠️")
         return None
-
-
 
 @st.cache_data(ttl=30)
 def get_options_chain(underlying, instrument_df, expiry_date=None):
@@ -1227,15 +1532,29 @@ def get_portfolio():
         except Exception as e:
             st.error(f"Portfolio API Error: {e}")
             return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0
+            
+    elif broker == "Upstox":
+        # Upstox implementation
+        try:
+            positions_df = get_upstox_positions()
+            holdings_df = get_upstox_holdings()
+            
+            total_pnl = positions_df['pnl'].sum() if not positions_df.empty else 0.0
+            total_investment = (holdings_df['quantity'] * holdings_df['average_price']).sum() if not holdings_df.empty else 0.0
+            
+            return positions_df, holdings_df, total_pnl, total_investment
+            
+        except Exception as e:
+            st.error(f"Upstox portfolio error: {e}")
+            return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0
     
     else:
         st.warning(f"Portfolio for {broker} not implemented.")
         return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0
 
 
-
 def place_order(instrument_df, symbol, quantity, order_type, transaction_type, product, price=None):
-    """Places a single order - UPDATED FOR FYERS v3."""
+    """Places a single order - UPDATED FOR UPSTOX."""
     client = get_broker_client()
     if not client:
         st.error("Broker not connected.")
@@ -1284,53 +1603,43 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
                 "status": f"Failed: {e}"
             })
             
-    elif broker == "FYERS":
-        # Updated for FYERS v3
+    elif broker == "Upstox":
+        # Upstox implementation
         try:
-            # Find instrument
+            # Find instrument token
             instrument = instrument_df[instrument_df['tradingsymbol'] == symbol.upper()]
             if instrument.empty:
                 st.error(f"Symbol '{symbol}' not found.")
                 return
                 
-            exchange = instrument.iloc[0]['exchange']
-            fyers_symbol = f"{exchange}:{symbol}-EQ"  # Adjust segment if FO
+            instrument_token = instrument.iloc[0]['instrument_token']
             
-            # Map order parameters to FYERS v3 format
-            type_map = {
-                'MARKET': 2,  # 2 for MARKET
-                'LIMIT': 1   # 1 for LIMIT
+            # Map product types
+            product_map = {
+                'MIS': 'intraday',
+                'CNC': 'delivery',
+                'NRML': 'normal'
             }
             
-            product_type_map = {
-                'MIS': 'INTRADAY',
-                'CNC': 'CNC'
+            # Map order types
+            order_type_map = {
+                'MARKET': 'market',
+                'LIMIT': 'limit'
             }
             
-            side_map = {
-                'BUY': 1,
-                'SELL': -1
+            order_params = {
+                'instrument_token': instrument_token,
+                'quantity': quantity,
+                'product': product_map.get(product, 'intraday'),
+                'validity': 'day',
+                'order_type': order_type_map.get(order_type, 'market'),
+                'transaction_type': transaction_type.lower(),
+                'price': price if order_type == 'LIMIT' else 0
             }
             
-            data = {
-                "symbol": fyers_symbol,
-                "qty": quantity,
-                "type": type_map.get(order_type, 2),
-                "side": side_map[transaction_type],
-                "productType": product_type_map.get(product, 'INTRADAY'),
-                "limitPrice": price if order_type == 'LIMIT' else 0,
-                "stopPrice": 0,
-                "validity": "DAY",
-                "disclosedQty": 0,
-                "offlineOrder": False,
-                "stopLoss": 0,
-                "takeProfit": 0,
-            }
-            
-            response = client.place_order(data)
-            if response and response.get('s') == 'ok':
-                order_id = response.get('data', {}).get('order_id', 'N/A')
-                st.toast(f"✅ FYERS order placed successfully! ID: {order_id}", icon="🎉")
+            order_id = place_upstox_order(order_params)
+            if order_id:
+                st.toast(f"✅ Upstox order placed successfully! ID: {order_id}", icon="🎉")
                 st.session_state.order_history.insert(0, {
                     "id": order_id, 
                     "symbol": symbol, 
@@ -1339,17 +1648,17 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
                     "status": "Success"
                 })
             else:
-                st.toast(f"❌ FYERS order failed: {response.get('message', 'Unknown error')}", icon="🔥")
+                st.toast(f"❌ Upstox order failed", icon="🔥")
                 st.session_state.order_history.insert(0, {
                     "id": "N/A", 
                     "symbol": symbol, 
                     "qty": quantity, 
                     "type": transaction_type, 
-                    "status": f"Failed: {response}"
+                    "status": "Failed"
                 })
                 
         except Exception as e:
-            st.toast(f"❌ FYERS order failed: {e}", icon="🔥")
+            st.toast(f"❌ Upstox order failed: {e}", icon="🔥")
             st.session_state.order_history.insert(0, {
                 "id": "N/A", 
                 "symbol": symbol, 
@@ -1357,8 +1666,9 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
                 "type": transaction_type, 
                 "status": f"Failed: {e}"
             })
-
-
+    
+    else:
+        st.warning(f"Order placement for {broker} not implemented.")
 
 
 @st.cache_data(ttl=1800)  # Cache for 30 minutes
@@ -1635,9 +1945,7 @@ def execute_basket_order(basket_items, instrument_df):
         st.error("Broker not connected.")
         return
     
-    broker = st.session_state.broker
-    
-    if broker == "Zerodha":
+    if st.session_state.broker == "Zerodha":
         orders_to_place = []
         for item in basket_items:
             instrument = instrument_df[instrument_df['tradingsymbol'] == item['symbol']]
@@ -1669,143 +1977,6 @@ def execute_basket_order(basket_items, instrument_df):
             st.rerun()
         except Exception as e:
             st.toast(f"❌ Basket order failed: {e}", icon="🔥")
-    
-    elif broker == "FYERS":
-        # FYERS implementation - place orders sequentially since FYERS doesn't support basket orders
-        successful_orders = 0
-        failed_orders = 0
-        
-        for item in basket_items:
-            try:
-                # Find instrument
-                instrument = instrument_df[instrument_df['tradingsymbol'] == item['symbol']]
-                if instrument.empty:
-                    st.toast(f"❌ Could not find symbol {item['symbol']} in instrument list. Skipping.", icon="🔥")
-                    failed_orders += 1
-                    continue
-                    
-                exchange = instrument.iloc[0]['exchange']
-                fyers_symbol = f"{exchange}:{item['symbol']}"
-                
-                # Map order parameters to FYERS format
-                order_type_map = {
-                    'MARKET': 1,  # MARKET ORDER
-                    'LIMIT': 2    # LIMIT ORDER
-                }
-                
-                product_type_map = {
-                    'MIS': 'INTRADAY',
-                    'CNC': 'CNC'
-                }
-                
-                side_map = {
-                    'BUY': 1,
-                    'SELL': -1
-                }
-                
-                # Prepare order data
-                order_data = {
-                    "symbol": fyers_symbol,
-                    "qty": int(item['quantity']),
-                    "type": order_type_map.get(item['order_type'], 2),
-                    "side": side_map.get(item['transaction_type'], 1),
-                    "productType": product_type_map.get(item['product'], 'INTRADAY'),
-                    "limitPrice": item.get('price', 0) if item['order_type'] == 'LIMIT' else 0,
-                    "stopPrice": 0,
-                    "disclosedQty": 0,
-                    "validity": 'DAY',
-                    "offlineOrder": False,
-                    "stopLoss": 0,
-                    "takeProfit": 0
-                }
-                
-                # Remove zero values for market orders
-                if item['order_type'] == 'MARKET':
-                    order_data.pop('limitPrice', None)
-                
-                # Place individual order
-                response = client.place_order(order_data)
-                
-                if response and response.get('s') == 'ok':
-                    successful_orders += 1
-                    st.toast(f"✅ {item['symbol']} order placed successfully! ID: {response.get('id')}", icon="🎉")
-                else:
-                    failed_orders += 1
-                    st.toast(f"❌ {item['symbol']} order failed: {response.get('message', 'Unknown error')}", icon="🔥")
-                    
-            except Exception as e:
-                failed_orders += 1
-                st.toast(f"❌ {item['symbol']} order failed: {e}", icon="🔥")
-        
-        # Summary
-        if successful_orders > 0:
-            st.success(f"✅ Basket order completed! {successful_orders} successful, {failed_orders} failed")
-            st.session_state.basket = []
-            st.rerun()
-        else:
-            st.error(f"❌ All orders failed! {failed_orders} orders failed")
-    
-    elif broker == "Upstox":
-        # Upstox implementation - place orders sequentially
-        successful_orders = 0
-        failed_orders = 0
-        
-        for item in basket_items:
-            try:
-                # Find instrument token
-                instrument = instrument_df[instrument_df['tradingsymbol'] == item['symbol']]
-                if instrument.empty:
-                    st.toast(f"❌ Could not find symbol {item['symbol']} in instrument list. Skipping.", icon="🔥")
-                    failed_orders += 1
-                    continue
-                    
-                instrument_token = instrument.iloc[0]['instrument_token']
-                
-                # Map product types
-                product_map = {
-                    'MIS': 'intraday',
-                    'CNC': 'delivery'
-                }
-                
-                # Map order types
-                order_type_map = {
-                    'MARKET': 'market',
-                    'LIMIT': 'limit'
-                }
-                
-                order_params = {
-                    'instrument_token': instrument_token,
-                    'quantity': int(item['quantity']),
-                    'product': product_map.get(item['product'], 'intraday'),
-                    'validity': 'day',
-                    'order_type': order_type_map.get(item['order_type'], 'market'),
-                    'transaction_type': item['transaction_type'].lower(),
-                    'price': item.get('price', 0) if item['order_type'] == 'LIMIT' else 0
-                }
-                
-                # Place individual order
-                order_id = place_upstox_order(order_params)
-                if order_id:
-                    successful_orders += 1
-                    st.toast(f"✅ {item['symbol']} order placed successfully! ID: {order_id}", icon="🎉")
-                else:
-                    failed_orders += 1
-                    st.toast(f"❌ {item['symbol']} order failed", icon="🔥")
-                    
-            except Exception as e:
-                failed_orders += 1
-                st.toast(f"❌ {item['symbol']} order failed: {e}", icon="🔥")
-        
-        # Summary
-        if successful_orders > 0:
-            st.success(f"✅ Basket order completed! {successful_orders} successful, {failed_orders} failed")
-            st.session_state.basket = []
-            st.rerun()
-        else:
-            st.error(f"❌ All orders failed! {failed_orders} orders failed")
-    
-    else:
-        st.warning(f"Basket orders for {broker} not implemented.")
 
 @st.cache_data(ttl=3600)
 def get_sector_data():
@@ -8613,6 +8784,36 @@ def display_order_history():
                     st.dataframe(pd.DataFrame(order_data), use_container_width=True)
                 else:
                     st.info("No orders placed today.")
+                    
+            elif broker == "Upstox":
+                orders_df = get_upstox_order_book()
+                if not orders_df.empty:
+                    order_data = []
+                    for _, order in orders_df.iterrows():
+                        order_time = order.get('order_timestamp', '')
+                        if order_time:
+                            try:
+                                dt = datetime.fromisoformat(order_time.replace('Z', '+00:00'))
+                                ist = pytz.timezone('Asia/Kolkata')
+                                dt_ist = dt.astimezone(ist)
+                                display_time = dt_ist.strftime("%Y-%m-%d %H:%M:%S IST")
+                            except:
+                                display_time = order_time
+                        else:
+                            display_time = 'N/A'
+                        
+                        order_data.append({
+                            'Time': display_time,
+                            'Symbol': order.get('tradingsymbol', ''),
+                            'Type': order.get('transaction_type', ''),
+                            'Qty': order.get('quantity', 0),
+                            'Price': f"₹{order.get('price', 0):.2f}",
+                            'Status': order.get('status', '')
+                        })
+                    
+                    st.dataframe(pd.DataFrame(order_data), use_container_width=True)
+                else:
+                    st.info("No orders placed today.")
             
         except Exception as e:
             st.error(f"Error fetching orders: {e}")
@@ -11877,44 +12078,6 @@ def page_hft_terminal():
 
 # ================ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
-import streamlit as st
-import hashlib
-import base64
-import pyotp
-import qrcode
-import io
-import time
-import requests
-from datetime import datetime
-from kiteconnect import KiteConnect
-from fyers_api import fyersModel
-from fyers_api import accessToken
-from streamlit_autorefresh import st_autorefresh
-
-# Initialize session state
-def initialize_session_state():
-    """Initialize all required session state variables."""
-    defaults = {
-        'broker': None,
-        'profile': None,
-        'kite': None,
-        'fyers_model': None,
-        'fyers_access_token': None,
-        'pyotp_secret': None,
-        'two_factor_setup_complete': False,
-        'authenticated': False,
-        'login_animation_complete': False,
-        'theme': 'Dark',
-        'terminal_mode': 'Cash',
-        'show_quick_trade': False,
-        'quick_trade_symbol': 'RELIANCE'
-    }
-    
-    for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
-
-# 2FA Functions
 def get_user_secret(user_profile):
     """Generate a persistent secret based on user profile."""
     if user_profile is None:
@@ -11925,6 +12088,7 @@ def get_user_secret(user_profile):
     secret = base64.b32encode(user_hash).decode('utf-8').replace('=', '')[:16]
     return secret
 
+# REPLACE THE DIALOG FUNCTIONS WITH REGULAR FUNCTIONS
 def show_two_factor_setup():
     """Show 2FA setup without using dialogs."""
     st.title("🔐 Two-Factor Authentication Setup")
@@ -11936,16 +12100,20 @@ def show_two_factor_setup():
     
     secret = st.session_state.pyotp_secret
     user_name = st.session_state.get('profile', {}).get('user_name', 'User')
-    uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="Trading Terminal")
+    uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="BlockVista Terminal")
     
     # Generate QR code with normal size
     img = qrcode.make(uri)
+    
+    # Resize to normal size (300x300 is standard for QR codes)
     img = img.resize((300, 300))
     
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     
+    # Display with normal size (remove use_container_width)
     st.image(buf.getvalue(), caption="Scan with your authenticator app", width=300)
+    
     st.markdown(f"**Your Secret Key:** `{secret}` (You can also enter this manually)")
     
     st.markdown("---")
@@ -11961,7 +12129,6 @@ def show_two_factor_setup():
                     st.session_state.two_factor_setup_complete = True
                     st.session_state.authenticated = True
                     st.success("2FA setup completed successfully!")
-                    time.sleep(1)
                     st.rerun()
                 else:
                     st.error("Invalid code. Please try again.")
@@ -11974,7 +12141,6 @@ def show_two_factor_setup():
         st.session_state.two_factor_setup_complete = True
         st.session_state.authenticated = True
         st.info("2FA setup skipped. You can enable it later in settings.")
-        time.sleep(1)
         st.rerun()
 
 def show_two_factor_auth():
@@ -11992,7 +12158,6 @@ def show_two_factor_auth():
                 if totp.verify(auth_code):
                     st.session_state.authenticated = True
                     st.success("Authentication successful!")
-                    time.sleep(1)
                     st.rerun()
                 else:
                     st.error("Invalid code. Please try again.")
@@ -12005,15 +12170,53 @@ def show_two_factor_auth():
         st.info("Backup code feature not yet implemented.")
     
     st.markdown("---")
-    if st.button("Return to Login", use_container_width=True):
+    if st.button("🔄 Return to Login", use_container_width=True):
         for key in list(st.session_state.keys()):
             if key not in ['theme', 'watchlists', 'active_watchlist']:
                 del st.session_state[key]
         st.rerun()
 
+
+@st.dialog("Generate QR Code for 2FA")
+def qr_code_dialog():
+    """Dialog to generate a QR code for 2FA setup."""
+    if 'show_qr_dialog' not in st.session_state:
+        st.session_state.show_qr_dialog = False
+    
+    if not st.session_state.get('two_factor_setup_complete', False):
+        st.session_state.show_qr_dialog = True
+        
+        st.subheader("Set up Two-Factor Authentication")
+        st.info("Please scan this QR code with your authenticator app (e.g., Google or Microsoft Authenticator). This is a one-time setup.")
+
+        if st.session_state.pyotp_secret is None:
+            # Ensure we get a dictionary, not None
+            profile = st.session_state.get('profile') or {}
+            st.session_state.pyotp_secret = get_user_secret(profile)
+        
+        secret = st.session_state.pyotp_secret
+        user_name = st.session_state.get('profile', {}).get('user_name', 'User')
+        uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="BlockVista Terminal")
+        
+        # Generate QR code with normal size
+        img = qrcode.make(uri)
+        img = img.resize((300, 300))  # Normal size
+        
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        
+        # Display with normal size
+        st.image(buf.getvalue(), caption="Scan with your authenticator app", width=300)
+        st.markdown(f"**Your Secret Key:** `{secret}` (You can also enter this manually)")
+        
+        if st.button("I have scanned the code. Continue.", use_container_width=True):
+            st.session_state.two_factor_setup_complete = True
+            st.session_state.show_qr_dialog = False
+            st.rerun()
+
 def show_login_animation():
     """Displays a boot-up animation after login."""
-    st.title("Trading Terminal")
+    st.title("BlockVista Terminal")
     
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -12028,555 +12231,167 @@ def show_login_animation():
     for text, progress in steps.items():
         status_text.text(f"STATUS: {text}")
         progress_bar.progress(progress)
-        time.sleep(0.7)
+        a_time.sleep(0.7)
     
-    time.sleep(0.5)
-    st.session_state.login_animation_complete = True
+    a_time.sleep(0.5)
+    st.session_state['login_animation_complete'] = True
     st.rerun()
 
-# Trading Functions
-def quick_trade_interface():
-    """Quick trade interface without dialogs."""
-    st.markdown("---")
-    st.subheader("Quick Trade")
+def login_page():
+    """Displays the login page for broker authentication."""
+    st.title("BlockVista Terminal")
+    st.subheader("Broker Login")
     
-    symbol = st.session_state.get('quick_trade_symbol', 'RELIANCE')
-    st.info(f"Trading: {symbol}")
+    broker = st.selectbox("Select Your Broker", ["Zerodha", "Upstox"])
     
-    col1, col2 = st.columns(2)
-    with col1:
-        quantity = st.number_input("Quantity", min_value=1, value=1, key="quick_qty")
-        price_type = st.selectbox("Price Type", ["MARKET", "LIMIT"], key="quick_price_type")
-    
-    with col2:
-        if price_type == "LIMIT":
-            price = st.number_input("Price", min_value=0.0, value=0.0, step=0.05, key="quick_price")
-        else:
-            price = 0.0
-        
-        transaction_type = st.selectbox("Type", ["BUY", "SELL"], key="quick_transaction_type")
-    
-    # Order validation
-    if price_type == "LIMIT" and price <= 0:
-        st.error("Please enter a valid price for LIMIT orders")
-        return
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        if st.button("Execute Trade", type="primary", use_container_width=True):
-            with st.spinner("Placing order..."):
-                try:
-                    success = execute_trade(
-                        symbol=symbol,
-                        quantity=quantity,
-                        price=price,
-                        price_type=price_type,
-                        transaction_type=transaction_type
-                    )
-                    
-                    if success:
-                        st.success(f"Order placed: {transaction_type} {quantity} {symbol} at {price_type}")
-                        st.session_state.show_quick_trade = False
-                    else:
-                        st.error("Order failed. Please try again.")
-                except Exception as e:
-                    st.error(f"Order error: {str(e)}")
-
-def execute_trade(symbol, quantity, price, price_type, transaction_type):
-    """Execute trade through the connected broker."""
-    try:
-        if st.session_state.broker == "Zerodha":
-            return execute_zerodha_trade(symbol, quantity, price, price_type, transaction_type)
-        elif st.session_state.broker == "FYERS":
-            return execute_fyers_trade(symbol, quantity, price, price_type, transaction_type)
-        else:
-            st.error("No broker connected")
-            return False
-    except Exception as e:
-        st.error(f"Trade execution failed: {str(e)}")
-        return False
-
-def execute_zerodha_trade(symbol, quantity, price, price_type, transaction_type):
-    """Execute trade via Zerodha."""
-    try:
-        kite = st.session_state.kite
-        if not kite:
-            st.error("Zerodha connection not available")
-            return False
-            
-        # Convert symbol to Zerodha format
-        zerodha_symbol = f"{symbol}EQ"
-        
-        order_params = {
-            "tradingsymbol": zerodha_symbol,
-            "quantity": quantity,
-            "transaction_type": transaction_type.upper(),
-            "product": kite.PRODUCT_CNC,
-            "order_type": price_type.upper()
-        }
-        
-        if price_type.upper() == "LIMIT" and price > 0:
-            order_params["price"] = price
-            
-        # Place order
-        order_id = kite.place_order(variety=kite.VARIETY_REGULAR, **order_params)
-        st.toast(f"Zerodha order placed: {order_id}")
-        return True
-        
-    except Exception as e:
-        st.error(f"Zerodha trade error: {str(e)}")
-        return False
-
-def execute_fyers_trade(symbol, quantity, price, price_type, transaction_type):
-    """Execute trade via FYERS."""
-    try:
-        fyers = st.session_state.fyers_model
-        if not fyers:
-            st.error("FYERS connection not available")
-            return False
-            
-        # Convert symbol to FYERS format
-        fyers_symbol = f"NSE:{symbol}-EQ"
-        
-        order_data = {
-            "symbol": fyers_symbol,
-            "qty": quantity,
-            "type": 2 if price_type.upper() == "LIMIT" else 1,
-            "side": 1 if transaction_type.upper() == "BUY" else -1,
-            "productType": "CNC",
-            "limitPrice": price if price_type.upper() == "LIMIT" else 0,
-            "stopPrice": 0,
-            "validity": "DAY"
-        }
-        
-        # Place order
-        response = fyers.place_order(order_data)
-        if response.get('s') == 'ok':
-            st.toast(f"FYERS order placed: {response.get('id')}")
-            return True
-        else:
-            st.error(f"FYERS order failed: {response.get('message')}")
-            return False
-            
-    except Exception as e:
-        st.error(f"FYERS trade error: {str(e)}")
-        return False
-
-# Broker Authentication Functions
-def display_broker_authentication():
-    """Display broker authentication options for Zerodha and FYERS."""
-    st.header("Broker Authentication")
-    
-    # Check if secrets are configured
-    check_secrets_configuration()
-    
-    # Broker selection
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        st.subheader("Select Broker")
-        broker_options = ["Zerodha", "FYERS"]
-        selected_broker = st.radio(
-            "Choose your broker:",
-            options=broker_options,
-            key="broker_selection"
-        )
-        st.session_state.broker = selected_broker
-        
-        # Broker info
-        broker_info = {
-            "Zerodha": """
-            • Indian broker with free equity delivery
-            • Advanced charting and API
-            • Most popular in India
-            • Kite Connect API
-            """,
-            "FYERS": """
-            • Advanced charting tools
-            • Free equity delivery trading
-            • Good API documentation
-            • Fyers API
-            """
-        }
-        
-        st.info(f"**{selected_broker}**\n{broker_info.get(selected_broker, '')}")
-    
-    with col2:
-        st.subheader("Authentication")
-        
-        if selected_broker == "Zerodha":
-            display_zerodha_auth()
-        elif selected_broker == "FYERS":
-            display_fyers_auth()
-
-def check_secrets_configuration():
-    """Check if all required secrets are configured."""
-    zerodha_configured = all([
-        st.secrets.get("ZERODHA_API_KEY"),
-        st.secrets.get("ZERODHA_API_SECRET")
-    ])
-    
-    fyers_configured = all([
-        st.secrets.get("FYERS_APP_ID"),
-        st.secrets.get("FYERS_SECRET_KEY"), 
-        st.secrets.get("FYERS_REDIRECT_URI")
-    ])
-    
-    if not zerodha_configured and not fyers_configured:
-        st.error("""
-        Broker credentials not configured!
-        
-        Please add the following to your Streamlit secrets:
-        
-        For Zerodha:
-        - ZERODHA_API_KEY
-        - ZERODHA_API_SECRET
-        
-        For FYERS:
-        - FYERS_APP_ID  
-        - FYERS_SECRET_KEY
-        - FYERS_REDIRECT_URI
-        """)
-    elif not zerodha_configured:
-        st.warning("Zerodha credentials missing from secrets")
-    elif not fyers_configured:
-        st.warning("FYERS credentials missing from secrets")
-
-def display_zerodha_auth():
-    """Display Zerodha authentication."""
-    if st.session_state.kite is None:
-        st.info("Zerodha Kite Connect Authentication")
-        
-        # Get credentials from Streamlit secrets
-        api_key = st.secrets.get("ZERODHA_API_KEY", "")
-        api_secret = st.secrets.get("ZERODHA_API_SECRET", "")
+    if broker == "Zerodha":
+        # Your existing Zerodha code remains the same
+        api_key = st.secrets.get("ZERODHA_API_KEY")
+        api_secret = st.secrets.get("ZERODHA_API_SECRET")
         
         if not api_key or not api_secret:
-            st.error("Zerodha API credentials not found in secrets. Please configure them.")
-            return
+            st.error("Kite API credentials not found. Please set ZERODHA_API_KEY and ZERODHA_API_SECRET in your Streamlit secrets.")
+            st.stop()
+            
+        kite = KiteConnect(api_key=api_key)
+        request_token = st.query_params.get("request_token")
         
-        # Display API key (masked)
-        st.code(f"API Key: {api_key[:8]}...")
-        
-        # Request token input
-        request_token = st.text_input(
-            "Request Token", 
-            key="zerodha_request_token",
-            placeholder="Paste request token from Zerodha login"
-        )
-        
-        # Generate login URL
-        if api_key:
-            login_url = f"https://kite.trade/connect/login?api_key={api_key}&v=3"
-            st.markdown(f"""
-            **Steps to connect:**
-            1. [Click here to login with Zerodha]({login_url})
-            2. Authorize the application
-            3. Copy the `request_token` from the redirect URL
-            4. Paste the token above
-            """)
-        
-        if st.button("Connect Zerodha", key="zerodha_connect", type="primary"):
-            if request_token:
-                try:
-                    with st.spinner("Connecting to Zerodha..."):
-                        kite = KiteConnect(api_key=api_key)
-                        data = kite.generate_session(request_token, api_secret=api_secret)
-                        st.session_state.kite = kite
-                        st.session_state.profile = {
-                            'user_name': data.get('user_name', 'Zerodha User'),
-                            'user_id': data.get('user_id', ''),
-                            'login_time': datetime.now().isoformat()
-                        }
-                        st.success("Zerodha connected successfully! Proceeding to 2FA setup...")
-                        time.sleep(1)
-                        st.rerun()
-                except Exception as e:
-                    st.error(f"Zerodha connection failed: {str(e)}")
-            else:
-                st.warning("Please enter the request token")
-    else:
-        st.success("Zerodha Connected")
-        user_profile = st.session_state.profile
-        st.markdown(f"""
-        <div class="success-box">
-            <strong>Connected as:</strong> {user_profile.get('user_name', 'User')}<br>
-            <strong>User ID:</strong> {user_profile.get('user_id', 'N/A')}<br>
-            <strong>Login Time:</strong> {user_profile.get('login_time', 'N/A')}
-        </div>
-        """, unsafe_allow_html=True)
-        
-        if st.button("Disconnect Zerodha", key="zerodha_disconnect"):
-            st.session_state.kite = None
-            st.session_state.profile = None
-            st.session_state.authenticated = False
-            st.session_state.two_factor_setup_complete = False
-            st.rerun()
-
-def display_fyers_auth():
-    """Display FYERS authentication."""
-    if st.session_state.fyers_model is None:
-        st.info("FYERS Authentication")
-        
-        # Check if secrets are configured
-        app_id = st.secrets.get("FYERS_APP_ID")
-        secret_key = st.secrets.get("FYERS_SECRET_KEY")
-        redirect_uri = st.secrets.get("FYERS_REDIRECT_URI")
-        
-        if not all([app_id, secret_key, redirect_uri]):
-            st.error("FYERS credentials not found in secrets. Please configure them.")
-            return
-        
-        # Show FYERS login URL
-        login_url = get_fyers_login_url()
-        if login_url:
-            st.markdown(f"""
-            **Steps to connect FYERS:**
-            1. [Click here to login with FYERS]({login_url})
-            2. Authorize the application
-            3. Copy the authorization code from the redirect URL
-            4. Paste the code below
-            """)
-        
-        auth_code = st.text_input(
-            "Authorization Code", 
-            key="fyers_auth_code", 
-            placeholder="Paste authorization code here"
-        )
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Connect FYERS", key="fyers_connect", type="primary", use_container_width=True):
-                if auth_code:
-                    with st.spinner("Connecting to FYERS..."):
-                        if fyers_generate_session(auth_code):
-                            st.success("FYERS connected successfully! Proceeding to 2FA setup...")
-                            time.sleep(1)
-                            st.rerun()
-                else:
-                    st.warning("Please enter authorization code")
-        
-        with col2:
-            if st.button("Refresh Login URL", key="fyers_refresh", use_container_width=True):
+        if request_token:
+            try:
+                data = kite.generate_session(request_token, api_secret=api_secret)
+                st.session_state.access_token = data["access_token"]
+                kite.set_access_token(st.session_state.access_token)
+                st.session_state.kite = kite
+                st.session_state.profile = kite.profile()
+                st.session_state.broker = "Zerodha"
+                st.query_params.clear()
                 st.rerun()
-                
-    else:
-        st.success("FYERS Connected")
-        
-        # Show connection details
-        if st.session_state.fyers_access_token:
-            st.markdown(f"""
-            <div class="success-box">
-                <strong>Access Token:</strong> {st.session_state.fyers_access_token[:25]}...<br>
-                <strong>Connected via:</strong> FYERS API<br>
-                <strong>Status:</strong> Active
-            </div>
-            """, unsafe_allow_html=True)
-        
-        if st.button("Disconnect FYERS", key="fyers_disconnect"):
-            fyers_logout()
-            st.session_state.fyers_model = None
-            st.session_state.fyers_access_token = None
-            st.session_state.authenticated = False
-            st.session_state.two_factor_setup_complete = False
-            st.rerun()
-
-def get_fyers_login_url():
-    """Generate FYERS login URL."""
-    try:
-        app_id = st.secrets.get("FYERS_APP_ID")
-        secret_key = st.secrets.get("FYERS_SECRET_KEY")
-        redirect_uri = st.secrets.get("FYERS_REDIRECT_URI")
-        
-        if not all([app_id, secret_key, redirect_uri]):
-            st.error("FYERS credentials not found in secrets")
-            return None
-            
-        # Create session model - FIXED: Use accessToken.SessionModel
-        session = accessToken.SessionModel(
-            client_id=app_id,
-            secret_key=secret_key, 
-            redirect_uri=redirect_uri,
-            response_type='code',
-            grant_type='authorization_code'
-        )
-        
-        # Generate login URL
-        login_url = session.generate_authcode()
-        return login_url
-        
-    except Exception as e:
-        st.error(f"Error generating FYERS login URL: {str(e)}")
-        return None
-
-def fyers_generate_session(authorization_code):
-    """Generate FYERS session using authorization code."""
-    try:
-        app_id = st.secrets.get("FYERS_APP_ID")
-        secret_key = st.secrets.get("FYERS_SECRET_KEY")
-        redirect_uri = st.secrets.get("FYERS_REDIRECT_URI")
-        
-        if not all([app_id, secret_key, redirect_uri]):
-            st.error("Missing FYERS credentials in secrets")
-            return False
-            
-        # FIXED: Use accessToken.SessionModel instead of fyersModel.SessionModel
-        session = accessToken.SessionModel(
-            client_id=app_id,
-            secret_key=secret_key,
-            redirect_uri=redirect_uri,
-            response_type='code',
-            grant_type='authorization_code'
-        )
-        
-        session.set_token(authorization_code)
-        response = session.generate_token()
-        
-        if response.get('s') == 'ok':
-            access_token = f"{app_id}:{response['access_token']}"
-            
-            st.session_state.fyers_access_token = access_token
-            st.session_state.fyers_model = fyersModel.FyersModel(
-                client_id=app_id,
-                token=access_token, 
-                log_path="/logs",
-                is_async=False
-            )
-            st.session_state.profile = {
-                'user_name': 'FYERS Trader',
-                'user_id': response.get('fy_id', ''),
-                'login_time': datetime.now().isoformat()
-            }
-            return True
+            except Exception as e:
+                st.error(f"Authentication failed: {e}")
+                st.query_params.clear()
         else:
-            error_msg = response.get('message', 'Unknown error')
-            st.error(f"FYERS authentication failed: {error_msg}")
-            return False
-            
-    except Exception as e:
-        st.error(f"FYERS session generation failed: {str(e)}")
-        return False
-
-def fyers_logout():
-    """Logs out the user from the FYERS API."""
-    try:
-        # FYERS doesn't have explicit logout in API, just clear session
-        st.session_state.fyers_model = None
-        st.session_state.fyers_access_token = None
-        st.toast("Successfully logged out from FYERS.")
-        
-    except Exception as e:
-        st.error(f"An error occurred during FYERS logout: {str(e)}")
-
-# Page Functions (Placeholders - replace with your actual page functions)
-def page_dashboard():
-    st.title("Dashboard")
-    st.write("Welcome to the main dashboard!")
+            st.link_button("Login with Zerodha Kite", kite.login_url())
+            st.info("Please login with Zerodha Kite to begin. You will be redirected back to the app.")
     
-    # Quick trade button
-    if st.button("Quick Trade", type="primary"):
-        st.session_state.show_quick_trade = True
-        st.rerun()
-
-def page_algo_bots():
-    st.title("AI Trading Bots")
-    st.write("Algorithmic trading bots content")
-
-def page_market_sentiment_ai():
-    st.title("AI Market Sentiment")
-    st.write("Market sentiment analysis content")
-
-def page_ai_discovery():
-    st.title("AI Discovery Engine")
-    st.write("AI discovery engine content")
-
-def page_ai_assistant():
-    st.title("AI Portfolio Assistant")
-    st.write("AI portfolio assistant content")
-
-def page_premarket_pulse():
-    st.title("Premarket Pulse")
-    st.write("Premarket analysis content")
-
-def page_advanced_charting():
-    st.title("Advanced Charting")
-    st.write("Advanced charting tools content")
-
-def page_momentum_and_trend_finder():
-    st.title("Market Scanners")
-    st.write("Market scanners content")
-
-def page_portfolio_and_risk():
-    st.title("Portfolio & Risk")
-    st.write("Portfolio and risk management content")
-
-def page_fundamental_analytics():
-    st.title("Fundamental Analytics")
-    st.write("Fundamental analysis content")
-
-def page_basket_orders():
-    st.title("Basket Orders")
-    st.write("Basket orders content")
-
-def page_forecasting_ml():
-    st.title("Forecasting (ML)")
-    st.write("Machine learning forecasting content")
-
-def page_algo_strategy_maker():
-    st.title("Algo Strategy Hub")
-    st.write("Algorithmic strategy builder content")
-
-def page_economic_calendar():
-    st.title("Economic Calendar")
-    st.write("Economic calendar content")
-
-def page_settings():
-    st.title("Settings")
-    st.write("Application settings content")
-
-def page_fo_analytics():
-    st.title("F&O Analytics")
-    st.write("Futures and Options analytics content")
-
-def page_option_strategy_builder():
-    st.title("Options Strategy Builder")
-    st.write("Options strategy builder content")
-
-def page_greeks_calculator():
-    st.title("Greeks Calculator")
-    st.write("Greeks calculator content")
-
-def page_futures_terminal():
-    st.title("Futures Terminal")
-    st.write("Futures trading terminal content")
-
-def page_hft_terminal():
-    st.title("HFT Terminal")
-    st.write("High Frequency Trading terminal content")
-
-# Styling and UI Components
-def apply_custom_styling():
-    """Apply custom CSS styling for the terminal."""
-    st.markdown("""
-    <style>
-    .success-box {
-        background-color: #d4edda;
-        border: 1px solid #c3e6cb;
-        border-radius: 5px;
-        padding: 15px;
-        margin: 10px 0;
-        color: #155724;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-def display_overnight_changes_bar():
-    """Display overnight changes bar (placeholder)."""
-    st.markdown("---")
-    st.markdown("**Overnight Changes:** 📈 Nifty: +0.5% | 📉 BankNifty: -0.2% | 💰 USD/INR: 83.25")
-    st.markdown("---")
-
-# Main Application
+    elif broker == "Upstox":
+        try:
+            import urllib.parse
+            import hashlib
+            import base64
+            import secrets
+            
+            api_key = st.secrets.get("UPSTOX_API_KEY")
+            api_secret = st.secrets.get("UPSTOX_API_SECRET")
+            redirect_uri = st.secrets.get("UPSTOX_REDIRECT_URI", "https://your-app-name.streamlit.app/")
+            
+            if not api_key or not api_secret:
+                st.error("Upstox API credentials not found. Please set UPSTOX_API_KEY and UPSTOX_API_SECRET in your Streamlit secrets.")
+                st.stop()
+            
+            # Generate PKCE code verifier and challenge (required for Upstox v2)
+            code_verifier = secrets.token_urlsafe(64)
+            code_challenge = base64.urlsafe_b64encode(
+                hashlib.sha256(code_verifier.encode()).digest()
+            ).decode().rstrip('=')
+            
+            # Store code_verifier in session state for later use
+            st.session_state.upstox_code_verifier = code_verifier
+            
+            # Check for authorization code in URL parameters
+            auth_code = st.query_params.get("code")
+            
+            if auth_code:
+                try:
+                    # Exchange authorization code for access token
+                    token_url = "https://api.upstox.com/v2/login/authorization/token"
+                    token_data = {
+                        'code': auth_code,
+                        'client_id': api_key,
+                        'client_secret': api_secret,
+                        'redirect_uri': redirect_uri,
+                        'grant_type': 'authorization_code',
+                        'code_verifier': st.session_state.upstox_code_verifier
+                    }
+                    
+                    headers = {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Accept': 'application/json'
+                    }
+                    
+                    response = requests.post(token_url, data=token_data, headers=headers)
+                    
+                    if response.status_code == 200:
+                        token_data = response.json()
+                        access_token = token_data['access_token']
+                        
+                        # Store in session state
+                        st.session_state.upstox_access_token = access_token
+                        st.session_state.broker = "Upstox"
+                        
+                        # Get user profile
+                        try:
+                            profile_url = "https://api.upstox.com/v2/user/profile"
+                            profile_headers = {
+                                'Authorization': f'Bearer {access_token}',
+                                'Accept': 'application/json'
+                            }
+                            
+                            profile_response = requests.get(profile_url, headers=profile_headers)
+                            if profile_response.status_code == 200:
+                                profile_data = profile_response.json()
+                                st.session_state.profile = {
+                                    'user_name': profile_data['data']['name'],
+                                    'email': profile_data['data']['email'],
+                                    'user_id': profile_data['data']['client_code']
+                                }
+                            else:
+                                st.session_state.profile = {
+                                    'user_name': 'Upstox User',
+                                    'email': '',
+                                    'user_id': 'upstox_user'
+                                }
+                        except Exception as profile_error:
+                            st.session_state.profile = {
+                                'user_name': 'Upstox User',
+                                'email': '',
+                                'user_id': 'upstox_user'
+                            }
+                        
+                        st.success("Upstox login successful!")
+                        if st.session_state.get('broker') == "Upstox" and st.session_state.get('upstox_access_token'):
+                            if st.button("🔧 Debug Upstox API & Exchanges"):
+                                available_exchanges = debug_upstox_exchanges(st.session_state.upstox_access_token)
+                                st.session_state.upstox_available_exchanges = available_exchanges
+                                st.query_params.clear()
+                        # Clean up code verifier
+                        if 'upstox_code_verifier' in st.session_state:
+                            del st.session_state.upstox_code_verifier
+                        st.rerun()
+                    else:
+                        st.error(f"Upstox token exchange failed: {response.text}")
+                        st.query_params.clear()
+                        
+                except Exception as e:
+                    st.error(f"Upstox authentication failed: {e}")
+                    st.query_params.clear()
+            else:
+                # Generate login URL for Upstox v2
+                base_url = "https://api.upstox.com/v2/login/authorization/dialog"
+                params = {
+                    'response_type': 'code',
+                    'client_id': api_key,
+                    'redirect_uri': redirect_uri,
+                    'code_challenge': code_challenge,
+                    'code_challenge_method': 'S256'
+                }
+                
+                login_url = f"{base_url}?{urllib.parse.urlencode(params)}"
+                st.link_button("Login with Upstox", login_url)
+                st.info("Please login with Upstox to begin. You will be redirected back to the app.")
+                
+        except Exception as e:
+            st.error(f"Upstox initialization failed: {e}")
+            
 def main_app():
     """The main application interface after successful login."""
     apply_custom_styling()
@@ -12605,11 +12420,12 @@ def main_app():
     # Only show main content after 2FA is complete
     # Handle quick trade without dialogs
     if st.session_state.get('show_quick_trade', False):
-        quick_trade_interface()
-        if st.button("Close Quick Trade"):
-            st.session_state.show_quick_trade = False
-            st.rerun()
-        return
+        st.markdown("---")
+        st.subheader("Quick Trade")
+        symbol = st.session_state.get('quick_trade_symbol')
+        if symbol:
+            st.info(f"Trading: {symbol}")
+        # Add your quick trade form here without using dialogs
     
     # Rest of your main app content...
     st.sidebar.title(f"Welcome, {st.session_state.profile['user_name']}")
@@ -12636,22 +12452,22 @@ def main_app():
     
     st.sidebar.header("Navigation")
     pages = {
-        "Cash": {
-            "Dashboard": page_dashboard,
-            "AI Trading Bots": page_algo_bots,
-            "AI Market Sentiment": page_market_sentiment_ai,
-            "AI Discovery Engine": page_ai_discovery,
-            "AI Portfolio Assistant": page_ai_assistant,
-            "Premarket Pulse": page_premarket_pulse,
-            "Advanced Charting": page_advanced_charting,
-            "Market Scanners": page_momentum_and_trend_finder,
-            "Portfolio & Risk": page_portfolio_and_risk,
-            "Fundamental Analytics": page_fundamental_analytics,
-            "Basket Orders": page_basket_orders,
-            "Forecasting (ML)": page_forecasting_ml,
-            "Algo Strategy Hub": page_algo_strategy_maker,
-            "Economic Calendar": page_economic_calendar,
-            "Settings": page_settings
+    "Cash": {
+        "Dashboard": page_dashboard,
+        "AI Trading Bots": page_algo_bots,
+        "AI Market Sentiment": page_market_sentiment_ai,  # NEW
+        "AI Discovery Engine": page_ai_discovery,
+        "AI Portfolio Assistant": page_ai_assistant,  # ENHANCED
+        "Premarket Pulse": page_premarket_pulse,
+        "Advanced Charting": page_advanced_charting,
+        "Market Scanners": page_momentum_and_trend_finder,
+        "Portfolio & Risk": page_portfolio_and_risk,
+        "Fundamental Analytics": page_fundamental_analytics,
+        "Basket Orders": page_basket_orders,
+        "Forecasting (ML)": page_forecasting_ml,
+        "Algo Strategy Hub": page_algo_strategy_maker,
+        "Economic Calendar": page_economic_calendar,
+        "Settings": page_settings
         },
         "Options": {
             "F&O Analytics": page_fo_analytics,
@@ -12685,38 +12501,16 @@ def main_app():
     if auto_refresh and selection not in no_refresh_pages:
         st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
     
-    # Execute the selected page function
-    try:
-        pages[st.session_state.terminal_mode][selection]()
-    except Exception as e:
-        st.error(f"Error loading page: {str(e)}")
-        st.info("Please check if all page functions are properly imported.")
+    pages[st.session_state.terminal_mode][selection]()
 
 # --- Application Entry Point ---
 if __name__ == "__main__":
     initialize_session_state()
     
-    # Check if user has completed broker authentication AND 2FA
-    broker_authenticated = False
-    if st.session_state.broker == "Zerodha":
-        broker_authenticated = st.session_state.get('kite') is not None
-    elif st.session_state.broker == "FYERS":
-        broker_authenticated = st.session_state.get('fyers_model') is not None
-    
-    # Check if 2FA is completed
-    two_fa_completed = st.session_state.get('two_factor_setup_complete', False) and st.session_state.get('authenticated', False)
-    
-    if broker_authenticated and two_fa_completed:
+    if 'profile' in st.session_state and st.session_state.profile:
         if st.session_state.get('login_animation_complete', False):
             main_app()
         else:
             show_login_animation()
-    elif broker_authenticated and not two_fa_completed:
-        # Show 2FA flow
-        if not st.session_state.get('two_factor_setup_complete', False):
-            show_two_factor_setup()
-        else:
-            show_two_factor_auth()
     else:
-        # Show broker authentication page
-        display_broker_authentication()
+        login_page()
