@@ -935,7 +935,7 @@ def get_fyers_historical_data(instrument_token, interval, period=None):
 
 @st.cache_data(ttl=15)
 def get_watchlist_data(symbols_with_exchange):
-    """Fetches live prices - UPDATED FOR UPSTOX."""
+    """Fetches live prices - UPDATED FOR UPSTOX AND FYERS."""
     client = get_broker_client()
     if not client or not symbols_with_exchange: 
         return pd.DataFrame()
@@ -964,7 +964,11 @@ def get_watchlist_data(symbols_with_exchange):
                         '% Change': pct_change
                     })
             return pd.DataFrame(watchlist)
-    elif broker == "FYERS":  # ADD THIS BLOCK
+        except Exception as e:
+            st.toast(f"Error fetching watchlist data: {e}", icon="⚠️")
+            return pd.DataFrame()
+            
+    elif broker == "FYERS":
         # FYERS implementation
         try:
             # Prepare symbols in FYERS format
@@ -1003,13 +1007,21 @@ def get_watchlist_data(symbols_with_exchange):
         except Exception as e:
             st.toast(f"Error fetching FYERS watchlist data: {e}", icon="⚠️")
             return pd.DataFrame()
-    else:
-        st.warning(f"Watchlist for {broker} not implemented.")
-        return pd.DataFrame()
-        except Exception as e:
-            st.toast(f"Error fetching watchlist data: {e}", icon="⚠️")
-            return pd.DataFrame()
             
+    elif broker == "Upstox":
+        # Upstox implementation
+        try:
+            # Convert symbols to Upstox format
+            upstox_instruments = []
+            symbol_map = {}
+            
+            for item in symbols_with_exchange:
+                instrument_key = f"{item['exchange']}|{item['symbol']}"  # Adjust based on actual format
+                upstox_instruments.append(instrument_key)
+                symbol_map[instrument_key] = item['symbol']
+            
+            quotes = get_upstox_quote(upstox_instruments)
+            watchlist = []
             
             for instrument_key, quote_data in quotes.items():
                 symbol = symbol_map.get(instrument_key, instrument_key)
