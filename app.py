@@ -12040,7 +12040,7 @@ def login_page():
     st.title("BlockVista Terminal")
     st.subheader("Broker Login")
     
-    broker = st.selectbox("Select Your Broker", ["Zerodha"])
+    broker = st.selectbox("Select Your Broker", ["Zerodha", "Upstox"])
     
     if broker == "Zerodha":
         # Your existing Zerodha code remains the same
@@ -12071,38 +12071,146 @@ def login_page():
             st.link_button("Login with Zerodha Kite", kite.login_url())
             st.info("Please login with Zerodha Kite to begin. You will be redirected back to the app.")
     
-
+    elif broker == "Upstox":
+        try:
+            import urllib.parse
+            import hashlib
+            import base64
+            import secrets
+            
+            api_key = st.secrets.get("UPSTOX_API_KEY")
+            api_secret = st.secrets.get("UPSTOX_API_SECRET")
+            redirect_uri = st.secrets.get("UPSTOX_REDIRECT_URI", "https://your-app-name.streamlit.app/")
+            
+            if not api_key or not api_secret:
+                st.error("Upstox API credentials not found. Please set UPSTOX_API_KEY and UPSTOX_API_SECRET in your Streamlit secrets.")
+                st.stop()
+            
+            # Generate PKCE code verifier and challenge (required for Upstox v2)
+            code_verifier = secrets.token_urlsafe(64)
+            code_challenge = base64.urlsafe_b64encode(
+                hashlib.sha256(code_verifier.encode()).digest()
+            ).decode().rstrip('=')
+            
+            # Store code_verifier in session state for later use
+            st.session_state.upstox_code_verifier = code_verifier
             
             # Check for authorization code in URL parameters
             auth_code = st.query_params.get("code")
-
+            
+            if auth_code:
+                try:
+                    # Exchange authorization code for access token
+                    token_url = "https://api.upstox.com/v2/login/authorization/token"
+                    token_data = {
+                        'code': auth_code,
+                        'client_id': api_key,
+                        'client_secret': api_secret,
+                        'redirect_uri': redirect_uri,
+                        'grant_type': 'authorization_code',
+                        'code_verifier': st.session_state.upstox_code_verifier
+                    }
+                    
+                    headers = {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Accept': 'application/json'
+                    }
+                    
+                    response = requests.post(token_url, data=token_data, headers=headers)
+                    
+                    if response.status_code == 200:
+                        token_data = response.json()
+                        access_token = token_data['access_token']
+                        
+                        # Store in session state
+                        st.session_state.upstox_access_token = access_token
+                        st.session_state.broker = "Upstox"
+                        
+                        # Get user profile
+                        try:
+                            profile_url = "https://api.upstox.com/v2/user/profile"
+                            profile_headers = {
+                                'Authorization': f'Bearer {access_token}',
+                                'Accept': 'application/json'
+                            }
+                            
+                            profile_response = requests.get(profile_url, headers=profile_headers)
+                            if profile_response.status_code == 200:
+                                profile_data = profile_response.json()
+                                st.session_state.profile = {
+                                    'user_name': profile_data['data']['name'],
+                                    'email': profile_data['data']['email'],
+                                    'user_id': profile_data['data']['client_code']
+                                }
+                            else:
+                                st.session_state.profile = {
+                                    'user_name': 'Upstox User',
+                                    'email': '',
+                                    'user_id': 'upstox_user'
+                                }
+                        except Exception as profile_error:
+                            st.session_state.profile = {
+                                'user_name': 'Upstox User',
+                                'email': '',
+                                'user_id': 'upstox_user'
+                            }
+                        
+                        st.success("Upstox login successful!")
+                        if st.session_state.get('broker') == "Upstox" and st.session_state.get('upstox_access_token'):
+                            if st.button("🔧 Debug Upstox API & Exchanges"):
+                                available_exchanges = debug_upstox_exchanges(st.session_state.upstox_access_token)
+                                st.session_state.upstox_available_exchanges = available_exchanges
+                                st.query_params.clear()
+                        # Clean up code verifier
+                        if 'upstox_code_verifier' in st.session_state:
+                            del st.session_state.upstox_code_verifier
+                        st.rerun()
+                    else:
+                        st.error(f"Upstox token exchange failed: {response.text}")
+                        st.query_params.clear()
+                        
+                except Exception as e:
+                    st.error(f"Upstox authentication failed: {e}")
+                    st.query_params.clear()
+            else:
+                # Generate login URL for Upstox v2
+                base_url = "https://api.upstox.com/v2/login/authorization/dialog"
+                params = {
+                    'response_type': 'code',
+                    'client_id': api_key,
+                    'redirect_uri': redirect_uri,
+                    'code_challenge': code_challenge,
+                    'code_challenge_method': 'S256'
+                }
+                
+                login_url = f"{base_url}?{urllib.parse.urlencode(params)}"
+                st.link_button("Login with Upstox", login_url)
+                st.info("Please login with Upstox to begin. You will be redirected back to the app.")
+                
+        except Exception as e:
+            st.error(f"Upstox initialization failed: {e}")
+            
 def main_app():
     """The main application interface after successful login."""
     apply_custom_styling()
     display_overnight_changes_bar()
     
-    # --- 2FA Check - Handle authentication flow first for ALL brokers
-    # Check if user has completed broker authentication
-    broker_authenticated = False
-    if st.session_state.broker == "Zerodha":
-        broker_authenticated = st.session_state.get('kite') is not None
-    elif st.session_state.broker == "FYERS":
-        broker_authenticated = st.session_state.get('fyers_model') is not None
-    
-    if not broker_authenticated:
-        st.error("Broker connection not found. Please log in again.")
+    # --- 2FA Check - Handle authentication flow first
+    profile = st.session_state.get('profile')
+    if not profile:
+        st.error("User profile not found. Please log in again.")
         if st.button("Return to Login"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
         return
     
-    # Show 2FA setup if needed (without dialogs) - FOR ALL BROKERS
+    # Show 2FA setup if needed (without dialogs)
     if not st.session_state.get('two_factor_setup_complete', False):
         show_two_factor_setup()
         return
     
-    # Show 2FA authentication if needed (without dialogs) - FOR ALL BROKERS
+    # Show 2FA authentication if needed (without dialogs)
     if not st.session_state.get('authenticated', False):
         show_two_factor_auth()
         return
@@ -12110,15 +12218,15 @@ def main_app():
     # Only show main content after 2FA is complete
     # Handle quick trade without dialogs
     if st.session_state.get('show_quick_trade', False):
-        quick_trade_interface()
+        st.markdown("---")
+        st.subheader("Quick Trade")
+        symbol = st.session_state.get('quick_trade_symbol')
+        if symbol:
+            st.info(f"Trading: {symbol}")
+        # Add your quick trade form here without using dialogs
     
     # Rest of your main app content...
-    # Display appropriate welcome message based on broker
-    if st.session_state.broker == "Zerodha":
-        st.sidebar.title(f"Welcome, {st.session_state.profile['user_name']}")
-    elif st.session_state.broker == "FYERS":
-        st.sidebar.title("Welcome, FYERS Trader")
-    
+    st.sidebar.title(f"Welcome, {st.session_state.profile['user_name']}")
     st.sidebar.caption(f"Connected via {st.session_state.broker}")
     st.sidebar.divider()
     
@@ -12142,22 +12250,22 @@ def main_app():
     
     st.sidebar.header("Navigation")
     pages = {
-        "Cash": {
-            "Dashboard": page_dashboard,
-            "AI Trading Bots": page_algo_bots,
-            "AI Market Sentiment": page_market_sentiment_ai,
-            "AI Discovery Engine": page_ai_discovery,
-            "AI Portfolio Assistant": page_ai_assistant,
-            "Premarket Pulse": page_premarket_pulse,
-            "Advanced Charting": page_advanced_charting,
-            "Market Scanners": page_momentum_and_trend_finder,
-            "Portfolio & Risk": page_portfolio_and_risk,
-            "Fundamental Analytics": page_fundamental_analytics,
-            "Basket Orders": page_basket_orders,
-            "Forecasting (ML)": page_forecasting_ml,
-            "Algo Strategy Hub": page_algo_strategy_maker,
-            "Economic Calendar": page_economic_calendar,
-            "Settings": page_settings
+    "Cash": {
+        "Dashboard": page_dashboard,
+        "AI Trading Bots": page_algo_bots,
+        "AI Market Sentiment": page_market_sentiment_ai,  # NEW
+        "AI Discovery Engine": page_ai_discovery,
+        "AI Portfolio Assistant": page_ai_assistant,  # ENHANCED
+        "Premarket Pulse": page_premarket_pulse,
+        "Advanced Charting": page_advanced_charting,
+        "Market Scanners": page_momentum_and_trend_finder,
+        "Portfolio & Risk": page_portfolio_and_risk,
+        "Fundamental Analytics": page_fundamental_analytics,
+        "Basket Orders": page_basket_orders,
+        "Forecasting (ML)": page_forecasting_ml,
+        "Algo Strategy Hub": page_algo_strategy_maker,
+        "Economic Calendar": page_economic_calendar,
+        "Settings": page_settings
         },
         "Options": {
             "F&O Analytics": page_fo_analytics,
@@ -12182,23 +12290,10 @@ def main_app():
     selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
     
     st.sidebar.divider()
-    
-    # Broker-specific disconnect buttons
-    if st.session_state.broker == "Zerodha":
-        if st.sidebar.button("Disconnect Zerodha"):
-            st.session_state.kite = None
-            st.session_state.profile = None
-            st.session_state.authenticated = False
-            st.session_state.two_factor_setup_complete = False
-            st.rerun()
-    elif st.session_state.broker == "FYERS":
-        if st.sidebar.button("Disconnect FYERS"):
-            fyers_logout()
-            st.session_state.fyers_model = None
-            st.session_state.fyers_access_token = None
-            st.session_state.authenticated = False
-            st.session_state.two_factor_setup_complete = False
-            st.rerun()
+    if st.sidebar.button("Logout"):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
 
     no_refresh_pages = ["Forecasting (ML)", "AI Assistant", "AI Discovery", "Algo Strategy Hub", "Algo Trading Bots"]
     if auto_refresh and selection not in no_refresh_pages:
@@ -12210,267 +12305,10 @@ def main_app():
 if __name__ == "__main__":
     initialize_session_state()
     
-    # Check if user has completed broker authentication AND 2FA
-    broker_authenticated = False
-    if st.session_state.broker == "Zerodha":
-        broker_authenticated = 'profile' in st.session_state and st.session_state.profile
-    elif st.session_state.broker == "FYERS":
-        broker_authenticated = st.session_state.get('fyers_model') is not None
-    
-    # Check if 2FA is completed
-    two_fa_completed = st.session_state.get('two_factor_setup_complete', False) and st.session_state.get('authenticated', False)
-    
-    if broker_authenticated and two_fa_completed:
+    if 'profile' in st.session_state and st.session_state.profile:
         if st.session_state.get('login_animation_complete', False):
             main_app()
         else:
             show_login_animation()
-    elif broker_authenticated and not two_fa_completed:
-        # Show 2FA flow
-        if not st.session_state.get('two_factor_setup_complete', False):
-            show_two_factor_setup()
-        else:
-            show_two_factor_auth()
     else:
-        # Show broker authentication page
-        display_broker_authentication()
-
-def display_broker_authentication():
-    """Display broker authentication options for Zerodha and FYERS."""
-    st.header("🔐 Broker Authentication")
-    
-    # Broker selection
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        st.subheader("Select Broker")
-        broker_options = ["Zerodha", "FYERS"]
-        selected_broker = st.radio(
-            "Choose your broker:",
-            options=broker_options,
-            key="broker_selection"
-        )
-        st.session_state.broker = selected_broker
-        
-        # Broker info
-        broker_info = {
-            "Zerodha": "• Indian broker with free equity delivery\n• Advanced charting and API\n• Most popular in India",
-            "FYERS": "• Advanced charting tools\n• Free equity delivery trading\n• Good API documentation"
-        }
-        
-        st.info(f"**{selected_broker}**\n\n{broker_info.get(selected_broker, '')}")
-    
-    with col2:
-        st.subheader("Authentication")
-        
-        if selected_broker == "Zerodha":
-            display_zerodha_auth()
-        elif selected_broker == "FYERS":
-            display_fyers_auth()
-
-def display_zerodha_auth():
-    """Display Zerodha authentication."""
-    if st.session_state.kite is None:
-        st.info("Zerodha Kite Connect Authentication")
-       
-        api_key = st.secrets.get("zerodha", {}).get("API_KEY", st.text_input("API Key", key="zerodha_api_key", type="password"))
-        api_secret = st.secrets.get("zerodha", {}).get("API_SECRET", st.text_input("API Secret", key="zerodha_api_secret", type="password"))
-        request_token = st.text_input("Request Token", key="zerodha_request_token")
-       
-        if st.button("Connect Zerodha", key="zerodha_connect"):
-            if api_key and api_secret and request_token:
-                try:
-                    kite = KiteConnect(api_key=api_key)
-                    data = kite.generate_session(request_token, api_secret=api_secret)
-                    st.session_state.kite = kite
-                    st.session_state.profile = data['user']
-                    st.success("✅ Zerodha connected successfully! Proceeding to 2FA setup...")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Zerodha connection failed: {e}")
-            else:
-                st.warning("Please fill all fields")
-    else:
-        st.success("✅ Zerodha Connected")
-        if st.button("Disconnect Zerodha", key="zerodha_disconnect"):
-            st.session_state.kite = None
-            st.session_state.profile = None
-            st.session_state.authenticated = False
-            st.session_state.two_factor_setup_complete = False
-            st.rerun()
-
-def display_fyers_auth():
-    """Display FYERS authentication."""
-    if st.session_state.fyers_model is None:
-        st.info("FYERS Authentication")
-       
-        # Show FYERS login URL
-        login_url = get_fyers_login_url()
-        if login_url:
-            st.markdown(f"""
-            **Steps to connect FYERS:**
-            1. [Click here to login with FYERS]({login_url})
-            2. Authorize the application
-            3. Copy the authorization code from the redirect URL
-            4. Paste the code below
-            """)
-       
-        auth_code = st.text_input("Authorization Code", key="fyers_auth_code",
-                                 placeholder="Paste authorization code here")
-       
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Connect FYERS", key="fyers_connect", type="primary", use_container_width=True):
-                if auth_code:
-                    if fyers_generate_session(auth_code):
-                        st.success("✅ FYERS connected successfully! Proceeding to 2FA setup...")
-                        st.rerun()
-                else:
-                    st.warning("Please enter authorization code")
-       
-        with col2:
-            if st.button("Refresh Login URL", key="fyers_refresh", use_container_width=True):
-                st.rerun()
-               
-    else:
-        st.success("✅ FYERS Connected")
-       
-        # Show connection details
-        if st.session_state.fyers_access_token:
-            st.code(f"Access Token: {st.session_state.fyers_access_token[:20]}...")
-       
-        if st.button("Disconnect FYERS", key="fyers_disconnect"):
-            fyers_logout()
-            st.session_state.fyers_model = None
-            st.session_state.fyers_access_token = None
-            st.session_state.profile = None
-            st.session_state.authenticated = False
-            st.session_state.two_factor_setup_complete = False
-            st.rerun()
-# ================ FYERS AUTHENTICATION FUNCTIONS ================
-def get_fyers_login_url():
-    """Generate FYERS login URL."""
-    try:
-        fyers_secrets = st.secrets.get("fyers", {})
-        app_id = fyers_secrets.get("APP_ID")
-        secret_key = fyers_secrets.get("SECRET_KEY")
-        redirect_uri = fyers_secrets.get("REDIRECT_URI")
-        
-        if not all([app_id, secret_key, redirect_uri]):
-            st.error("FYERS credentials not found in secrets")
-            return None
-            
-        # v3 Initialization (per official PyPI example)
-        session = fyersModel.SessionModel(
-            client_id=app_id,
-            secret_key=secret_key,
-            redirect_uri=redirect_uri,
-            response_type="code",
-            grant_type="authorization_code",
-            state="sample"  # Optional: Prevents CSRF
-        )
-        
-        # Generate login URL
-        login_url = session.generate_authcode()
-        return login_url
-        
-    except Exception as e:
-        st.error(f"Error generating FYERS login URL: {e}")
-        return None
-
-def fyers_generate_session(authorization_code):
-    """Generate FYERS session using authorization code."""
-    try:
-        fyers_secrets = st.secrets.get("fyers", {})
-        app_id = fyers_secrets.get("APP_ID")
-        secret_key = fyers_secrets.get("SECRET_KEY")
-        redirect_uri = fyers_secrets.get("REDIRECT_URI")
-        
-        if not all([app_id, secret_key, redirect_uri]):
-            st.error("Missing FYERS credentials in secrets")
-            return False
-            
-        session = fyersModel.SessionModel(
-            client_id=app_id,
-            secret_key=secret_key,
-            redirect_uri=redirect_uri,
-            response_type="code",
-            grant_type="authorization_code",
-            state="sample"
-        )
-        
-        session.set_token(authorization_code)
-        response = session.generate_token()
-        
-        if response.get('s') == 'ok':
-            access_token = f"{app_id}:{response['access_token']}"
-            
-            st.session_state.fyers_access_token = access_token
-            st.session_state.fyers_model = fyersModel.FyersModel(
-                client_id=app_id,
-                token=access_token,
-                log_path="logs",  # Adjust for your env
-                is_async=False  # Sync mode for Streamlit
-            )
-            
-            # Fetch profile for UI consistency
-            profile_response = st.session_state.fyers_model.get_profile()
-            if profile_response.get('s') == 'ok':
-                st.session_state.profile = {
-                    'user_name': profile_response['data'].get('name', 'FYERS Trader'),
-                    'email': profile_response['data'].get('email', '')
-                }
-            else:
-                st.warning("Profile fetch succeeded, but details unavailable")
-                st.session_state.profile = {'user_name': 'FYERS Trader'}
-            
-            return True
-        else:
-            st.error(f"FYERS authentication failed: {response.get('message', 'Unknown error')}")
-            return False
-            
-    except Exception as e:
-        st.error(f"FYERS session generation failed: {str(e)}")
-        return False
-
-def fyers_logout():
-    """Logs out the user from the FYERS API."""
-    try:
-        # FYERS doesn't have explicit logout API; clear session state
-        if 'fyers_model' in st.session_state:
-            del st.session_state.fyers_model
-        if 'fyers_access_token' in st.session_state:
-            del st.session_state.fyers_access_token
-        st.toast("Successfully logged out from FYERS.")
-    except Exception as e:
-        st.error(f"An error occurred during FYERS logout: {str(e)}")
-
-# --- Application Entry Point ---
-if __name__ == "__main__":
-    initialize_session_state()
-   
-    # Check if user has completed broker authentication AND 2FA
-    broker_authenticated = False
-    if st.session_state.broker == "Zerodha":
-        broker_authenticated = st.session_state.get('kite') is not None and st.session_state.get('profile')
-    elif st.session_state.broker == "FYERS":
-        broker_authenticated = st.session_state.get('fyers_model') is not None and st.session_state.get('profile')
-   
-    # Check if 2FA is completed
-    two_fa_completed = st.session_state.get('two_factor_setup_complete', False) and st.session_state.get('authenticated', False)
-   
-    if broker_authenticated and two_fa_completed:
-        if st.session_state.get('login_animation_complete', False):
-            main_app()
-        else:
-            show_login_animation()
-    elif broker_authenticated and not two_fa_completed:
-        # Show 2FA flow
-        if not st.session_state.get('two_factor_setup_complete', False):
-            show_two_factor_setup()
-        else:
-            show_two_factor_auth()
-    else:
-        # Show broker authentication page
         login_page()
-
