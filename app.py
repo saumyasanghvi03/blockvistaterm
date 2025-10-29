@@ -11881,7 +11881,7 @@ def get_user_secret(user_profile):
     """Generate a persistent secret based on user profile."""
     if user_profile is None:
         user_profile = {}
-    
+   
     user_id = user_profile.get('user_id', 'default_user')
     user_hash = hashlib.sha256(str(user_id).encode()).digest()
     secret = base64.b32encode(user_hash).decode('utf-8').replace('=', '')[:16]
@@ -11889,31 +11889,35 @@ def get_user_secret(user_profile):
 
 def show_two_factor_setup():
     """Show 2FA setup without using dialogs."""
-    st.title("Two-Factor Authentication Setup")
+    st.title("🔐 Two-Factor Authentication Setup")
     st.info("Please scan the QR code with your authenticator app (e.g., Google or Microsoft Authenticator).")
-    
+   
     if st.session_state.pyotp_secret is None:
         profile = st.session_state.get('profile') or {}
         st.session_state.pyotp_secret = get_user_secret(profile)
-    
+   
     secret = st.session_state.pyotp_secret
     user_name = st.session_state.get('profile', {}).get('user_name', 'User')
-    uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="Trading Terminal")
-    
+    uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="BlockVista Terminal")
+   
     # Generate QR code with normal size
     img = qrcode.make(uri)
+   
+    # Resize to normal size (300x300 is standard for QR codes)
     img = img.resize((300, 300))
-    
+   
     buf = io.BytesIO()
     img.save(buf, format="PNG")
-    
+   
+    # Display with normal size (remove use_container_width)
     st.image(buf.getvalue(), caption="Scan with your authenticator app", width=300)
+   
     st.markdown(f"**Your Secret Key:** `{secret}` (You can also enter this manually)")
-    
+   
     st.markdown("---")
     st.subheader("Verify Setup")
     auth_code = st.text_input("Enter 6-digit code from your authenticator app", max_chars=6, key="verify_2fa")
-    
+   
     col1, col2 = st.columns(2)
     if col1.button("Verify & Continue", use_container_width=True, type="primary"):
         if auth_code:
@@ -11923,7 +11927,6 @@ def show_two_factor_setup():
                     st.session_state.two_factor_setup_complete = True
                     st.session_state.authenticated = True
                     st.success("2FA setup completed successfully!")
-                    time.sleep(1)
                     st.rerun()
                 else:
                     st.error("Invalid code. Please try again.")
@@ -11931,21 +11934,20 @@ def show_two_factor_setup():
                 st.error(f"Verification failed: {e}")
         else:
             st.warning("Please enter a verification code.")
-    
+   
     if col2.button("Skip 2FA Setup", use_container_width=True):
         st.session_state.two_factor_setup_complete = True
         st.session_state.authenticated = True
         st.info("2FA setup skipped. You can enable it later in settings.")
-        time.sleep(1)
         st.rerun()
 
 def show_two_factor_auth():
     """Show 2FA authentication without using dialogs."""
-    st.title("Two-Factor Authentication")
+    st.title("🔐 Two-Factor Authentication")
     st.caption("Please enter the 6-digit code from your authenticator app to continue.")
-    
+   
     auth_code = st.text_input("2FA Code", max_chars=6, key="2fa_code")
-    
+   
     col1, col2 = st.columns(2)
     if col1.button("Authenticate", use_container_width=True, type="primary"):
         if auth_code:
@@ -11954,7 +11956,6 @@ def show_two_factor_auth():
                 if totp.verify(auth_code):
                     st.session_state.authenticated = True
                     st.success("Authentication successful!")
-                    time.sleep(1)
                     st.rerun()
                 else:
                     st.error("Invalid code. Please try again.")
@@ -11962,12 +11963,12 @@ def show_two_factor_auth():
                 st.error(f"Authentication failed: {e}")
         else:
             st.warning("Please enter a code.")
-    
+   
     if col2.button("Use Backup Code", use_container_width=True):
         st.info("Backup code feature not yet implemented.")
-    
+   
     st.markdown("---")
-    if st.button("Return to Login", use_container_width=True):
+    if st.button("🔄 Return to Login", use_container_width=True):
         for key in list(st.session_state.keys()):
             if key not in ['theme', 'watchlists', 'active_watchlist']:
                 del st.session_state[key]
@@ -11975,460 +11976,183 @@ def show_two_factor_auth():
 
 def show_login_animation():
     """Displays a boot-up animation after login."""
-    st.title("Trading Terminal")
-    
+    st.title("BlockVista Terminal")
+   
     progress_bar = st.progress(0)
     status_text = st.empty()
-    
+   
     steps = {
         "Authenticating user...": 25,
         "Establishing secure connection...": 50,
         "Fetching live market data feeds...": 75,
         "Initializing terminal... COMPLETE": 100
     }
-    
+   
     for text, progress in steps.items():
         status_text.text(f"STATUS: {text}")
         progress_bar.progress(progress)
         time.sleep(0.7)
-    
+   
     time.sleep(0.5)
-    st.session_state.login_animation_complete = True
+    st.session_state['login_animation_complete'] = True
     st.rerun()
 
-def quick_trade_interface():
-    """Quick trade interface without dialogs."""
-    st.markdown("---")
-    st.subheader("Quick Trade")
-    
-    symbol = st.session_state.get('quick_trade_symbol', 'RELIANCE')
-    st.info(f"Trading: {symbol}")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        quantity = st.number_input("Quantity", min_value=1, value=1, key="quick_qty")
-        price_type = st.selectbox("Price Type", ["MARKET", "LIMIT"], key="quick_price_type")
-    
-    with col2:
-        if price_type == "LIMIT":
-            price = st.number_input("Price", min_value=0.0, value=0.0, step=0.05, key="quick_price")
-        else:
-            price = 0.0
-        
-        transaction_type = st.selectbox("Type", ["BUY", "SELL"], key="quick_transaction_type")
-    
-    # Order validation
-    if price_type == "LIMIT" and price <= 0:
-        st.error("Please enter a valid price for LIMIT orders")
-        return
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        if st.button("Execute Trade", type="primary", use_container_width=True):
-            with st.spinner("Placing order..."):
-                try:
-                    success = execute_trade(
-                        symbol=symbol,
-                        quantity=quantity,
-                        price=price,
-                        price_type=price_type,
-                        transaction_type=transaction_type
-                    )
-                    
-                    if success:
-                        st.success(f"Order placed: {transaction_type} {quantity} {symbol} at {price_type}")
-                        st.session_state.show_quick_trade = False
-                    else:
-                        st.error("Order failed. Please try again.")
-                except Exception as e:
-                    st.error(f"Order error: {str(e)}")
-
-def execute_trade(symbol, quantity, price, price_type, transaction_type):
-    """Execute trade through the connected broker."""
-    try:
-        if st.session_state.broker == "Zerodha":
-            return execute_zerodha_trade(symbol, quantity, price, price_type, transaction_type)
-        elif st.session_state.broker == "FYERS":
-            return execute_fyers_trade(symbol, quantity, price, price_type, transaction_type)
-    except Exception as e:
-        st.error(f"Trade execution failed: {str(e)}")
-        return False
-
-def execute_zerodha_trade(symbol, quantity, price, price_type, transaction_type):
-    """Execute trade via Zerodha."""
-    try:
-        kite = st.session_state.kite
-        if not kite:
-            st.error("Zerodha connection not available")
-            return False
-            
-        # Convert symbol to Zerodha format
-        zerodha_symbol = f"{symbol}EQ"
-        
-        order_params = {
-            "tradingsymbol": zerodha_symbol,
-            "quantity": quantity,
-            "transaction_type": transaction_type.upper(),
-            "product": kite.PRODUCT_CNC,
-            "order_type": price_type.upper()
-        }
-        
-        if price_type.upper() == "LIMIT" and price > 0:
-            order_params["price"] = price
-            
-        # Place order
-        order_id = kite.place_order(variety=kite.VARIETY_REGULAR, **order_params)
-        st.toast(f"Zerodha order placed: {order_id}")
-        return True
-        
-    except Exception as e:
-        st.error(f"Zerodha trade error: {str(e)}")
-        return False
-
-def execute_fyers_trade(symbol, quantity, price, price_type, transaction_type):
-    """Execute trade via FYERS."""
-    try:
-        fyers = st.session_state.fyers_model
-        if not fyers:
-            st.error("FYERS connection not available")
-            return False
-            
-        # Convert symbol to FYERS format
-        fyers_symbol = f"NSE:{symbol}-EQ"
-        
-        order_data = {
-            "symbol": fyers_symbol,
-            "qty": quantity,
-            "type": 2 if price_type.upper() == "LIMIT" else 1,
-            "side": 1 if transaction_type.upper() == "BUY" else -1,
-            "productType": "CNC",
-            "limitPrice": price if price_type.upper() == "LIMIT" else 0,
-            "stopPrice": 0,
-            "validity": "DAY"
-        }
-        
-        # Place order
-        response = fyers.place_order(order_data)
-        if response.get('s') == 'ok':
-            st.toast(f"FYERS order placed: {response.get('id')}")
-            return True
-        else:
-            st.error(f"FYERS order failed: {response.get('message')}")
-            return False
-            
-    except Exception as e:
-        st.error(f"FYERS trade error: {str(e)}")
-        return False
-
-def display_broker_authentication():
-    """Display broker authentication options for Zerodha and FYERS."""
-    st.header("Broker Authentication")
-    
-    # Check if secrets are configured
-    check_secrets_configuration()
-    
-    # Broker selection
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        st.subheader("Select Broker")
-        broker_options = ["Zerodha", "FYERS"]
-        selected_broker = st.radio(
-            "Choose your broker:",
-            options=broker_options,
-            key="broker_selection"
-        )
-        st.session_state.broker = selected_broker
-        
-        # Broker info
-        broker_info = {
-            "Zerodha": """
-            • Indian broker with free equity delivery
-            • Advanced charting and API
-            • Most popular in India
-            • Kite Connect API
-            """,
-            "FYERS": """
-            • Advanced charting tools
-            • Free equity delivery trading
-            • Good API documentation
-            • Fyers API
-            """
-        }
-        
-        st.info(f"**{selected_broker}**\n{broker_info.get(selected_broker, '')}")
-    
-    with col2:
-        st.subheader("Authentication")
-        
-        if selected_broker == "Zerodha":
-            display_zerodha_auth()
-        elif selected_broker == "FYERS":
-            display_fyers_auth()
-
-def check_secrets_configuration():
-    """Check if all required secrets are configured."""
-    zerodha_configured = all([
-        st.secrets.get("ZERODHA_API_KEY"),
-        st.secrets.get("ZERODHA_API_SECRET")
-    ])
-    
-    fyers_configured = all([
-        st.secrets.get("FYERS_APP_ID"),
-        st.secrets.get("FYERS_SECRET_KEY"), 
-        st.secrets.get("FYERS_REDIRECT_URI")
-    ])
-    
-    if not zerodha_configured and not fyers_configured:
-        st.error("""
-        Broker credentials not configured!
-        
-        Please add the following to your Streamlit secrets:
-        
-        For Zerodha:
-        - ZERODHA_API_KEY
-        - ZERODHA_API_SECRET
-        
-        For FYERS:
-        - FYERS_APP_ID  
-        - FYERS_SECRET_KEY
-        - FYERS_REDIRECT_URI
-        """)
-    elif not zerodha_configured:
-        st.warning("Zerodha credentials missing from secrets")
-    elif not fyers_configured:
-        st.warning("FYERS credentials missing from secrets")
-
-def display_zerodha_auth():
-    """Display Zerodha authentication."""
-    if st.session_state.kite is None:
-        st.info("Zerodha Kite Connect Authentication")
-        
-        # Get credentials from Streamlit secrets
-        api_key = st.secrets.get("ZERODHA_API_KEY", "")
-        api_secret = st.secrets.get("ZERODHA_API_SECRET", "")
-        
+def login_page():
+    """Displays the login page for broker authentication."""
+    st.title("BlockVista Terminal")
+    st.subheader("Broker Login")
+   
+    broker = st.selectbox("Select Your Broker", ["Zerodha", "Upstox"])
+   
+    if broker == "Zerodha":
+        # Your existing Zerodha code remains the same
+        api_key = st.secrets.get("ZERODHA_API_KEY")
+        api_secret = st.secrets.get("ZERODHA_API_SECRET")
+       
         if not api_key or not api_secret:
-            st.error("Zerodha API credentials not found in secrets. Please configure them.")
-            return
-        
-        # Display API key (masked)
-        st.code(f"API Key: {api_key[:8]}...")
-        
-        # Request token input
-        request_token = st.text_input(
-            "Request Token", 
-            key="zerodha_request_token",
-            placeholder="Paste request token from Zerodha login"
-        )
-        
-        # Generate login URL
-        if api_key:
-            login_url = f"https://kite.trade/connect/login?api_key={api_key}&v=3"
-            st.markdown(f"""
-            **Steps to connect:**
-            1. [Click here to login with Zerodha]({login_url})
-            2. Authorize the application
-            3. Copy the `request_token` from the redirect URL
-            4. Paste the token above
-            """)
-        
-        if st.button("Connect Zerodha", key="zerodha_connect", type="primary"):
-            if request_token:
-                try:
-                    with st.spinner("Connecting to Zerodha..."):
-                        kite = KiteConnect(api_key=api_key)
-                        data = kite.generate_session(request_token, api_secret=api_secret)
-                        st.session_state.kite = kite
-                        st.session_state.profile = {
-                            'user_name': data.get('user_name', 'Zerodha User'),
-                            'user_id': data.get('user_id', ''),
-                            'login_time': datetime.now().isoformat()
-                        }
-                        st.success("Zerodha connected successfully! Proceeding to 2FA setup...")
-                        time.sleep(1)
-                        st.rerun()
-                except Exception as e:
-                    st.error(f"Zerodha connection failed: {str(e)}")
-            else:
-                st.warning("Please enter the request token")
-    else:
-        st.success("Zerodha Connected")
-        user_profile = st.session_state.profile
-        st.markdown(f"""
-        <div class="success-box">
-            <strong>Connected as:</strong> {user_profile.get('user_name', 'User')}<br>
-            <strong>User ID:</strong> {user_profile.get('user_id', 'N/A')}<br>
-            <strong>Login Time:</strong> {user_profile.get('login_time', 'N/A')}
-        </div>
-        """, unsafe_allow_html=True)
-        
-        if st.button("Disconnect Zerodha", key="zerodha_disconnect"):
-            st.session_state.kite = None
-            st.session_state.profile = None
-            st.session_state.authenticated = False
-            st.session_state.two_factor_setup_complete = False
-            st.rerun()
-
-def display_fyers_auth():
-    """Display FYERS authentication."""
-    if st.session_state.fyers_model is None:
-        st.info("FYERS Authentication")
-        
-        # Check if secrets are configured
-        app_id = st.secrets.get("FYERS_APP_ID")
-        secret_key = st.secrets.get("FYERS_SECRET_KEY")
-        redirect_uri = st.secrets.get("FYERS_REDIRECT_URI")
-        
-        if not all([app_id, secret_key, redirect_uri]):
-            st.error("FYERS credentials not found in secrets. Please configure them.")
-            return
-        
-        # Show FYERS login URL
-        login_url = get_fyers_login_url()
-        if login_url:
-            st.markdown(f"""
-            **Steps to connect FYERS:**
-            1. [Click here to login with FYERS]({login_url})
-            2. Authorize the application
-            3. Copy the authorization code from the redirect URL
-            4. Paste the code below
-            """)
-        
-        auth_code = st.text_input(
-            "Authorization Code", 
-            key="fyers_auth_code", 
-            placeholder="Paste authorization code here"
-        )
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Connect FYERS", key="fyers_connect", type="primary", use_container_width=True):
-                if auth_code:
-                    with st.spinner("Connecting to FYERS..."):
-                        if fyers_generate_session(auth_code):
-                            st.success("FYERS connected successfully! Proceeding to 2FA setup...")
-                            time.sleep(1)
-                            st.rerun()
-                else:
-                    st.warning("Please enter authorization code")
-        
-        with col2:
-            if st.button("Refresh Login URL", key="fyers_refresh", use_container_width=True):
+            st.error("Kite API credentials not found. Please set ZERODHA_API_KEY and ZERODHA_API_SECRET in your Streamlit secrets.")
+            st.stop()
+           
+        kite = KiteConnect(api_key=api_key)
+        request_token = st.query_params.get("request_token")
+       
+        if request_token:
+            try:
+                data = kite.generate_session(request_token, api_secret=api_secret)
+                st.session_state.access_token = data["access_token"]
+                kite.set_access_token(st.session_state.access_token)
+                st.session_state.kite = kite
+                st.session_state.profile = kite.profile()
+                st.session_state.broker = "Zerodha"
+                st.query_params.clear()
                 st.rerun()
-                
-    else:
-        st.success("FYERS Connected")
-        
-        # Show connection details
-        if st.session_state.fyers_access_token:
-            st.markdown(f"""
-            <div class="success-box">
-                <strong>Access Token:</strong> {st.session_state.fyers_access_token[:25]}...<br>
-                <strong>Connected via:</strong> FYERS API<br>
-                <strong>Status:</strong> Active
-            </div>
-            """, unsafe_allow_html=True)
-        
-        if st.button("Disconnect FYERS", key="fyers_disconnect"):
-            fyers_logout()
-            st.session_state.fyers_model = None
-            st.session_state.fyers_access_token = None
-            st.session_state.authenticated = False
-            st.session_state.two_factor_setup_complete = False
-            st.rerun()
-
-def get_fyers_login_url():
-    """Generate FYERS login URL."""
-    try:
-        app_id = st.secrets.get("FYERS_APP_ID")
-        secret_key = st.secrets.get("FYERS_SECRET_KEY")
-        redirect_uri = st.secrets.get("FYERS_REDIRECT_URI")
-        
-        if not all([app_id, secret_key, redirect_uri]):
-            st.error("FYERS credentials not found in secrets")
-            return None
-            
-        # Create session model
-        session = accessToken.SessionModel(
-            client_id=app_id,
-            secret_key=secret_key, 
-            redirect_uri=redirect_uri,
-            response_type='code',
-            grant_type='authorization_code'
-        )
-        
-        # Generate login URL
-        login_url = session.generate_authcode()
-        return login_url
-        
-    except Exception as e:
-        st.error(f"Error generating FYERS login URL: {str(e)}")
-        return None
-
-def fyers_generate_session(authorization_code):
-    """Generate FYERS session using authorization code."""
-    try:
-        app_id = st.secrets.get("FYERS_APP_ID")
-        secret_key = st.secrets.get("FYERS_SECRET_KEY")
-        redirect_uri = st.secrets.get("FYERS_REDIRECT_URI")
-        
-        if not all([app_id, secret_key, redirect_uri]):
-            st.error("Missing FYERS credentials in secrets")
-            return False
-            
-        session = accessToken.SessionModel(
-            client_id=app_id,
-            secret_key=secret_key,
-            redirect_uri=redirect_uri,
-            response_type='code',
-            grant_type='authorization_code'
-        )
-        
-        session.set_token(authorization_code)
-        response = session.generate_token()
-        
-        if response.get('s') == 'ok':
-            access_token = f"{app_id}:{response['access_token']}"
-            
-            st.session_state.fyers_access_token = access_token
-            st.session_state.fyers_model = fyersModel.FyersModel(
-                client_id=app_id,
-                token=access_token, 
-                log_path="/logs",
-                is_async=False
-            )
-            st.session_state.profile = {
-                'user_name': 'FYERS Trader',
-                'user_id': response.get('fy_id', ''),
-                'login_time': datetime.now().isoformat()
-            }
-            return True
+            except Exception as e:
+                st.error(f"Authentication failed: {e}")
+                st.query_params.clear()
         else:
-            error_msg = response.get('message', 'Unknown error')
-            st.error(f"FYERS authentication failed: {error_msg}")
-            return False
-            
-    except Exception as e:
-        st.error(f"FYERS session generation failed: {str(e)}")
-        return False
-
-def fyers_logout():
-    """Logs out the user from the FYERS API."""
-    try:
-        # FYERS doesn't have explicit logout in API, just clear session
-        st.session_state.fyers_model = None
-        st.session_state.fyers_access_token = None
-        st.toast("Successfully logged out from FYERS.")
-        
-    except Exception as e:
-        st.error(f"An error occurred during FYERS logout: {str(e)}")
+            st.link_button("Login with Zerodha Kite", kite.login_url())
+            st.info("Please login with Zerodha Kite to begin. You will be redirected back to the app.")
+   
+    elif broker == "Upstox":
+        try:
+            import urllib.parse
+            import hashlib
+            import base64
+            import secrets
+           
+            api_key = st.secrets.get("UPSTOX_API_KEY")
+            api_secret = st.secrets.get("UPSTOX_API_SECRET")
+            redirect_uri = st.secrets.get("UPSTOX_REDIRECT_URI", "https://your-app-name.streamlit.app/")
+           
+            if not api_key or not api_secret:
+                st.error("Upstox API credentials not found. Please set UPSTOX_API_KEY and UPSTOX_API_SECRET in your Streamlit secrets.")
+                st.stop()
+           
+            # Generate PKCE code verifier and challenge (required for Upstox v2)
+            code_verifier = secrets.token_urlsafe(64)
+            code_challenge = base64.urlsafe_b64encode(
+                hashlib.sha256(code_verifier.encode()).digest()
+            ).decode().rstrip('=')
+           
+            # Store code_verifier in session state for later use
+            st.session_state.upstox_code_verifier = code_verifier
+           
+            # Check for authorization code in URL parameters
+            auth_code = st.query_params.get("code")
+           
+            if auth_code:
+                try:
+                    # Exchange authorization code for access token
+                    token_url = "https://api.upstox.com/v2/login/authorization/token"
+                    token_data = {
+                        'code': auth_code,
+                        'client_id': api_key,
+                        'client_secret': api_secret,
+                        'redirect_uri': redirect_uri,
+                        'grant_type': 'authorization_code',
+                        'code_verifier': st.session_state.upstox_code_verifier
+                    }
+                   
+                    headers = {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Accept': 'application/json'
+                    }
+                   
+                    response = requests.post(token_url, data=token_data, headers=headers)
+                   
+                    if response.status_code == 200:
+                        token_data = response.json()
+                        access_token = token_data['access_token']
+                       
+                        # Store in session state
+                        st.session_state.upstox_access_token = access_token
+                        st.session_state.broker = "Upstox"
+                       
+                        # Get user profile
+                        try:
+                            profile_url = "https://api.upstox.com/v2/user/profile"
+                            profile_headers = {
+                                'Authorization': f'Bearer {access_token}',
+                                'Accept': 'application/json'
+                            }
+                           
+                            profile_response = requests.get(profile_url, headers=profile_headers)
+                            if profile_response.status_code == 200:
+                                profile_data = profile_response.json()
+                                st.session_state.profile = {
+                                    'user_name': profile_data['data']['name'],
+                                    'email': profile_data['data']['email'],
+                                    'user_id': profile_data['data']['client_code']
+                                }
+                            else:
+                                st.session_state.profile = {
+                                    'user_name': 'Upstox User',
+                                    'email': '',
+                                    'user_id': 'upstox_user'
+                                }
+                        except Exception as profile_error:
+                            st.session_state.profile = {
+                                'user_name': 'Upstox User',
+                                'email': '',
+                                'user_id': 'upstox_user'
+                            }
+                       
+                        st.success("Upstox login successful!")
+                        st.query_params.clear()
+                        # Clean up code verifier
+                        if 'upstox_code_verifier' in st.session_state:
+                            del st.session_state.upstox_code_verifier
+                        st.rerun()
+                    else:
+                        st.error(f"Upstox token exchange failed: {response.text}")
+                        st.query_params.clear()
+                       
+                except Exception as e:
+                    st.error(f"Upstox authentication failed: {e}")
+                    st.query_params.clear()
+            else:
+                # Generate login URL for Upstox v2
+                base_url = "https://api.upstox.com/v2/login/authorization/dialog"
+                params = {
+                    'response_type': 'code',
+                    'client_id': api_key,
+                    'redirect_uri': redirect_uri,
+                    'code_challenge': code_challenge,
+                    'code_challenge_method': 'S256'
+                }
+               
+                login_url = f"{base_url}?{urllib.parse.urlencode(params)}"
+                st.link_button("Login with Upstox", login_url)
+                st.info("Please login with Upstox to begin. You will be redirected back to the app.")
+               
+        except Exception as e:
+            st.error(f"Upstox initialization failed: {e}")
 
 def main_app():
     """The main application interface after successful login."""
     apply_custom_styling()
     display_overnight_changes_bar()
-    
+   
     # --- 2FA Check - Handle authentication flow first
     profile = st.session_state.get('profile')
     if not profile:
@@ -12438,32 +12162,37 @@ def main_app():
                 del st.session_state[key]
             st.rerun()
         return
-    
+   
     # Show 2FA setup if needed (without dialogs)
     if not st.session_state.get('two_factor_setup_complete', False):
         show_two_factor_setup()
         return
-    
+   
     # Show 2FA authentication if needed (without dialogs)
     if not st.session_state.get('authenticated', False):
         show_two_factor_auth()
         return
-    
+   
     # Only show main content after 2FA is complete
     # Handle quick trade without dialogs
     if st.session_state.get('show_quick_trade', False):
-        quick_trade_interface()
-    
+        st.markdown("---")
+        st.subheader("Quick Trade")
+        symbol = st.session_state.get('quick_trade_symbol')
+        if symbol:
+            st.info(f"Trading: {symbol}")
+        # Add your quick trade form here without using dialogs
+   
     # Rest of your main app content...
     st.sidebar.title(f"Welcome, {st.session_state.profile['user_name']}")
     st.sidebar.caption(f"Connected via {st.session_state.broker}")
     st.sidebar.divider()
-    
+   
     st.sidebar.header("Terminal Controls")
     st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], horizontal=True)
     st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options", "HFT"], horizontal=True)
     st.sidebar.divider()
-    
+   
     # Dynamic refresh interval based on mode
     if st.session_state.terminal_mode == "HFT":
         refresh_interval = 2
@@ -12474,27 +12203,27 @@ def main_app():
         st.sidebar.header("Live Data")
         auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
         refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
-    
+   
     st.sidebar.divider()
-    
+   
     st.sidebar.header("Navigation")
     pages = {
-        "Cash": {
-            "Dashboard": page_dashboard,
-            "AI Trading Bots": page_algo_bots,
-            "AI Market Sentiment": page_market_sentiment_ai,
-            "AI Discovery Engine": page_ai_discovery,
-            "AI Portfolio Assistant": page_ai_assistant,
-            "Premarket Pulse": page_premarket_pulse,
-            "Advanced Charting": page_advanced_charting,
-            "Market Scanners": page_momentum_and_trend_finder,
-            "Portfolio & Risk": page_portfolio_and_risk,
-            "Fundamental Analytics": page_fundamental_analytics,
-            "Basket Orders": page_basket_orders,
-            "Forecasting (ML)": page_forecasting_ml,
-            "Algo Strategy Hub": page_algo_strategy_maker,
-            "Economic Calendar": page_economic_calendar,
-            "Settings": page_settings
+    "Cash": {
+        "Dashboard": page_dashboard,
+        "AI Trading Bots": page_algo_bots,
+        "AI Market Sentiment": page_market_sentiment_ai, # NEW
+        "AI Discovery Engine": page_ai_discovery,
+        "AI Portfolio Assistant": page_ai_assistant, # ENHANCED
+        "Premarket Pulse": page_premarket_pulse,
+        "Advanced Charting": page_advanced_charting,
+        "Market Scanners": page_momentum_and_trend_finder,
+        "Portfolio & Risk": page_portfolio_and_risk,
+        "Fundamental Analytics": page_fundamental_analytics,
+        "Basket Orders": page_basket_orders,
+        "Forecasting (ML)": page_forecasting_ml,
+        "Algo Strategy Hub": page_algo_strategy_maker,
+        "Economic Calendar": page_economic_calendar,
+        "Settings": page_settings
         },
         "Options": {
             "F&O Analytics": page_fo_analytics,
@@ -12515,51 +12244,28 @@ def main_app():
             "Portfolio & Risk": page_portfolio_and_risk,
         }
     }
-    
+   
     selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
-    
+   
     st.sidebar.divider()
     if st.sidebar.button("Logout"):
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
-
     no_refresh_pages = ["Forecasting (ML)", "AI Assistant", "AI Discovery", "Algo Strategy Hub", "Algo Trading Bots"]
     if auto_refresh and selection not in no_refresh_pages:
         st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
-    
-    # Execute the selected page function
-    try:
-        pages[st.session_state.terminal_mode][selection]()
-    except Exception as e:
-        st.error(f"Error loading page: {str(e)}")
-        st.info("Please check if all page functions are properly imported.")
+   
+    pages[st.session_state.terminal_mode][selection]()
 
 # --- Application Entry Point ---
 if __name__ == "__main__":
     initialize_session_state()
-    
-    # Check if user has completed broker authentication AND 2FA
-    broker_authenticated = False
-    if st.session_state.broker == "Zerodha":
-        broker_authenticated = st.session_state.get('kite') is not None
-    elif st.session_state.broker == "FYERS":
-        broker_authenticated = st.session_state.get('fyers_model') is not None
-    
-    # Check if 2FA is completed
-    two_fa_completed = st.session_state.get('two_factor_setup_complete', False) and st.session_state.get('authenticated', False)
-    
-    if broker_authenticated and two_fa_completed:
+   
+    if 'profile' in st.session_state and st.session_state.profile:
         if st.session_state.get('login_animation_complete', False):
             main_app()
         else:
             show_login_animation()
-    elif broker_authenticated and not two_fa_completed:
-        # Show 2FA flow
-        if not st.session_state.get('two_factor_setup_complete', False):
-            show_two_factor_setup()
-        else:
-            show_two_factor_auth()
     else:
-        # Show broker authentication page
-        display_broker_authentication()
+        login_page()
