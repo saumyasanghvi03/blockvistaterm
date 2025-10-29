@@ -237,13 +237,16 @@ ML_DATA_SOURCES = {
         "tradingsymbol": "^GSPC",
         "exchange": "yfinance"
     }
-    FYERS_CONFIG = {
+}
+
+# FYERS configuration - SEPARATE DICTIONARY
+FYERS_CONFIG = {
     "app_id": "your_fyers_app_id",  # Will be set from secrets
     "secret_key": "your_fyers_secret_key",  # Will be set from secrets
     "redirect_uri": "https://your-redirect-uri.com",  # Set in FYERS developer console
     "app_type": "100"  # 100 for web login
 }
-}
+
 # ================ 1.5 INITIALIZATION ========================
 
 def initialize_session_state():
