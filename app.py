@@ -12352,19 +12352,18 @@ def display_zerodha_auth():
     """Display Zerodha authentication."""
     if st.session_state.kite is None:
         st.info("Zerodha Kite Connect Authentication")
-        
-        api_key = st.text_input("API Key", key="zerodha_api_key", type="password")
-        api_secret = st.text_input("API Secret", key="zerodha_api_secret", type="password")
+       
+        api_key = st.secrets.get("zerodha", {}).get("API_KEY", st.text_input("API Key", key="zerodha_api_key", type="password"))
+        api_secret = st.secrets.get("zerodha", {}).get("API_SECRET", st.text_input("API Secret", key="zerodha_api_secret", type="password"))
         request_token = st.text_input("Request Token", key="zerodha_request_token")
-        
+       
         if st.button("Connect Zerodha", key="zerodha_connect"):
             if api_key and api_secret and request_token:
                 try:
                     kite = KiteConnect(api_key=api_key)
                     data = kite.generate_session(request_token, api_secret=api_secret)
                     st.session_state.kite = kite
-                    st.session_state.profile = data
-                    # DO NOT set authenticated=True here - wait for 2FA
+                    st.session_state.profile = data['user']
                     st.success("✅ Zerodha connected successfully! Proceeding to 2FA setup...")
                     st.rerun()
                 except Exception as e:
@@ -12384,7 +12383,7 @@ def display_fyers_auth():
     """Display FYERS authentication."""
     if st.session_state.fyers_model is None:
         st.info("FYERS Authentication")
-        
+       
         # Show FYERS login URL
         login_url = get_fyers_login_url()
         if login_url:
@@ -12395,66 +12394,65 @@ def display_fyers_auth():
             3. Copy the authorization code from the redirect URL
             4. Paste the code below
             """)
-        
-        auth_code = st.text_input("Authorization Code", key="fyers_auth_code", 
+       
+        auth_code = st.text_input("Authorization Code", key="fyers_auth_code",
                                  placeholder="Paste authorization code here")
-        
+       
         col1, col2 = st.columns(2)
         with col1:
             if st.button("Connect FYERS", key="fyers_connect", type="primary", use_container_width=True):
                 if auth_code:
                     if fyers_generate_session(auth_code):
-                        # DO NOT set authenticated=True here - wait for 2FA
                         st.success("✅ FYERS connected successfully! Proceeding to 2FA setup...")
                         st.rerun()
                 else:
                     st.warning("Please enter authorization code")
-        
+       
         with col2:
             if st.button("Refresh Login URL", key="fyers_refresh", use_container_width=True):
                 st.rerun()
-                
+               
     else:
         st.success("✅ FYERS Connected")
-        
+       
         # Show connection details
         if st.session_state.fyers_access_token:
             st.code(f"Access Token: {st.session_state.fyers_access_token[:20]}...")
-        
+       
         if st.button("Disconnect FYERS", key="fyers_disconnect"):
             fyers_logout()
             st.session_state.fyers_model = None
             st.session_state.fyers_access_token = None
+            st.session_state.profile = None
             st.session_state.authenticated = False
             st.session_state.two_factor_setup_complete = False
             st.rerun()
-
 # ================ FYERS AUTHENTICATION FUNCTIONS ================
-
 def get_fyers_login_url():
     """Generate FYERS login URL."""
     try:
-        app_id = st.secrets.get("FYERS_APP_ID")
-        secret_key = st.secrets.get("FYERS_SECRET_KEY")
-        redirect_uri = st.secrets.get("FYERS_REDIRECT_URI")
-        
+        fyers_secrets = st.secrets.get("fyers", {})
+        app_id = fyers_secrets.get("APP_ID")
+        secret_key = fyers_secrets.get("SECRET_KEY")
+        redirect_uri = fyers_secrets.get("REDIRECT_URI")
+       
         if not all([app_id, secret_key, redirect_uri]):
             st.error("FYERS credentials not found in secrets")
             return None
-            
+           
         # Create session model
-        session = accessToken.SessionModel(
+        session = fyersModel.SessionModel(
             client_id=app_id,
-            secret_key=secret_key, 
+            secret_key=secret_key,
             redirect_uri=redirect_uri,
             response_type='code',
-            grant_type='authorization_code'
+            state='sample_state'  # Optional
         )
-        
+       
         # Generate login URL
         login_url = session.generate_authcode()
         return login_url
-        
+       
     except Exception as e:
         st.error(f"Error generating FYERS login URL: {e}")
         return None
@@ -12462,40 +12460,49 @@ def get_fyers_login_url():
 def fyers_generate_session(authorization_code):
     """Generate FYERS session using authorization code."""
     try:
-        app_id = st.secrets.get("FYERS_APP_ID")
-        secret_key = st.secrets.get("FYERS_SECRET_KEY")
-        redirect_uri = st.secrets.get("FYERS_REDIRECT_URI")
-        
+        fyers_secrets = st.secrets.get("fyers", {})
+        app_id = fyers_secrets.get("APP_ID")
+        secret_key = fyers_secrets.get("SECRET_KEY")
+        redirect_uri = fyers_secrets.get("REDIRECT_URI")
+       
         if not all([app_id, secret_key, redirect_uri]):
             st.error("Missing FYERS credentials in secrets")
             return False
-            
-        session = accessToken.SessionModel(
+           
+        session = fyersModel.SessionModel(
             client_id=app_id,
             secret_key=secret_key,
             redirect_uri=redirect_uri,
             response_type='code',
-            grant_type='authorization_code'
+            state='sample_state'
         )
-        
+       
         session.set_token(authorization_code)
         response = session.generate_token()
-        
+       
         if response.get('s') == 'ok':
             access_token = f"{app_id}:{response['access_token']}"
-            
+           
             st.session_state.fyers_access_token = access_token
             st.session_state.fyers_model = fyersModel.FyersModel(
                 client_id=app_id,
-                token=access_token, 
-                log_path="/logs"
+                token=access_token,
+                log_path="logs"  # Adjust path as needed
             )
-            st.success("FYERS authentication successful!")
+            
+            # Fetch and set profile for consistency
+            profile_response = st.session_state.fyers_model.get_profile()
+            if profile_response.get('s') == 'ok':
+                st.session_state.profile = profile_response['data']
+            else:
+                st.error("Failed to fetch FYERS profile")
+                return False
+            
             return True
         else:
             st.error(f"FYERS authentication failed: {response.get('message', 'Unknown error')}")
             return False
-            
+           
     except Exception as e:
         st.error(f"FYERS session generation failed: {str(e)}")
         return False
@@ -12503,10 +12510,41 @@ def fyers_generate_session(authorization_code):
 def fyers_logout():
     """Logs out the user from the FYERS API."""
     try:
-        # FYERS doesn't have explicit logout in API, just clear session
-        st.session_state.fyers_model = None
-        st.session_state.fyers_access_token = None
+        # FYERS doesn't have explicit logout API; clear session state
+        if 'fyers_model' in st.session_state:
+            del st.session_state.fyers_model
+        if 'fyers_access_token' in st.session_state:
+            del st.session_state.fyers_access_token
         st.toast("Successfully logged out from FYERS.")
-        
     except Exception as e:
         st.error(f"An error occurred during FYERS logout: {str(e)}")
+
+# --- Application Entry Point ---
+if __name__ == "__main__":
+    initialize_session_state()
+   
+    # Check if user has completed broker authentication AND 2FA
+    broker_authenticated = False
+    if st.session_state.broker == "Zerodha":
+        broker_authenticated = st.session_state.get('kite') is not None and st.session_state.get('profile')
+    elif st.session_state.broker == "FYERS":
+        broker_authenticated = st.session_state.get('fyers_model') is not None and st.session_state.get('profile')
+   
+    # Check if 2FA is completed
+    two_fa_completed = st.session_state.get('two_factor_setup_complete', False) and st.session_state.get('authenticated', False)
+   
+    if broker_authenticated and two_fa_completed:
+        if st.session_state.get('login_animation_complete', False):
+            main_app()
+        else:
+            show_login_animation()
+    elif broker_authenticated and not two_fa_completed:
+        # Show 2FA flow
+        if not st.session_state.get('two_factor_setup_complete', False):
+            show_two_factor_setup()
+        else:
+            show_two_factor_auth()
+    else:
+        # Show broker authentication page
+        login_page()
+
