@@ -19,4 +19,4 @@ ta-lib
 # Remove: upstox<=2.0.3
 praw
 textBlob
-fyers-apiv2==2.2.1
+fyers-apiv3
