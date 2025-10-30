@@ -12361,8 +12361,7 @@ class FlowAnalysisAgent:
             }
     
     def _calculate_order_imbalance(self, order_book: Dict, threshold: float) -> float:
-    """Calculate order book imbalance with threshold adjustment"""
-    try:
+        try:
         bids = order_book.get('bids', [])
         asks = order_book.get('asks', [])
         
