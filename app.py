@@ -919,10 +919,50 @@ def get_instrument_df():
         return pd.DataFrame()
 
 def get_instrument_token(symbol, instrument_df, exchange='NSE'):
-    """Finds the instrument token for a given symbol and exchange."""
-    if instrument_df.empty: return None
-    match = instrument_df[(instrument_df['tradingsymbol'] == symbol.upper()) & (instrument_df['exchange'] == exchange)]
-    return match.iloc[0]['instrument_token'] if not match.empty else None
+    """Robust instrument token lookup with multiple fallbacks"""
+    if instrument_df.empty:
+        return None
+    
+    try:
+        # Try exact match first
+        exact_match = instrument_df[
+            (instrument_df['tradingsymbol'] == symbol.upper()) & 
+            (instrument_df['exchange'] == exchange)
+        ]
+        
+        if not exact_match.empty:
+            token = exact_match.iloc[0].get('instrument_token')
+            if token and pd.notna(token):
+                return str(int(token))
+        
+        # Try case-insensitive match
+        case_insensitive = instrument_df[
+            (instrument_df['tradingsymbol'].str.upper() == symbol.upper()) & 
+            (instrument_df['exchange'] == exchange)
+        ]
+        
+        if not case_insensitive.empty:
+            token = case_insensitive.iloc[0].get('instrument_token')
+            if token and pd.notna(token):
+                return str(int(token))
+        
+        # Try name matching as last resort
+        name_match = instrument_df[
+            (instrument_df['name'].str.contains(symbol.upper(), na=False)) & 
+            (instrument_df['exchange'] == exchange)
+        ]
+        
+        if not name_match.empty:
+            token = name_match.iloc[0].get('instrument_token')
+            if token and pd.notna(token):
+                return str(int(token))
+        
+        print(f"No instrument token found for {symbol} on {exchange}")
+        return None
+        
+    except Exception as e:
+        print(f"Error finding instrument token for {symbol}: {e}")
+        return None
 
 
 @st.cache_data(ttl=60)
@@ -5680,28 +5720,47 @@ def is_nifty50_stock(symbol):
     return lookup_symbol in NIFTY50_STOCKS
 
 def get_market_depth_data(instrument_token):
-    """Get enhanced market depth data for iceberg detection."""
-    depth = get_market_depth(instrument_token)
-    if not depth:
+    """Enhanced market depth data with better error handling"""
+    try:
+        client = get_broker_client()
+        if not client or not instrument_token:
+            return {}
+        
+        # Get quote data which contains depth information
+        quote_data = client.quote(str(instrument_token))
+        if not quote_data:
+            return {}
+        
+        instrument_quote = quote_data.get(str(instrument_token), {})
+        
+        # Extract depth data from quote
+        depth_data = {
+            'bids': [],
+            'asks': [],
+            'timestamp': datetime.now().isoformat(),
+            'source': 'live'
+        }
+        
+        # KiteConnect depth structure
+        if 'depth' in instrument_quote and instrument_quote['depth']:
+            market_depth = instrument_quote['depth']
+            depth_data['bids'] = market_depth.get('buy', [])
+            depth_data['asks'] = market_depth.get('sell', [])
+        
+        # Alternative depth structure check
+        elif 'buy' in instrument_quote and 'sell' in instrument_quote:
+            depth_data['bids'] = instrument_quote.get('buy', [])
+            depth_data['asks'] = instrument_quote.get('sell', [])
+        
+        # Validate depth data
+        if not depth_data['bids'] or not depth_data['asks']:
+            print(f"Incomplete depth data for {instrument_token}")
+        
+        return depth_data
+        
+    except Exception as e:
+        print(f"Error fetching market depth for {instrument_token}: {e}")
         return {}
-    
-    # Process depth data for analysis
-    bids = depth.get('buy', [])
-    asks = depth.get('sell', [])
-    
-    # Sort bids (highest first) and asks (lowest first)
-    bids_sorted = sorted(bids, key=lambda x: x.get('price', 0), reverse=True)[:10]
-    asks_sorted = sorted(asks, key=lambda x: x.get('price', 0))[:10]
-    
-    return {
-        'bids': bids_sorted,  # Top 10 bids
-        'asks': asks_sorted,  # Top 10 asks
-        'total_bid_volume': sum(bid.get('quantity', 0) for bid in bids_sorted),
-        'total_ask_volume': sum(ask.get('quantity', 0) for ask in asks_sorted),
-        'best_bid': bids_sorted[0] if bids_sorted else {},
-        'best_ask': asks_sorted[0] if asks_sorted else {},
-        'spread': (asks_sorted[0].get('price', 0) - bids_sorted[0].get('price', 0)) if bids_sorted and asks_sorted else 0
-    }
 # ================ FUNDAMENTAL ANALYTICS & COMPANY EVENTS FUNCTIONS ================
 
 def get_company_fundamentals_kite(symbol, instrument_df):
@@ -12758,41 +12817,91 @@ class QuantumVisualizer:
         return fig
 
 def prepare_market_data(symbol, instrument_df, historical_data):
-    """Prepare live market data for iceberg detection - NO SAMPLE DATA"""
+    """Prepare live market data for iceberg detection with robust error handling"""
+    
+    # Validate inputs
     if historical_data.empty:
+        print(f"No historical data available for {symbol}")
+        return {}
+    
+    if instrument_df.empty:
+        print("Instrument dataframe is empty")
         return {}
     
     # Check if it's a Nifty50 stock
     if not is_nifty50_stock(symbol):
+        print(f"{symbol} is not a Nifty50 stock")
         return {}
     
     try:
-        # Calculate metrics from live historical data
+        # Validate historical data columns
+        required_columns = ['close']
+        missing_columns = [col for col in required_columns if col not in historical_data.columns]
+        if missing_columns:
+            print(f"Missing required columns in historical data: {missing_columns}")
+            return {}
+        
+        # Extract price data
         prices = historical_data['close'].tolist()
-        volumes = historical_data['volume'].tolist() if 'volume' in historical_data.columns else []
+        if not prices:
+            print(f"No price data available for {symbol}")
+            return {}
         
-        # Enhanced volatility calculation
-        returns = historical_data['close'].pct_change().dropna()
-        volatility = returns.std() if not returns.empty else 0.02
+        # Extract volume data if available
+        volumes = []
+        if 'volume' in historical_data.columns:
+            volumes = historical_data['volume'].tolist()
+            # Filter out any invalid volume values
+            volumes = [v for v in volumes if v > 0 and not pd.isna(v)]
         
-        # Volume analysis using live data
-        if volumes:
-            avg_volume = np.mean(volumes[-20:]) if len(volumes) >= 20 else np.mean(volumes)
-            current_volume = volumes[-1]
-            volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1
-        else:
+        # Calculate volatility from returns
+        try:
+            returns = historical_data['close'].pct_change().dropna()
+            volatility = returns.std() if not returns.empty else 0.02
+        except Exception as e:
+            print(f"Volatility calculation failed for {symbol}: {e}")
+            volatility = 0.02
+        
+        # Calculate volume ratio
+        try:
+            if volumes and len(volumes) >= 5:
+                # Use recent 20-period average for volume comparison
+                lookback = min(20, len(volumes))
+                avg_volume = np.mean(volumes[-lookback:])
+                current_volume = volumes[-1] if volumes else 1
+                volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1.0
+            else:
+                volume_ratio = 1.0
+        except Exception as e:
+            print(f"Volume ratio calculation failed for {symbol}: {e}")
             volume_ratio = 1.0
         
-        # Get live market depth
+        # Get instrument token for live data
         instrument_token = get_instrument_token(symbol, instrument_df, 'NSE')
-        order_book = get_market_depth_data(instrument_token) if instrument_token else {}
+        if not instrument_token:
+            print(f"Could not find instrument token for {symbol}")
+            return {}
         
-        # Get live trades (empty if not available)
-        live_trades = get_live_trades_data(instrument_token) if instrument_token else []
+        # Get live market depth
+        order_book = {}
+        try:
+            order_book = get_market_depth_data(instrument_token)
+            if not order_book:
+                print(f"No market depth data for {symbol}")
+        except Exception as e:
+            print(f"Market depth fetch failed for {symbol}: {e}")
+        
+        # Get live trades (empty array if not available)
+        live_trades = []
+        try:
+            live_trades = get_live_trades_data(instrument_token)
+        except Exception as e:
+            print(f"Live trades fetch failed for {symbol}: {e}")
         
         # Get Nifty50 specific detection parameters
         detection_params = get_nifty50_detection_params(symbol)
         
+        # Assemble market data
         market_data = {
             'symbol': symbol,
             'prices': prices,
@@ -12800,37 +12909,66 @@ def prepare_market_data(symbol, instrument_df, historical_data):
             'volatility': float(volatility),
             'volume_ratio': float(volume_ratio),
             'order_book': order_book,
-            'trades': live_trades,  # Only live trades
-            'large_orders': live_trades,  # Use same live data
+            'trades': live_trades,
+            'large_orders': live_trades,  # Use same trades for large orders
             'detection_params': detection_params,
             'is_nifty50': True,
             'stock_category': get_nifty50_stock_category(symbol),
-            'data_quality': self._assess_data_quality(order_book, live_trades, volumes)
+            'data_timestamp': datetime.now().isoformat(),
+            'data_points': len(prices)
         }
         
+        print(f"Successfully prepared market data for {symbol}: {len(prices)} price points, {len(volumes)} volume points")
         return market_data
         
     except Exception as e:
-        print(f"Error preparing live market data for {symbol}: {e}")
+        print(f"Critical error preparing market data for {symbol}: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return {}
 
 def get_live_trades_data(instrument_token):
-    """Get live trade data from broker API"""
+    """Get live trade data from broker with proper error handling"""
     try:
         client = get_broker_client()
         if not client:
+            print("No broker client available for live trades")
             return []
         
-        # Get live trades from broker (implementation depends on broker API)
-        # This is a placeholder - you need to implement based on your broker's API
+        # Get quote data which may contain recent trades
         quote_data = client.quote(str(instrument_token))
-        if quote_data and str(instrument_token) in quote_data:
-            instrument_quote = quote_data[str(instrument_token)]
-            return instrument_quote.get('trades', [])
+        if not quote_data:
+            return []
         
-        return []
+        instrument_quote = quote_data.get(str(instrument_token), {})
+        
+        # Different brokers may have different trade data structures
+        trades = []
+        
+        # Check for trades in quote data
+        if 'trades' in instrument_quote and instrument_quote['trades']:
+            trades = instrument_quote['trades']
+        elif 'last_trade' in instrument_quote and instrument_quote['last_trade']:
+            # Some brokers provide last trade as a separate field
+            last_trade = instrument_quote['last_trade']
+            if isinstance(last_trade, dict):
+                trades = [last_trade]
+        
+        # Validate trade data structure
+        valid_trades = []
+        for trade in trades:
+            if isinstance(trade, dict) and trade.get('quantity', 0) > 0:
+                valid_trades.append({
+                    'timestamp': trade.get('timestamp', datetime.now().isoformat()),
+                    'price': trade.get('price', 0),
+                    'quantity': trade.get('quantity', 0),
+                    'exchange': trade.get('exchange', 'NSE')
+                })
+        
+        return valid_trades
+        
     except Exception as e:
-        print(f"Error fetching live trades: {e}")
+        print(f"Error fetching live trades for token {instrument_token}: {e}")
         return []
 
 def _assess_data_quality(self, order_book, trades, volumes):
