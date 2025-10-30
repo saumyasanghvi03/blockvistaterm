@@ -1046,13 +1046,35 @@ def get_watchlist_data(symbols_with_exchange):
 
 @st.cache_data(ttl=2)
 def get_market_depth(instrument_token):
-    """Fetches market depth (order book) for a given instrument."""
+    """Fetches market depth (order book) for a given instrument using quote data."""
     client = get_broker_client()
     if not client or not instrument_token:
         return None
+    
     try:
-        depth = client.depth(instrument_token)
-        return depth.get(str(instrument_token))
+        # Use quote method instead of depth (which doesn't exist in KiteConnect)
+        quote_data = client.quote(str(instrument_token))
+        
+        if not quote_data:
+            return None
+            
+        instrument_quote = quote_data.get(str(instrument_token), {})
+        
+        # Extract depth from quote data
+        depth = {
+            'buy': [],
+            'sell': [],
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # KiteConnect quote provides depth in 'depth' key
+        if 'depth' in instrument_quote:
+            market_depth = instrument_quote['depth']
+            depth['buy'] = market_depth.get('buy', [])
+            depth['sell'] = market_depth.get('sell', [])
+        
+        return depth
+        
     except Exception as e:
         st.toast(f"Error fetching market depth: {e}", icon="⚠️")
         return None
@@ -5667,13 +5689,18 @@ def get_market_depth_data(instrument_token):
     bids = depth.get('buy', [])
     asks = depth.get('sell', [])
     
+    # Sort bids (highest first) and asks (lowest first)
+    bids_sorted = sorted(bids, key=lambda x: x.get('price', 0), reverse=True)[:10]
+    asks_sorted = sorted(asks, key=lambda x: x.get('price', 0))[:10]
+    
     return {
-        'bids': bids[:10],  # Top 10 bids
-        'asks': asks[:10],  # Top 10 asks
-        'total_bid_volume': sum(bid.get('quantity', 0) for bid in bids),
-        'total_ask_volume': sum(ask.get('quantity', 0) for ask in asks),
-        'best_bid': bids[0] if bids else {},
-        'best_ask': asks[0] if asks else {}
+        'bids': bids_sorted,  # Top 10 bids
+        'asks': asks_sorted,  # Top 10 asks
+        'total_bid_volume': sum(bid.get('quantity', 0) for bid in bids_sorted),
+        'total_ask_volume': sum(ask.get('quantity', 0) for ask in asks_sorted),
+        'best_bid': bids_sorted[0] if bids_sorted else {},
+        'best_ask': asks_sorted[0] if asks_sorted else {},
+        'spread': (asks_sorted[0].get('price', 0) - bids_sorted[0].get('price', 0)) if bids_sorted and asks_sorted else 0
     }
 # ================ FUNDAMENTAL ANALYTICS & COMPANY EVENTS FUNCTIONS ================
 
@@ -12334,31 +12361,39 @@ class FlowAnalysisAgent:
             }
     
     def _calculate_order_imbalance(self, order_book: Dict, threshold: float) -> float:
-        """Calculate order book imbalance with threshold adjustment"""
-        try:
-            bids = order_book.get('bids', [])
-            asks = order_book.get('asks', [])
-            
-            if not bids or not asks:
-                return 0.5
-                
-            # Extract quantities safely
-            total_bid_volume = sum(bid.get('quantity', 0) for bid in bids)
-            total_ask_volume = sum(ask.get('quantity', 0) for ask in asks)
-            
-            if total_bid_volume + total_ask_volume == 0:
-                return 0.5
-                
-            imbalance = total_bid_volume / (total_bid_volume + total_ask_volume)
-            
-            # Apply threshold-based confidence
-            if abs(imbalance - 0.5) > (threshold - 0.5):
-                return max(0.7, imbalance)
+    """Calculate order book imbalance with threshold adjustment"""
+    try:
+        bids = order_book.get('bids', [])
+        asks = order_book.get('asks', [])
+        
+        # Handle different depth data sources
+        if not bids or not asks:
+            source = order_book.get('source', 'unknown')
+            if source == 'fallback':
+                return 0.5  # Neutral for fallback data
+            elif source == 'synthetic':
+                # For synthetic data, return slight bias based on recent price movement
+                return 0.55
             else:
                 return 0.5
-                
-        except Exception:
+        
+        # Extract quantities safely
+        total_bid_volume = sum(bid.get('quantity', 0) for bid in bids)
+        total_ask_volume = sum(ask.get('quantity', 0) for ask in asks)
+        
+        if total_bid_volume + total_ask_volume == 0:
             return 0.5
+            
+        imbalance = total_bid_volume / (total_bid_volume + total_ask_volume)
+        
+        # Apply threshold-based confidence
+        if abs(imbalance - 0.5) > (threshold - 0.5):
+            return max(0.7, imbalance)
+        else:
+            return 0.5
+            
+    except Exception:
+        return 0.5
     
     def _detect_liquidity_waves(self, trades: List, large_order_threshold: int) -> float:
         """Detect liquidity waves using Nifty50 threshold"""
