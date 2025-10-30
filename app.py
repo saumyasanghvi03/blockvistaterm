@@ -7812,8 +7812,7 @@ def execute_fully_auto_trade(trading_signals, market_data):
         return {'status': 'FAILED', 'error': str(e)}
 
 
-def display_iceberg_results_enhanced(detection_result, market_data, show_details=True, 
-                                   depth_levels=20, trading_signals=None, algo_results=None):
+def display_iceberg_results_enhanced(detection_result, market_data, show_details=True, depth_levels=20, trading_signals=None, algo_results=None):
     """Display enhanced iceberg detection results with algorithm integration"""
     
     st.markdown("---")
