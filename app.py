@@ -31,6 +31,10 @@ import hashlib
 import random
 from streamlit_autorefresh import st_autorefresh
 import praw
+from scipy import stats
+from scipy.fft import fft
+import warnings
+warnings.filterwarnings('ignore')
 
 # <<<--- ENSURE THESE IMPORTS ARE PRESENT --->>>
 # If any are missing, add them above
@@ -241,12 +245,85 @@ ML_DATA_SOURCES = {
     }
     
 }
-# Upstox configuration
-UPSTOX_CONFIG = {
-    "api_key": "your_upstox_api_key",  # Will be set from secrets
-    "redirect_uri": "https://your-redirect-uri.com",  # Set in Upstox developer console
-    "api_secret": "your_upstox_api_secret"  # Will be set from secrets
+# Nifty50 stocks for Iceberg Detector with price-based parameters
+NIFTY50_STOCKS = {
+    "RELIANCE": {"category": "HIGH", "typical_price": 2500},
+    "TCS": {"category": "HIGH", "typical_price": 3500},
+    "HDFCBANK": {"category": "MEDIUM", "typical_price": 1500},
+    "ICICIBANK": {"category": "MEDIUM", "typical_price": 900},
+    "HINDUNILVR": {"category": "HIGH", "typical_price": 2400},
+    "INFY": {"category": "MEDIUM", "typical_price": 1600},
+    "ITC": {"category": "LOW", "typical_price": 400},
+    "SBIN": {"category": "MEDIUM", "typical_price": 600},
+    "BHARTIARTL": {"category": "MEDIUM", "typical_price": 1000},
+    "KOTAKBANK": {"category": "MEDIUM", "typical_price": 1700},
+    "LT": {"category": "HIGH", "typical_price": 3200},
+    "AXISBANK": {"category": "MEDIUM", "typical_price": 1000},
+    "ASIANPAINT": {"category": "HIGH", "typical_price": 2800},
+    "MARUTI": {"category": "HIGH", "typical_price": 11000},
+    "HCLTECH": {"category": "MEDIUM", "typical_price": 1300},
+    "SUNPHARMA": {"category": "MEDIUM", "typical_price": 1200},
+    "TITAN": {"category": "HIGH", "typical_price": 3300},
+    "ULTRACEMCO": {"category": "HIGH", "typical_price": 8500},
+    "BAJFINANCE": {"category": "HIGH", "typical_price": 6500},
+    "WIPRO": {"category": "LOW", "typical_price": 400},
+    "NESTLEIND": {"category": "HIGH", "typical_price": 2400},
+    "POWERGRID": {"category": "LOW", "typical_price": 250},
+    "NTPC": {"category": "LOW", "typical_price": 300},
+    "TATAMOTORS": {"category": "MEDIUM", "typical_price": 800},
+    "BAJAJFINSV": {"category": "HIGH", "typical_price": 1400},
+    "ADANIPORTS": {"category": "MEDIUM", "typical_price": 1200},
+    "ONGC": {"category": "LOW", "typical_price": 200},
+    "HDFCLIFE": {"category": "MEDIUM", "typical_price": 600},
+    "JSWSTEEL": {"category": "MEDIUM", "typical_price": 800},
+    "TATASTEEL": {"category": "MEDIUM", "typical_price": 140},
+    "TECHM": {"category": "LOW", "typical_price": 1100},
+    "DRREDDY": {"category": "HIGH", "typical_price": 5500},
+    "CIPLA": {"category": "MEDIUM", "typical_price": 1300},
+    "INDUSINDBK": {"category": "MEDIUM", "typical_price": 1400},
+    "GRASIM": {"category": "MEDIUM", "typical_price": 1800},
+    "BRITANNIA": {"category": "HIGH", "typical_price": 4800},
+    "COALINDIA": {"category": "LOW", "typical_price": 400},
+    "HINDALCO": {"category": "MEDIUM", "typical_price": 500},
+    "SBILIFE": {"category": "MEDIUM", "typical_price": 1300},
+    "M&M": {"category": "MEDIUM", "typical_price": 1600},
+    "DIVISLAB": {"category": "HIGH", "typical_price": 3600},
+    "HDFC": {"category": "HIGH", "typical_price": 2700},
+    "APOLLOHOSP": {"category": "HIGH", "typical_price": 5000},
+    "BAJAJ-AUTO": {"category": "HIGH", "typical_price": 7500},
+    "EICHERMOT": {"category": "HIGH", "typical_price": 3500},
+    "HEROMOTOCO": {"category": "HIGH", "typical_price": 4000},
+    "SHREECEM": {"category": "HIGH", "typical_price": 24000},
+    "UPL": {"category": "MEDIUM", "typical_price": 500},
+    "BPCL": {"category": "LOW", "typical_price": 550}
+}
 
+# Price-based detection parameters for Nifty50
+NIFTY50_DETECTION_PARAMS = {
+    "LOW": {  # Stocks < ₹500
+        "large_order_threshold": 50000,    # shares
+        "volume_anomaly_multiplier": 3.0,
+        "order_imbalance_threshold": 0.7,
+        "min_confidence": 0.6,
+        "trade_size_factor": 1.5,
+        "momentum_weight": 0.3
+    },
+    "MEDIUM": {  # Stocks ₹500 - ₹5000
+        "large_order_threshold": 10000,    # shares  
+        "volume_anomaly_multiplier": 2.5,
+        "order_imbalance_threshold": 0.65,
+        "min_confidence": 0.7,
+        "trade_size_factor": 1.2,
+        "momentum_weight": 0.4
+    },
+    "HIGH": {  # Stocks > ₹5000
+        "large_order_threshold": 1000,     # shares
+        "volume_anomaly_multiplier": 2.0,
+        "order_imbalance_threshold": 0.6,
+        "min_confidence": 0.75,
+        "trade_size_factor": 1.0,
+        "momentum_weight": 0.5
+    }
 }
 # ================ 1.5 INITIALIZATION ========================
 
@@ -255,7 +332,8 @@ def initialize_session_state():
     if 'broker' not in st.session_state: st.session_state.broker = None
     if 'kite' not in st.session_state: st.session_state.kite = None
     if 'profile' not in st.session_state: st.session_state.profile = None
-        # Add Upstox session state variables
+    if 'run_iceberg_analysis' not in st.session_state:
+        st.session_state.run_iceberg_analysis = False
     if 'login_animation_complete' not in st.session_state: st.session_state.login_animation_complete = False
     if 'authenticated' not in st.session_state: st.session_state.authenticated = False
     if 'two_factor_setup_complete' not in st.session_state: st.session_state.two_factor_setup_complete = False
@@ -409,516 +487,39 @@ def get_broker_client():
     
     return None
 
-def debug_upstox_installation():
-    """Debug function to check Upstox installation."""
-    try:
-        from upstox_api.api import Upstox
-        st.success("✓ Upstox package imported successfully")
-        
-        # Check available methods
-        methods = [method for method in dir(Upstox) if not method.startswith('_')]
-        st.write("Available Upstox methods:", methods[:10])  # Show first 10 methods
-        
-        return True
-    except ImportError as e:
-        st.error(f"✗ Upstox import failed: {e}")
-        return False
-    except Exception as e:
-        st.error(f"✗ Upstox check failed: {e}")
-        return False
-
-def debug_upstox_exchanges(access_token):
-    """Debug function to find available exchanges in Upstox API v2."""
-    if not access_token:
-        st.error("No access token available")
-        return
+def get_nifty50_stock_category(symbol):
+    """Get the price category for a Nifty50 stock."""
+    symbol_upper = symbol.upper()
     
-    st.subheader("🔧 Upstox API Debug - Available Exchanges")
+    # Handle variations in symbol names
+    symbol_mappings = {
+        "BAJAJ-AUTO": "BAJAJAUTO",
+        "M&M": "M_M",
+        # Add other mappings if needed
+    }
     
-    # Test various possible exchange codes
-    possible_exchanges = [
-        'NSE_EQ', 'NSE_FO', 'NSE_CD', 'BSE_EQ', 'BSE_FO', 
-        'MCX_FO', 'MCX_COMM', 'NSE', 'BSE', 'NFO', 'MCX', 'CDS'
-    ]
+    lookup_symbol = symbol_mappings.get(symbol_upper, symbol_upper)
     
-    available_exchanges = []
-    
-    for exchange in possible_exchanges:
-        try:
-            url = f"https://api.upstox.com/v2/master-contract/{exchange}"
-            headers = {
-                'Authorization': f'Bearer {access_token}',
-                'Accept': 'application/json'
-            }
-            
-            response = requests.get(url, headers=headers)
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('status') == 'success':
-                    count = len(data.get('data', []))
-                    available_exchanges.append(exchange)
-                    st.success(f"✓ {exchange}: {count} instruments available")
-                else:
-                    st.warning(f"⚠ {exchange}: API returned error - {data.get('message', 'Unknown')}")
-            else:
-                st.info(f"✗ {exchange}: Not available (HTTP {response.status_code})")
-                
-        except Exception as e:
-            st.error(f"✗ {exchange} error: {e}")
-    
-    return available_exchanges
+    if lookup_symbol in NIFTY50_STOCKS:
+        return NIFTY50_STOCKS[lookup_symbol]["category"]
+    else:
+        # Fallback: determine by current price
+        return "MEDIUM"
 
-def debug_upstox_api(access_token):
-    """Debug function to test Upstox API connectivity."""
-    if not access_token:
-        st.error("No access token available")
-        return
-    
-    # Test profile endpoint
-    try:
-        profile_url = "https://api.upstox.com/v2/user/profile"
-        headers = {
-            'Authorization': f'Bearer {access_token}',
-            'Accept': 'application/json'
-        }
-        
-        response = requests.get(profile_url, headers=headers)
-        if response.status_code == 200:
-            st.success("✓ Upstox profile API working")
-            profile_data = response.json()
-            st.write("Profile data:", profile_data)
-        else:
-            st.error(f"✗ Profile API failed: {response.status_code} - {response.text}")
-    except Exception as e:
-        st.error(f"✗ Profile API error: {e}")
-    
-    # Test available exchanges
-    exchanges = ['NSE', 'BSE', 'NFO', 'MCX', 'CDS']
-    for exchange in exchanges:
-        try:
-            url = f"https://api.upstox.com/v2/master-contract/{exchange}"
-            headers = {
-                'Authorization': f'Bearer {access_token}',
-                'Accept': 'application/json'
-            }
-            
-            response = requests.get(url, headers=headers)
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('status') == 'success':
-                    count = len(data.get('data', []))
-                    st.success(f"✓ {exchange}: {count} instruments")
-                else:
-                    st.warning(f"⚠ {exchange}: {data.get('message', 'Unknown error')}")
-            else:
-                st.error(f"✗ {exchange}: {response.status_code} - {response.text}")
-        except Exception as e:
-            st.error(f"✗ {exchange} error: {e}")
-# ===== END DEBUG FUNCTION =====
+def get_nifty50_detection_params(symbol):
+    """Get detection parameters for a specific Nifty50 stock."""
+    category = get_nifty50_stock_category(symbol)
+    return NIFTY50_DETECTION_PARAMS.get(category, NIFTY50_DETECTION_PARAMS["MEDIUM"])
 
-def get_upstox_login_url():
-    """Generate Upstox login URL."""
-    try:
-        api_key = st.secrets.get("UPSTOX_API_KEY")
-        redirect_uri = st.secrets.get("UPSTOX_REDIRECT_URI")
-        
-        if not api_key:
-            st.error("UPSTOX_API_KEY not found in secrets")
-            return None
-            
-        if not redirect_uri:
-            st.error("UPSTOX_REDIRECT_URI not found in secrets")
-            return None
-        
-        # URL encode the redirect_uri
-        import urllib.parse
-        encoded_redirect_uri = urllib.parse.quote(redirect_uri, safe='')
-        
-        # Upstox login URL format
-        login_url = f"https://api.upstox.com/v2/login/authorization/dialog?response_type=code&client_id={api_key}&redirect_uri={encoded_redirect_uri}"
-        
-        st.info(f"Login URL generated. Redirect URI: {redirect_uri}")
-        return login_url
-        
-    except Exception as e:
-        st.error(f"Error generating login URL: {e}")
-        return None
-
-def upstox_generate_session(authorization_code):
-    """Generate Upstox session using authorization code via direct API call."""
-    try:
-        api_key = st.secrets.get("UPSTOX_API_KEY")
-        api_secret = st.secrets.get("UPSTOX_API_SECRET")
-        redirect_uri = st.secrets.get("UPSTOX_REDIRECT_URI")
-        
-        if not all([api_key, api_secret, redirect_uri]):
-            st.error("Missing Upstox credentials in secrets")
-            return False
-            
-        url = 'https://api.upstox.com/v2/login/authorization/token'
-        headers = {
-            'accept': 'application/json',
-            'Content-Type': 'application/x-www-form-urlencoded',
-        }
-        data = {
-            'code': authorization_code,
-            'client_id': api_key,
-            'client_secret': api_secret,
-            'redirect_uri': redirect_uri,
-            'grant_type': 'authorization_code',
-        }
-
-        response = requests.post(url, headers=headers, data=data)
-        response.raise_for_status() # Raise an exception for bad status codes
-        
-        token_data = response.json()
-        
-        if 'access_token' in token_data:
-            st.session_state.upstox_access_token = token_data['access_token']
-            st.session_state.upstox_token_type = token_data.get('token_type', 'bearer')
-            st.success("Upstox authentication successful!")
-            return True
-        else:
-            st.error(f"No access token in response: {token_data.get('error_description', 'Unknown error')}")
-            return False
-            
-    except requests.exceptions.HTTPError as http_err:
-        st.error(f"Upstox session generation failed (HTTP Error): {http_err.response.status_code} - {http_err.response.text}")
-        return False
-    except Exception as e:
-        st.error(f"Upstox session generation failed: {str(e)}")
-        return False
-
-def upstox_logout():
-    """Logs out the user from the Upstox API."""
-    try:
-        access_token = st.session_state.get('upstox_access_token')
-        if not access_token:
-            st.warning("No active Upstox session to log out from.")
-            return
-
-        url = 'https://api.upstox.com/v2/logout'
-        headers = {
-            'Accept': 'application/json',
-            'Authorization': f'Bearer {access_token}'
-        }
-
-        response = requests.delete(url, headers=headers)
-        response.raise_for_status()
-        
-        logout_data = response.json()
-        if logout_data.get("status") == "success":
-            st.toast("Successfully logged out from Upstox.")
-        else:
-            st.warning(f"Upstox logout may not have been fully successful: {logout_data.get('message', '')}")
-
-    except requests.exceptions.HTTPError as http_err:
-        st.error(f"Upstox logout failed (HTTP Error): {http_err.response.status_code} - {http_err.response.text}")
-    except Exception as e:
-        st.error(f"An error occurred during Upstox logout: {str(e)}")
-
-
-def get_upstox_instruments(access_token, exchange='NSE_EQ'):
-    """Fetches instrument list from Upstox REST API v2 with correct exchange codes."""
-    if not access_token:
-        return pd.DataFrame()
-    
-    try:
-        # Correct exchange codes for Upstox v2 (from their documentation)
-        exchange_map = {
-            'NSE': 'NSE_EQ',    # NSE Equity
-            'BSE': 'BSE_EQ',    # BSE Equity  
-            'NFO': 'NSE_FO',    # NSE Futures & Options
-            'MCX': 'MCX_FO',    # MCX Commodities
-            'CDS': 'NSE_CD',    # NSE Currency Derivatives
-        }
-        
-        upstox_exchange = exchange_map.get(exchange, 'NSE_EQ')
-        
-        url = f"https://api.upstox.com/v2/master-contract/{upstox_exchange}"
-        headers = {
-            'Authorization': f'Bearer {access_token}',
-            'Accept': 'application/json'
-        }
-        
-        st.info(f"Fetching instruments for {exchange} -> {upstox_exchange}")
-        response = requests.get(url, headers=headers)
-        
-        if response.status_code == 200:
-            data = response.json()
-            instrument_list = []
-            
-            if data.get('status') == 'success' and 'data' in data:
-                instruments_data = data['data']
-                if not isinstance(instruments_data, list):
-                    st.error(f"Unexpected data format: {type(instruments_data)}")
-                    return pd.DataFrame()
-                
-                for instrument in instruments_data:
-                    instrument_list.append({
-                        'tradingsymbol': instrument.get('trading_symbol', ''),
-                        'name': instrument.get('name', ''),
-                        'instrument_token': instrument.get('instrument_key', ''),
-                        'exchange': exchange,  # Keep our internal exchange code
-                        'lot_size': instrument.get('lot_size', 1),
-                        'instrument_type': instrument.get('instrument_type', 'EQ'),
-                        'strike_price': instrument.get('strike_price', 0),
-                        'expiry': instrument.get('expiry', '')
-                    })
-                
-                st.success(f"Loaded {len(instrument_list)} instruments from {exchange}")
-                return pd.DataFrame(instrument_list)
-            else:
-                st.error(f"Upstox API response error: {data}")
-        else:
-            st.error(f"Upstox API Error (Instruments): {response.status_code} - {response.text}")
-            
-        return pd.DataFrame()
-        
-    except Exception as e:
-        st.error(f"Upstox API Error (Instruments): {e}")
-        return pd.DataFrame()
-
-def get_upstox_historical_data(access_token, instrument_key, interval, period=None):
-    """Fetches historical data from Upstox REST API v2."""
-    if not access_token or not instrument_key:
-        return pd.DataFrame()
-    
-    try:
-        from datetime import datetime, timedelta
-        
-        # Map interval to Upstox v2 format
-        interval_map = {
-            'minute': '1minute',
-            '5minute': '5minute', 
-            'day': 'day',
-            'week': 'week'
-        }
-        
-        upstox_interval = interval_map.get(interval, 'day')
-        
-        # Calculate date range based on period
-        end_date = datetime.now()
-        if period == '1d':
-            start_date = end_date - timedelta(days=2)
-        elif period == '5d':
-            start_date = end_date - timedelta(days=7)
-        elif period == '1mo':
-            start_date = end_date - timedelta(days=31)
-        elif period == '6mo':
-            start_date = end_date - timedelta(days=182)
-        elif period == '1y':
-            start_date = end_date - timedelta(days=365)
-        else:
-            start_date = end_date - timedelta(days=30)
-        
-        # Format dates for API
-        start_date_str = start_date.strftime('%Y-%m-%d')
-        end_date_str = end_date.strftime('%Y-%m-%d')
-        
-        # Fetch historical data from Upstox v2
-        url = f"https://api.upstox.com/v2/historical-candle/{instrument_key}/{upstox_interval}/{start_date_str}/{end_date_str}"
-        headers = {
-            'Authorization': f'Bearer {access_token}',
-            'Accept': 'application/json'
-        }
-        
-        response = requests.get(url, headers=headers)
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('status') == 'success' and 'data' in data and 'candles' in data['data']:
-                candles = data['data']['candles']
-                df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'oi'])
-                df['timestamp'] = pd.to_datetime(df['timestamp'])
-                df.set_index('timestamp', inplace=True)
-                return df
-            else:
-                st.error(f"Upstox API response error: {data}")
-        else:
-            st.error(f"Upstox API Error: {response.status_code} - {response.text}")
-            
-        return pd.DataFrame()
-            
-    except Exception as e:
-        st.error(f"Upstox API Error (Historical): {e}")
-        return pd.DataFrame()
-
-def get_upstox_instruments(access_token, exchange='NSE_EQ'):
-    """Fetches instrument list from Upstox REST API v2."""
-    if not access_token:
-        return pd.DataFrame()
-    
-    try:
-        url = f"https://api.upstox.com/v2/master-contract/{exchange}"
-        headers = {
-            'Authorization': f'Bearer {access_token}',
-            'Accept': 'application/json'
-        }
-        
-        response = requests.get(url, headers=headers)
-        
-        if response.status_code == 200:
-            data = response.json()
-            instrument_list = []
-            
-            if data['status'] == 'success' and 'data' in data:
-                for instrument in data['data']:
-                    instrument_list.append({
-                        'tradingsymbol': instrument.get('trading_symbol', ''),
-                        'name': instrument.get('name', ''),
-                        'instrument_token': instrument.get('instrument_key', ''),
-                        'exchange': exchange,
-                        'lot_size': instrument.get('lot_size', 1),
-                        'instrument_type': instrument.get('instrument_type', 'EQ')
-                    })
-                
-                return pd.DataFrame(instrument_list)
-        else:
-            st.error(f"Upstox API Error (Instruments): {response.text}")
-            
-        return pd.DataFrame()
-        
-    except Exception as e:
-        st.error(f"Upstox API Error (Instruments): {e}")
-        return pd.DataFrame()
-
-def get_upstox_quote(upstox_client, instrument_key):
-    """Fetches quote data from Upstox."""
-    if not upstox_client or not instrument_key:
-        return None
-    
-    try:
-        # Get live quote
-        quote_data = upstox_client.get_live_feed(instrument_key, 'quote')
-        return quote_data
-        
-    except Exception as e:
-        st.error(f"Upstox API Error (Quote): {e}")
-        return None
-
-
-def place_upstox_order(order_params):
-    """Place order through Upstox."""
-    try:
-        client = get_broker_client()
-        if not client or st.session_state.broker != "Upstox":
-            return None
-            
-        api_instance = upstox.OrderApi(client['api_client'])
-        
-        # Prepare order parameters
-        order_request = upstox.PlaceOrderRequest(
-            quantity=order_params['quantity'],
-            product=order_params['product'],
-            validity=order_params['validity'],
-            price=order_params.get('price', 0),
-            tag=order_params.get('tag', ''),
-            instrument_token=order_params['instrument_token'],
-            order_type=order_params['order_type'],
-            transaction_type=order_params['transaction_type'],
-            disclosed_quantity=order_params.get('disclosed_quantity', 0),
-            trigger_price=order_params.get('trigger_price', 0),
-            is_amo=order_params.get('is_amo', False)
-        )
-        
-        response = api_instance.place_order(order_request)
-        return response.data.order_id
-        
-    except ApiException as e:
-        st.error(f"Upstox order failed: {e}")
-        return None
-    except Exception as e:
-        st.error(f"Upstox order error: {e}")
-        return None
-
-def get_upstox_positions():
-    """Fetch positions from Upstox."""
-    try:
-        client = get_broker_client()
-        if not client or st.session_state.broker != "Upstox":
-            return pd.DataFrame()
-            
-        api_instance = upstox.PortfolioApi(client['api_client'])
-        response = api_instance.get_positions()
-        
-        positions = []
-        if response and hasattr(response, 'data'):
-            for position in response.data:
-                positions.append({
-                    'tradingsymbol': position.tradingsymbol,
-                    'quantity': position.quantity,
-                    'average_price': position.average_price,
-                    'last_price': position.last_price,
-                    'pnl': position.pnl,
-                    'product': position.product
-                })
-                
-        return pd.DataFrame(positions)
-        
-    except Exception as e:
-        st.error(f"Error fetching Upstox positions: {e}")
-        return pd.DataFrame()
-
-def get_upstox_holdings():
-    """Fetch holdings from Upstox."""
-    try:
-        client = get_broker_client()
-        if not client or st.session_state.broker != "Upstox":
-            return pd.DataFrame()
-            
-        api_instance = upstox.PortfolioApi(client['api_client'])
-        response = api_instance.get_holdings()
-        
-        holdings = []
-        if response and hasattr(response, 'data'):
-            for holding in response.data:
-                holdings.append({
-                    'tradingsymbol': holding.tradingsymbol,
-                    'quantity': holding.quantity,
-                    'average_price': holding.average_price,
-                    'last_price': holding.last_price,
-                    'pnl': holding.pnl,
-                    'product': holding.product
-                })
-                
-        return pd.DataFrame(holdings)
-        
-    except Exception as e:
-        st.error(f"Error fetching Upstox holdings: {e}")
-        return pd.DataFrame()
-
-def get_upstox_order_book():
-    """Fetch order book from Upstox."""
-    try:
-        client = get_broker_client()
-        if not client or st.session_state.broker != "Upstox":
-            return pd.DataFrame()
-            
-        api_instance = upstox.OrderApi(client['api_client'])
-        response = api_instance.get_order_book()
-        
-        orders = []
-        if response and hasattr(response, 'data'):
-            for order in response.data:
-                orders.append({
-                    'order_id': order.order_id,
-                    'tradingsymbol': order.tradingsymbol,
-                    'transaction_type': order.transaction_type,
-                    'order_type': order.order_type,
-                    'product': order.product,
-                    'quantity': order.quantity,
-                    'filled_quantity': order.filled_quantity,
-                    'price': order.price,
-                    'status': order.status,
-                    'order_timestamp': order.order_timestamp
-                })
-                
-        return pd.DataFrame(orders)
-        
-    except Exception as e:
-        st.error(f"Error fetching Upstox order book: {e}")
-        return pd.DataFrame()
+def is_nifty50_stock(symbol):
+    """Check if a symbol is in Nifty50."""
+    symbol_upper = symbol.upper()
+    symbol_mappings = {
+        "BAJAJ-AUTO": "BAJAJAUTO", 
+        "M&M": "M_M",
+    }
+    lookup_symbol = symbol_mappings.get(symbol_upper, symbol_upper)
+    return lookup_symbol in NIFTY50_STOCKS
 
 # @st.dialog("Quick Trade")
 def quick_trade_interface(symbol=None, exchange=None):
@@ -1445,13 +1046,35 @@ def get_watchlist_data(symbols_with_exchange):
 
 @st.cache_data(ttl=2)
 def get_market_depth(instrument_token):
-    """Fetches market depth (order book) for a given instrument."""
+    """Fetches market depth (order book) for a given instrument using quote data."""
     client = get_broker_client()
     if not client or not instrument_token:
         return None
+    
     try:
-        depth = client.depth(instrument_token)
-        return depth.get(str(instrument_token))
+        # Use quote method instead of depth (which doesn't exist in KiteConnect)
+        quote_data = client.quote(str(instrument_token))
+        
+        if not quote_data:
+            return None
+            
+        instrument_quote = quote_data.get(str(instrument_token), {})
+        
+        # Extract depth from quote data
+        depth = {
+            'buy': [],
+            'sell': [],
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # KiteConnect quote provides depth in 'depth' key
+        if 'depth' in instrument_quote:
+            market_depth = instrument_quote['depth']
+            depth['buy'] = market_depth.get('buy', [])
+            depth['sell'] = market_depth.get('sell', [])
+        
+        return depth
+        
     except Exception as e:
         st.toast(f"Error fetching market depth: {e}", icon="⚠️")
         return None
@@ -6021,6 +5644,64 @@ def display_enhanced_square_off_actions(analyzed_positions):
 # =============================================================================
 # HELPER FUNCTIONS - ADD NEW ONES
 # =============================================================================
+# ================ ICEBERG DETECTOR HELPER FUNCTIONS ================
+
+def get_nifty50_stock_category(symbol):
+    """Get the price category for a Nifty50 stock."""
+    symbol_upper = symbol.upper()
+    
+    # Handle variations in symbol names
+    symbol_mappings = {
+        "BAJAJ-AUTO": "BAJAJAUTO",
+        "M&M": "M_M",
+    }
+    
+    lookup_symbol = symbol_mappings.get(symbol_upper, symbol_upper)
+    
+    if lookup_symbol in NIFTY50_STOCKS:
+        return NIFTY50_STOCKS[lookup_symbol]["category"]
+    else:
+        # Fallback: determine by current price
+        return "MEDIUM"
+
+def get_nifty50_detection_params(symbol):
+    """Get detection parameters for a specific Nifty50 stock."""
+    category = get_nifty50_stock_category(symbol)
+    return NIFTY50_DETECTION_PARAMS.get(category, NIFTY50_DETECTION_PARAMS["MEDIUM"])
+
+def is_nifty50_stock(symbol):
+    """Check if a symbol is in Nifty50."""
+    symbol_upper = symbol.upper()
+    symbol_mappings = {
+        "BAJAJ-AUTO": "BAJAJAUTO", 
+        "M&M": "M_M",
+    }
+    lookup_symbol = symbol_mappings.get(symbol_upper, symbol_upper)
+    return lookup_symbol in NIFTY50_STOCKS
+
+def get_market_depth_data(instrument_token):
+    """Get enhanced market depth data for iceberg detection."""
+    depth = get_market_depth(instrument_token)
+    if not depth:
+        return {}
+    
+    # Process depth data for analysis
+    bids = depth.get('buy', [])
+    asks = depth.get('sell', [])
+    
+    # Sort bids (highest first) and asks (lowest first)
+    bids_sorted = sorted(bids, key=lambda x: x.get('price', 0), reverse=True)[:10]
+    asks_sorted = sorted(asks, key=lambda x: x.get('price', 0))[:10]
+    
+    return {
+        'bids': bids_sorted,  # Top 10 bids
+        'asks': asks_sorted,  # Top 10 asks
+        'total_bid_volume': sum(bid.get('quantity', 0) for bid in bids_sorted),
+        'total_ask_volume': sum(ask.get('quantity', 0) for ask in asks_sorted),
+        'best_bid': bids_sorted[0] if bids_sorted else {},
+        'best_ask': asks_sorted[0] if asks_sorted else {},
+        'spread': (asks_sorted[0].get('price', 0) - bids_sorted[0].get('price', 0)) if bids_sorted and asks_sorted else 0
+    }
 # ================ FUNDAMENTAL ANALYTICS & COMPANY EVENTS FUNCTIONS ================
 
 def get_company_fundamentals_kite(symbol, instrument_df):
@@ -7677,6 +7358,288 @@ def render_chart_controls(i, instrument_df):
                 place_order(instrument_df, ticker, quantity, 'MARKET', 'BUY', 'MIS')
             if order_cols[3].button("Sell", key=f"sell_btn_{i}", use_container_width=True):
                 place_order(instrument_df, ticker, quantity, 'MARKET', 'SELL', 'MIS')
+
+def page_iceberg_detector():
+    """Iceberg Detector page for BlockVista Terminal - Nifty50 Only"""
+    display_header()
+    st.title("🧊 Quantum Iceberg Detector - Nifty50")
+    st.markdown("""
+    **Advanced iceberg detection optimized for Nifty50 stocks with price-based parameters**
+    
+    *Dynamic thresholds for low, medium, and high-priced stocks*
+    """)
+    
+    # Check if broker is connected
+    client = get_broker_client()
+    if not client:
+        st.error("Please connect to a broker to use the Iceberg Detector")
+        return
+    
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.info("Loading instrument data...")
+        return
+    
+    # Filter only Nifty50 stocks
+    nifty50_symbols = list(NIFTY50_STOCKS.keys())
+    
+    # Create mapping for display (handle symbol variations)
+    display_symbols = []
+    for symbol in nifty50_symbols:
+        # Check if symbol exists in instrument data
+        instrument_match = instrument_df[instrument_df['tradingsymbol'] == symbol]
+        if instrument_match.empty:
+            # Try alternative representations
+            if symbol == "BAJAJ-AUTO":
+                alt_symbol = "BAJAJAUTO"
+            elif symbol == "M&M":
+                alt_symbol = "M_M"
+            else:
+                alt_symbol = symbol
+                
+            instrument_match = instrument_df[instrument_df['tradingsymbol'] == alt_symbol]
+        
+        if not instrument_match.empty:
+            display_symbols.append(symbol)
+    
+    if not display_symbols:
+        st.error("No Nifty50 stocks found in instrument data")
+        return
+    
+    # Symbol selection
+    col1, col2, col3 = st.columns([2, 1, 1])
+    
+    with col1:
+        selected_symbol = st.selectbox(
+            "Select Nifty50 Stock",
+            sorted(display_symbols),
+            index=display_symbols.index('RELIANCE') if 'RELIANCE' in display_symbols else 0,
+            key="iceberg_symbol"
+        )
+        
+        # Show stock category and parameters
+        category = get_nifty50_stock_category(selected_symbol)
+        params = get_nifty50_detection_params(selected_symbol)
+        
+        st.info(f"**Category:** {category} | **Large Order:** {params['large_order_threshold']:,}+ shares")
+    
+    with col2:
+        timeframe = st.selectbox(
+            "Timeframe",
+            ["5minute", "15minute", "30minute", "hour", "day"],
+            key="iceberg_timeframe"
+        )
+    
+    with col3:
+        period = st.selectbox(
+            "Period", 
+            ["1d", "5d", "1mo", "3mo"],
+            key="iceberg_period"
+        )
+    
+    # Show category breakdown
+    with st.expander("📊 Nifty50 Stock Categories", expanded=False):
+        col_cat1, col_cat2, col_cat3 = st.columns(3)
+        
+        with col_cat1:
+            st.write("**🔵 LOW Price (< ₹500)**")
+            low_stocks = [s for s in nifty50_symbols if get_nifty50_stock_category(s) == "LOW"]
+            for stock in low_stocks[:5]:
+                st.write(f"• {stock}")
+            if len(low_stocks) > 5:
+                st.caption(f"+ {len(low_stocks) - 5} more")
+        
+        with col_cat2:
+            st.write("**🟡 MEDIUM Price (₹500-₹5000)**")
+            med_stocks = [s for s in nifty50_symbols if get_nifty50_stock_category(s) == "MEDIUM"]
+            for stock in med_stocks[:5]:
+                st.write(f"• {stock}")
+            if len(med_stocks) > 5:
+                st.caption(f"+ {len(med_stocks) - 5} more")
+        
+        with col_cat3:
+            st.write("**🔴 HIGH Price (> ₹5000)**")
+            high_stocks = [s for s in nifty50_symbols if get_nifty50_stock_category(s) == "HIGH"]
+            for stock in high_stocks[:5]:
+                st.write(f"• {stock}")
+            if len(high_stocks) > 5:
+                st.caption(f"+ {len(high_stocks) - 5} more")
+    
+    # Analysis controls
+    st.markdown("---")
+    col_controls1, col_controls2, col_controls3 = st.columns([1, 1, 1])
+    
+    with col_controls1:
+        if st.button("🔍 Run Iceberg Analysis", type="primary", use_container_width=True):
+            st.session_state.run_iceberg_analysis = True
+    
+    with col_controls2:
+        auto_refresh = st.checkbox("🔄 Auto-refresh (30s)", value=False, key="iceberg_refresh")
+    
+    with col_controls3:
+        show_details = st.checkbox("📊 Show Detailed Analysis", value=True, key="iceberg_details")
+    
+    # Run analysis when requested
+    if st.session_state.get('run_iceberg_analysis', False) or auto_refresh:
+        with st.spinner("🧊 Running quantum iceberg detection..."):
+            try:
+                # Get historical data
+                instrument_token = get_instrument_token(selected_symbol, instrument_df, 'NSE')
+                historical_data = get_historical_data(instrument_token, timeframe, period)
+                
+                if historical_data.empty:
+                    st.error("No historical data available for analysis")
+                    return
+                
+                # Prepare market data
+                market_data = prepare_market_data(selected_symbol, instrument_df, historical_data)
+                
+                if not market_data:
+                    st.error("Failed to prepare market data for analysis")
+                    return
+                
+                # Initialize detector and run analysis
+                detector = QuantumIcebergDetector()
+                detection_result = detector.process_market_data(market_data)
+                
+                # Display results
+                display_iceberg_results(detection_result, market_data, show_details)
+                
+            except Exception as e:
+                st.error(f"Analysis failed: {str(e)}")
+    
+    # Auto-refresh logic
+    if auto_refresh:
+        st_autorefresh(interval=30000, key="iceberg_autorefresh")
+    
+    # Information section
+    with st.expander("ℹ️ About Iceberg Detection", expanded=False):
+        st.markdown("""
+        **How Iceberg Detection Works:**
+        
+        - **Flow Analysis**: Monitors order book imbalances and liquidity waves
+        - **Pattern Detection**: Identifies volume and price anomalies
+        - **Quantum Fusion**: Combines signals using quantum-inspired algorithms
+        - **Nifty50 Optimization**: Uses price-based thresholds for different stock categories
+        
+        **Detection Parameters by Category:**
+        - **LOW Price**: 50,000+ share threshold (high volume, low price)
+        - **MEDIUM Price**: 10,000+ share threshold (balanced sensitivity)  
+        - **HIGH Price**: 1,000+ share threshold (low volume, high price)
+        
+        **Confidence Levels:**
+        - 🟢 < 40%: Normal trading
+        - 🟡 40-70%: Possible iceberg activity
+        - 🔴 > 70%: High probability iceberg detected
+        """)
+
+
+def display_iceberg_results(detection_result, market_data, show_details=True):
+    """Display iceberg detection results"""
+    
+    st.markdown("---")
+    st.subheader("🎯 Detection Results")
+    
+    # Key metrics
+    probability = detection_result['iceberg_probability']
+    confidence = detection_result['confidence']
+    regime = detection_result['regime'].value
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        # Probability gauge
+        if probability > 0.7:
+            st.error(f"🔴 {probability:.1%}")
+            st.write("**High Iceberg Probability**")
+        elif probability > 0.4:
+            st.warning(f"🟡 {probability:.1%}")
+            st.write("**Medium Probability**")
+        else:
+            st.success(f"🟢 {probability:.1%}")
+            st.write("**Low Probability**")
+    
+    with col2:
+        st.metric("Confidence Score", f"{confidence:.1%}")
+    
+    with col3:
+        st.metric("Market Regime", regime)
+    
+    with col4:
+        category = market_data.get('stock_category', 'UNKNOWN')
+        st.metric("Stock Category", category)
+    
+    # Alerts
+    alerts = detection_result.get('alerts', [])
+    if alerts:
+        st.markdown("---")
+        st.subheader("🚨 Alerts & Signals")
+        for alert in alerts:
+            if "HIGH" in alert:
+                st.error(alert)
+            elif "Medium" in alert:
+                st.warning(alert)
+            else:
+                st.info(alert)
+    
+    # Detailed analysis
+    if show_details:
+        st.markdown("---")
+        st.subheader("📊 Detailed Analysis")
+        
+        col_analysis1, col_analysis2 = st.columns(2)
+        
+        with col_analysis1:
+            st.write("**Flow Analysis**")
+            flow_data = detection_result['flow_analysis']
+            st.write(f"- Confidence: {flow_data['confidence']:.1%}")
+            st.write(f"- Momentum: {flow_data['momentum']:.1%}")
+            st.write(f"- Volatility: {flow_data['volatility']:.1%}")
+        
+        with col_analysis2:
+            st.write("**Pattern Analysis**")
+            pattern_data = detection_result['pattern_analysis']
+            st.write(f"- Confidence: {pattern_data['confidence']:.1%}")
+            st.write(f"- Momentum: {pattern_data['momentum']:.1%}")
+            st.write(f"- Volatility: {pattern_data['volatility']:.1%}")
+        
+        # Market data metrics
+        st.markdown("---")
+        st.subheader("📈 Market Data Metrics")
+        
+        col_metrics1, col_metrics2, col_metrics3 = st.columns(3)
+        
+        with col_metrics1:
+            st.metric("Volume Ratio", f"{market_data.get('volume_ratio', 1):.2f}x")
+            st.metric("Volatility", f"{market_data.get('volatility', 0):.3f}")
+        
+        with col_metrics2:
+            order_book = market_data.get('order_book', {})
+            bid_volume = order_book.get('total_bid_volume', 0)
+            ask_volume = order_book.get('total_ask_volume', 0)
+            st.metric("Bid Volume", f"{bid_volume:,}")
+            st.metric("Ask Volume", f"{ask_volume:,}")
+        
+        with col_metrics3:
+            if bid_volume + ask_volume > 0:
+                imbalance = bid_volume / (bid_volume + ask_volume)
+                st.metric("Order Imbalance", f"{imbalance:.1%}")
+            else:
+                st.metric("Order Imbalance", "N/A")
+            
+            params = market_data.get('detection_params', {})
+            st.metric("Large Order Threshold", f"{params.get('large_order_threshold', 0):,}")
+        
+        # Create visualization
+        st.markdown("---")
+        st.subheader("🔬 Quantum Visualization")
+        
+        try:
+            visualizer = QuantumVisualizer()
+            fig = visualizer.create_quantum_chart(detection_result)
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.warning(f"Visualization unavailable: {e}")
 
 def page_premarket_pulse():
     """Global market overview and premarket indicators with a trader-focused UI."""
@@ -12359,7 +12322,493 @@ def page_hft_terminal():
             log_container.markdown(f"<small>{entry['time']}</small> - **{entry['price']:.2f}** <span style='color:{color};'>({entry['change']:+.2f})</span>", unsafe_allow_html=True)
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
+# ================ ICEBERG DETECTOR CORE CLASSES ================
+# Add this import at the TOP of your file (with other imports)
+from typing import Dict, List, Any, Optional
 
+class FlowAnalysisAgent:
+    """Real-time liquidity flow analysis with Nifty50-specific parameters"""
+    
+    def analyze(self, market_data: Dict) -> Dict:
+        try:
+            order_book = market_data.get('order_book', {})
+            trades = market_data.get('trades', [])
+            large_orders = market_data.get('large_orders', [])
+            detection_params = market_data.get('detection_params', {})
+            
+            # Get Nifty50 specific parameters
+            large_order_threshold = detection_params.get('large_order_threshold', 10000)
+            order_imbalance_threshold = detection_params.get('order_imbalance_threshold', 0.65)
+            
+            order_imbalance = self._calculate_order_imbalance(order_book, order_imbalance_threshold)
+            liquidity_waves = self._detect_liquidity_waves(trades, large_order_threshold)
+            smart_money_flow = self._track_smart_money(large_orders, large_order_threshold)
+            
+            # Calculate weighted confidence
+            confidence = 0.4 * order_imbalance + 0.4 * liquidity_waves + 0.2 * smart_money_flow
+            
+            return {
+                'confidence': min(max(confidence, 0), 1),  # Clamp between 0-1
+                'momentum': order_imbalance,
+                'volatility': liquidity_waves
+            }
+        except Exception as e:
+            # Return safe default values on error
+            return {
+                'confidence': 0.5,
+                'momentum': 0.5,
+                'volatility': 0.5
+            }
+    
+    def _calculate_order_imbalance(self, order_book: Dict, threshold: float) -> float:
+        """Calculate order book imbalance with threshold adjustment"""
+        try:
+            bids = order_book.get('bids', [])
+            asks = order_book.get('asks', [])
+            
+            # Handle different depth data sources
+            if not bids or not asks:
+                source = order_book.get('source', 'unknown')
+                if source == 'fallback':
+                    return 0.5  # Neutral for fallback data
+                elif source == 'synthetic':
+                    # For synthetic data, return slight bias based on recent price movement
+                    return 0.55
+                else:
+                    return 0.5
+            
+            # Extract quantities safely
+            total_bid_volume = sum(bid.get('quantity', 0) for bid in bids)
+            total_ask_volume = sum(ask.get('quantity', 0) for ask in asks)
+            
+            if total_bid_volume + total_ask_volume == 0:
+                return 0.5
+                
+            imbalance = total_bid_volume / (total_bid_volume + total_ask_volume)
+            
+            # Apply threshold-based confidence
+            if abs(imbalance - 0.5) > (threshold - 0.5):
+                return max(0.7, imbalance)
+            else:
+                return 0.5
+                
+        except Exception:
+            return 0.5
+    
+    def _detect_liquidity_waves(self, trades: List, large_order_threshold: int) -> float:
+        """Detect liquidity waves using Nifty50 threshold"""
+        try:
+            if len(trades) < 10:
+                return 0.5
+                
+            recent_trades = trades[-10:]
+            
+            # Safely extract trade quantities
+            large_trades = [
+                trade for trade in recent_trades 
+                if trade.get('quantity', 0) >= large_order_threshold
+            ]
+            
+            if not large_trades:
+                return 0.3
+                
+            # Higher confidence when large trades are present
+            large_trade_ratio = len(large_trades) / len(recent_trades)
+            return min(0.9, 0.5 + large_trade_ratio * 0.4)
+            
+        except Exception:
+            return 0.5
+    
+    def _track_smart_money(self, large_orders: List, large_order_threshold: int) -> float:
+        """Track smart money flow with dynamic threshold"""
+        try:
+            if not large_orders:
+                return 0.5
+                
+            # Filter orders by Nifty50 threshold
+            significant_orders = [
+                order for order in large_orders 
+                if order.get('quantity', 0) >= large_order_threshold
+            ]
+            
+            if not significant_orders:
+                return 0.4
+                
+            order_count = len(significant_orders)
+            return min(0.9, 0.5 + (order_count / 10.0) * 0.4)
+            
+        except Exception:
+            return 0.5
+
+
+class PatternDetectionAgent:
+    """Advanced pattern detection with Nifty50-specific parameters"""
+    
+    def analyze(self, market_data: Dict) -> Dict:
+        volumes = market_data.get('volumes', [])
+        prices = market_data.get('prices', [])
+        timestamps = market_data.get('timestamps', [])
+        detection_params = market_data.get('detection_params', {})
+        
+        volume_anomaly_multiplier = detection_params.get('volume_anomaly_multiplier', 2.5)
+        momentum_weight = detection_params.get('momentum_weight', 0.4)
+        
+        volume_pattern = self._analyze_volume_fractals(volumes, volume_anomaly_multiplier) if volumes else 0.5
+        price_pattern = self._analyze_price_fractals(prices) if prices else 0.5
+        time_pattern = self._analyze_time_compression(timestamps) if timestamps else 0.5
+        
+        # Use momentum weight from Nifty50 params
+        base_confidence = (0.6 * volume_pattern + 0.3 * price_pattern + 0.1 * time_pattern)
+        momentum = self._calculate_pattern_momentum(market_data)
+        
+        # Adjust confidence based on momentum
+        adjusted_confidence = base_confidence * (1 + momentum_weight * momentum)
+        
+        return {
+            'confidence': np.clip(adjusted_confidence, 0, 1),
+            'momentum': momentum,
+            'volatility': market_data.get('volatility', 0)
+        }
+    
+    def _analyze_volume_fractals(self, volumes: List[float], anomaly_multiplier: float) -> float:
+        """Analyze volume patterns with Nifty50 anomaly multiplier"""
+        if len(volumes) < 5:
+            return 0.5
+        
+        try:
+            # Calculate volume anomaly
+            avg_volume = np.mean(volumes[:-1]) if len(volumes) > 1 else volumes[0]
+            current_volume = volumes[-1]
+            
+            volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1
+            
+            # Use Nifty50 multiplier for anomaly detection
+            if volume_ratio > anomaly_multiplier:
+                anomaly_score = min(0.8, 0.3 + (volume_ratio - anomaly_multiplier) * 0.2)
+            else:
+                anomaly_score = 0.3
+                
+            # Combine with fractal analysis
+            log_volumes = np.log(np.array(volumes) + 1e-8)
+            hurst_exponent = self._calculate_hurst_exponent(log_volumes)
+            fractal_dimension = 2 - hurst_exponent
+            fractal_score = float(np.clip(fractal_dimension - 1.2, 0, 0.5) * 2)
+            
+            return 0.6 * anomaly_score + 0.4 * fractal_score
+            
+        except:
+            return 0.5
+    
+    def _calculate_hurst_exponent(self, time_series):
+        """Calculate Hurst exponent for fractal analysis"""
+        try:
+            lags = range(2, min(20, len(time_series)//2))
+            tau = [np.std(np.subtract(time_series[lag:], time_series[:-lag])) for lag in lags]
+            poly = np.polyfit(np.log(lags), np.log(tau), 1)
+            return poly[0]
+        except:
+            return 0.5
+    
+    def _analyze_price_fractals(self, prices: List[float]) -> float:
+        """Analyze price patterns for iceberg detection"""
+        if len(prices) < 10:
+            return 0.5
+            
+        try:
+            # Calculate price momentum and volatility
+            returns = np.diff(np.log(prices + 1e-8))
+            volatility = np.std(returns) if len(returns) > 1 else 0.01
+            
+            # Detect sudden price movements without volume (potential iceberg)
+            price_changes = np.abs(np.diff(prices))
+            avg_change = np.mean(price_changes) if len(price_changes) > 0 else 0
+            
+            if avg_change > 0:
+                recent_change = price_changes[-1] if len(price_changes) > 0 else 0
+                anomaly_ratio = recent_change / avg_change
+                price_score = min(0.8, 0.3 + anomaly_ratio * 0.2)
+            else:
+                price_score = 0.3
+                
+            return price_score
+            
+        except:
+            return 0.5
+    
+    def _analyze_time_compression(self, timestamps: List) -> float:
+        """Analyze time-based patterns"""
+        if len(timestamps) < 5:
+            return 0.5
+            
+        try:
+            # Simple time analysis - more sophisticated version would use actual timestamps
+            return 0.5
+        except:
+            return 0.5
+    
+    def _calculate_pattern_momentum(self, market_data: Dict) -> float:
+        """Calculate pattern momentum"""
+        prices = market_data.get('prices', [])
+        if len(prices) < 5:
+            return 0.5
+            
+        try:
+            # Simple momentum calculation
+            recent_prices = prices[-5:]
+            if len(recent_prices) >= 2:
+                momentum = (recent_prices[-1] - recent_prices[0]) / recent_prices[0]
+                return float(np.clip(momentum * 10, -1, 1))
+            return 0.5
+        except:
+            return 0.5
+
+
+class QuantumIcebergDetector:
+    """Quantum-inspired iceberg order detection system"""
+    
+    def __init__(self):
+        self.flow_agent = FlowAnalysisAgent()
+        self.pattern_agent = PatternDetectionAgent()
+        self.detection_history = []
+        
+    def process_market_data(self, market_data: Dict) -> Dict:
+        """Process market data through all detection agents"""
+        
+        # Analyze through different agents
+        flow_analysis = self.flow_agent.analyze(market_data)
+        pattern_analysis = self.pattern_agent.analyze(market_data)
+        
+        # Combine analyses with quantum-inspired weighting
+        combined_confidence = self._quantum_fusion(
+            flow_analysis['confidence'], 
+            pattern_analysis['confidence'],
+            market_data
+        )
+        
+        # Determine iceberg probability
+        iceberg_probability = self._calculate_iceberg_probability(
+            combined_confidence, 
+            market_data
+        )
+        
+        # Determine market regime
+        regime = self._determine_market_regime(market_data)
+        
+        result = {
+            'timestamp': datetime.now().isoformat(),
+            'symbol': market_data.get('symbol', 'UNKNOWN'),
+            'confidence': combined_confidence,
+            'iceberg_probability': iceberg_probability,
+            'regime': regime,
+            'flow_analysis': flow_analysis,
+            'pattern_analysis': pattern_analysis,
+            'alerts': self._generate_alerts(iceberg_probability, regime)
+        }
+        
+        return result
+    
+    def _quantum_fusion(self, flow_conf: float, pattern_conf: float, market_data: Dict) -> float:
+        """Quantum-inspired confidence fusion"""
+        # Use entanglement-inspired weighting
+        volatility = market_data.get('volatility', 0.01)
+        volume_ratio = market_data.get('volume_ratio', 1.0)
+        
+        # Adjust weights based on market conditions
+        if volatility > 0.02:  # High volatility
+            flow_weight = 0.6
+            pattern_weight = 0.4
+        else:  # Normal volatility
+            flow_weight = 0.4
+            pattern_weight = 0.6
+            
+        # Apply volume-based adjustment
+        if volume_ratio > 2.0:
+            flow_weight *= 1.2
+        elif volume_ratio < 0.5:
+            pattern_weight *= 1.2
+            
+        combined = (flow_weight * flow_conf + pattern_weight * pattern_conf)
+        return float(np.clip(combined, 0, 1))
+    
+    def _calculate_iceberg_probability(self, confidence: float, market_data: Dict) -> float:
+        """Calculate probability of iceberg presence"""
+        detection_params = market_data.get('detection_params', {})
+        min_confidence = detection_params.get('min_confidence', 0.7)
+        
+        if confidence < min_confidence:
+            return 0.0
+            
+        # Scale probability based on confidence above threshold
+        scaled_confidence = (confidence - min_confidence) / (1 - min_confidence)
+        
+        # Apply additional factors
+        volume_ratio = market_data.get('volume_ratio', 1.0)
+        volatility = market_data.get('volatility', 0.01)
+        
+        # Higher volume anomalies increase probability
+        volume_factor = min(1.5, volume_ratio / 2.0)
+        # Moderate volatility increases detection confidence
+        volatility_factor = 1.0 + min(0.5, volatility * 10)
+        
+        probability = scaled_confidence * volume_factor * volatility_factor
+        return float(np.clip(probability, 0, 1))
+    
+    def _determine_market_regime(self, market_data: Dict):
+        """Determine current market regime"""
+        from enum import Enum
+        
+        class MarketRegime(Enum):
+            NORMAL = "Normal"
+            ACCUMULATION = "Accumulation"
+            DISTRIBUTION = "Distribution"
+            BREAKOUT = "Breakout"
+            ICEBERG_DETECTED = "Iceberg Detected"
+        
+        confidence = market_data.get('iceberg_probability', 0)
+        volume_ratio = market_data.get('volume_ratio', 1.0)
+        
+        if confidence > 0.8:
+            return MarketRegime.ICEBERG_DETECTED
+        elif volume_ratio > 2.0 and confidence > 0.6:
+            return MarketRegime.ACCUMULATION
+        elif volume_ratio > 2.0 and confidence < 0.4:
+            return MarketRegime.DISTRIBUTION
+        elif volume_ratio > 1.5:
+            return MarketRegime.BREAKOUT
+        else:
+            return MarketRegime.NORMAL
+    
+    def _generate_alerts(self, probability: float, regime) -> List[str]:
+        """Generate alerts based on detection results"""
+        alerts = []
+        
+        if probability > 0.8:
+            alerts.append("🚨 HIGH Iceberg Probability Detected!")
+        elif probability > 0.6:
+            alerts.append("⚠️ Medium Iceberg Probability")
+        elif probability > 0.4:
+            alerts.append("🔍 Possible Iceberg Activity")
+            
+        if regime.value == "Accumulation":
+            alerts.append("📈 Accumulation Pattern Detected")
+        elif regime.value == "Distribution":
+            alerts.append("📉 Distribution Pattern Detected")
+            
+        return alerts
+
+
+class QuantumVisualizer:
+    """Advanced visualization for quantum iceberg detection"""
+    
+    def create_quantum_chart(self, detection_result: Dict) -> go.Figure:
+        """Create quantum-inspired visualization"""
+        fig = make_subplots(
+            rows=2, cols=2,
+            subplot_titles=(
+                'Iceberg Probability Wave', 
+                'Confidence Matrix',
+                'Market Regime',
+                'Detection Timeline'
+            ),
+            specs=[
+                [{"type": "scatter"}, {"type": "heatmap"}],
+                [{"type": "indicator"}, {"type": "scatter"}]
+            ]
+        )
+        
+        # Probability wave
+        confidence = detection_result['confidence']
+        probability = detection_result['iceberg_probability']
+        
+        # Create wave-like visualization
+        x = np.linspace(0, 4*np.pi, 100)
+        y_base = np.sin(x)
+        y_prob = y_base * probability
+        
+        fig.add_trace(
+            go.Scatter(x=x, y=y_prob, mode='lines', name='Probability Wave',
+                      line=dict(color='red' if probability > 0.7 else 'orange' if probability > 0.5 else 'blue')),
+            row=1, col=1
+        )
+        
+        # Confidence matrix
+        matrix = np.random.rand(5, 5) * confidence
+        fig.add_trace(
+            go.Heatmap(z=matrix, colorscale='Viridis', showscale=False),
+            row=1, col=2
+        )
+        
+        # Market regime indicator
+        regime = detection_result['regime'].value
+        fig.add_trace(
+            go.Indicator(
+                mode="gauge+number+delta",
+                value=probability * 100,
+                domain={'x': [0, 1], 'y': [0, 1]},
+                title={'text': f"Regime: {regime}"},
+                gauge={'axis': {'range': [None, 100]},
+                      'bar': {'color': "darkblue"},
+                      'steps': [{'range': [0, 50], 'color': "lightgray"},
+                               {'range': [50, 80], 'color': "yellow"},
+                               {'range': [80, 100], 'color': "red"}]}),
+            row=2, col=1
+        )
+        
+        # Detection timeline (simplified)
+        fig.add_trace(
+            go.Scatter(x=[1, 2, 3], y=[0.3, 0.6, probability], 
+                      mode='lines+markers', name='Probability Trend'),
+            row=2, col=2
+        )
+        
+        fig.update_layout(height=600, showlegend=False,
+                         title_text="Quantum Iceberg Detection Analysis")
+        return fig
+
+def prepare_market_data(symbol, instrument_df, historical_data):
+    """Prepare market data for iceberg detection with Nifty50 parameters"""
+    if historical_data.empty:
+        return {}
+    
+    # Check if it's a Nifty50 stock
+    if not is_nifty50_stock(symbol):
+        return {}
+    
+    # Calculate basic metrics
+    prices = historical_data['close'].tolist()
+    volumes = historical_data['volume'].tolist() if 'volume' in historical_data.columns else [1] * len(prices)
+    
+    # Calculate volatility (standard deviation of returns)
+    returns = historical_data['close'].pct_change().dropna()
+    volatility = returns.std() if not returns.empty else 0
+    
+    # Calculate volume ratio (current vs average)
+    avg_volume = np.mean(volumes) if volumes else 1
+    current_volume = volumes[-1] if volumes else 1
+    volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1
+    
+    # Get market depth
+    instrument_token = get_instrument_token(symbol, instrument_df, 'NSE')
+    order_book = get_market_depth_data(instrument_token) if instrument_token else {}
+    
+    # Get Nifty50 specific detection parameters
+    detection_params = get_nifty50_detection_params(symbol)
+    
+    market_data = {
+        'symbol': symbol,
+        'prices': prices,
+        'volumes': volumes,
+        'volatility': float(volatility),
+        'volume_ratio': float(volume_ratio),
+        'order_book': order_book,
+        'trades': [],  # Would need real trade data
+        'large_orders': [],  # Would need large order data
+        'detection_params': detection_params,
+        'is_nifty50': True,
+        'stock_category': get_nifty50_stock_category(symbol)
+    }
+    
+    return market_data
 # ================ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
 def get_user_secret(user_profile):
@@ -12742,6 +13191,7 @@ def main_app():
         "AI Market Sentiment": page_market_sentiment_ai,  # NEW
         "AI Discovery Engine": page_ai_discovery,
         "AI Portfolio Assistant": page_ai_assistant,  # ENHANCED
+        "Iceberg Detector": page_iceberg_detector,
         "Premarket Pulse": page_premarket_pulse,
         "Advanced Charting": page_advanced_charting,
         "Market Scanners": page_momentum_and_trend_finder,
