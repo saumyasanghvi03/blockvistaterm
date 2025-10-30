@@ -12296,82 +12296,111 @@ def page_hft_terminal():
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 # ================ ICEBERG DETECTOR CORE CLASSES ================
-
 class FlowAnalysisAgent:
     """Real-time liquidity flow analysis with Nifty50-specific parameters"""
     
     def analyze(self, market_data: Dict) -> Dict:
-        order_book = market_data.get('order_book', {})
-        trades = market_data.get('trades', [])
-        large_orders = market_data.get('large_orders', [])
-        detection_params = market_data.get('detection_params', {})
-        
-        # Get Nifty50 specific parameters
-        large_order_threshold = detection_params.get('large_order_threshold', 10000)
-        order_imbalance_threshold = detection_params.get('order_imbalance_threshold', 0.65)
-        
-        order_imbalance = self._calculate_order_imbalance(order_book, order_imbalance_threshold)
-        liquidity_waves = self._detect_liquidity_waves(trades, large_order_threshold)
-        smart_money_flow = self._track_smart_money(large_orders, large_order_threshold)
-        
-        confidence = 0.4 * order_imbalance + 0.4 * liquidity_waves + 0.2 * smart_money_flow
-        
-        return {
-            'confidence': confidence,
-            'momentum': order_imbalance,
-            'volatility': liquidity_waves
-        }
+        try:
+            order_book = market_data.get('order_book', {})
+            trades = market_data.get('trades', [])
+            large_orders = market_data.get('large_orders', [])
+            detection_params = market_data.get('detection_params', {})
+            
+            # Get Nifty50 specific parameters
+            large_order_threshold = detection_params.get('large_order_threshold', 10000)
+            order_imbalance_threshold = detection_params.get('order_imbalance_threshold', 0.65)
+            
+            order_imbalance = self._calculate_order_imbalance(order_book, order_imbalance_threshold)
+            liquidity_waves = self._detect_liquidity_waves(trades, large_order_threshold)
+            smart_money_flow = self._track_smart_money(large_orders, large_order_threshold)
+            
+            # Calculate weighted confidence
+            confidence = 0.4 * order_imbalance + 0.4 * liquidity_waves + 0.2 * smart_money_flow
+            
+            return {
+                'confidence': min(max(confidence, 0), 1),  # Clamp between 0-1
+                'momentum': order_imbalance,
+                'volatility': liquidity_waves
+            }
+        except Exception as e:
+            # Return safe default values on error
+            return {
+                'confidence': 0.5,
+                'momentum': 0.5,
+                'volatility': 0.5
+            }
     
     def _calculate_order_imbalance(self, order_book: Dict, threshold: float) -> float:
         """Calculate order book imbalance with threshold adjustment"""
-        bids = order_book.get('bids', [])
-        asks = order_book.get('asks', [])
-        
-        if not bids or not asks:
-            return 0.5
+        try:
+            bids = order_book.get('bids', [])
+            asks = order_book.get('asks', [])
             
-        total_bid_volume = sum(bid.get('quantity', 0) for bid in bids)
-        total_ask_volume = sum(ask.get('quantity', 0) for ask in asks)
-        
-        if total_bid_volume + total_ask_volume == 0:
-            return 0.5
+            if not bids or not asks:
+                return 0.5
+                
+            # Extract quantities safely
+            total_bid_volume = sum(bid.get('quantity', 0) for bid in bids)
+            total_ask_volume = sum(ask.get('quantity', 0) for ask in asks)
             
-        imbalance = total_bid_volume / (total_bid_volume + total_ask_volume)
-        
-        # Apply threshold-based confidence
-        if abs(imbalance - 0.5) > (threshold - 0.5):
-            return max(0.7, imbalance)
-        else:
+            if total_bid_volume + total_ask_volume == 0:
+                return 0.5
+                
+            imbalance = total_bid_volume / (total_bid_volume + total_ask_volume)
+            
+            # Apply threshold-based confidence
+            if abs(imbalance - 0.5) > (threshold - 0.5):
+                return max(0.7, imbalance)
+            else:
+                return 0.5
+                
+        except Exception:
             return 0.5
     
     def _detect_liquidity_waves(self, trades: List, large_order_threshold: int) -> float:
         """Detect liquidity waves using Nifty50 threshold"""
-        if len(trades) < 10:
+        try:
+            if len(trades) < 10:
+                return 0.5
+                
+            recent_trades = trades[-10:]
+            
+            # Safely extract trade quantities
+            large_trades = [
+                trade for trade in recent_trades 
+                if trade.get('quantity', 0) >= large_order_threshold
+            ]
+            
+            if not large_trades:
+                return 0.3
+                
+            # Higher confidence when large trades are present
+            large_trade_ratio = len(large_trades) / len(recent_trades)
+            return min(0.9, 0.5 + large_trade_ratio * 0.4)
+            
+        except Exception:
             return 0.5
-            
-        recent_trades = trades[-10:]
-        large_trades = [trade for trade in recent_trades if trade.get('quantity', 0) >= large_order_threshold]
-        
-        if not large_trades:
-            return 0.3
-            
-        # Higher confidence when large trades are present
-        large_trade_ratio = len(large_trades) / len(recent_trades)
-        return min(0.9, 0.5 + large_trade_ratio * 0.4)
     
     def _track_smart_money(self, large_orders: List, large_order_threshold: int) -> float:
         """Track smart money flow with dynamic threshold"""
-        if not large_orders:
+        try:
+            if not large_orders:
+                return 0.5
+                
+            # Filter orders by Nifty50 threshold
+            significant_orders = [
+                order for order in large_orders 
+                if order.get('quantity', 0) >= large_order_threshold
+            ]
+            
+            if not significant_orders:
+                return 0.4
+                
+            order_count = len(significant_orders)
+            return min(0.9, 0.5 + (order_count / 10.0) * 0.4)
+            
+        except Exception:
             return 0.5
-            
-        # Filter orders by Nifty50 threshold
-        significant_orders = [order for order in large_orders if order.get('quantity', 0) >= large_order_threshold]
-        
-        if not significant_orders:
-            return 0.4
-            
-        order_count = len(significant_orders)
-        return min(0.9, 0.5 + (order_count / 10.0) * 0.4)
 
 
 class PatternDetectionAgent:
