@@ -12296,6 +12296,9 @@ def page_hft_terminal():
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 # ================ ICEBERG DETECTOR CORE CLASSES ================
+# Add this import at the TOP of your file (with other imports)
+from typing import Dict, List, Any, Optional
+
 class FlowAnalysisAgent:
     """Real-time liquidity flow analysis with Nifty50-specific parameters"""
     
