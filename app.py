@@ -12329,7 +12329,7 @@ from typing import Dict, List, Any, Optional
 class FlowAnalysisAgent:
     """Real-time liquidity flow analysis with Nifty50-specific parameters"""
     
-    def analyze(self, market_data: Dict) -> Dict:
+    def analyze(self, market_data):
         try:
             order_book = market_data.get('order_book', {})
             trades = market_data.get('trades', [])
@@ -12345,41 +12345,41 @@ class FlowAnalysisAgent:
             smart_money_flow = self._track_smart_money(large_orders, large_order_threshold)
             
             # Calculate weighted confidence
-            confidence = 0.4 * order_imbalance + 0.4 * liquidity_waves + 0.2 * smart_money_flow
+            confidence = 0.6 * order_imbalance + 0.3 * liquidity_waves + 0.1 * smart_money_flow
             
             return {
-                'confidence': min(max(confidence, 0), 1),  # Clamp between 0-1
+                'confidence': min(max(confidence, 0), 1),
                 'momentum': order_imbalance,
                 'volatility': liquidity_waves
             }
         except Exception as e:
-            # Return safe default values on error
             return {
                 'confidence': 0.5,
                 'momentum': 0.5,
                 'volatility': 0.5
             }
     
-    def _calculate_order_imbalance(self, order_book: Dict, threshold: float) -> float:
-        """Calculate order book imbalance with threshold adjustment"""
+    def _calculate_order_imbalance(self, order_book, threshold):
+        """Calculate order book imbalance using live market depth"""
         try:
             bids = order_book.get('bids', [])
             asks = order_book.get('asks', [])
             
-            # Handle different depth data sources
+            # If no live depth data available, return neutral
             if not bids or not asks:
-                source = order_book.get('source', 'unknown')
-                if source == 'fallback':
-                    return 0.5  # Neutral for fallback data
-                elif source == 'synthetic':
-                    # For synthetic data, return slight bias based on recent price movement
-                    return 0.55
-                else:
-                    return 0.5
+                return 0.5
             
-            # Extract quantities safely
-            total_bid_volume = sum(bid.get('quantity', 0) for bid in bids)
-            total_ask_volume = sum(ask.get('quantity', 0) for ask in asks)
+            # Use live market depth data
+            total_bid_volume = 0
+            total_ask_volume = 0
+            
+            for bid in bids:
+                if isinstance(bid, dict):
+                    total_bid_volume += bid.get('quantity', 0)
+            
+            for ask in asks:
+                if isinstance(ask, dict):
+                    total_ask_volume += ask.get('quantity', 0)
             
             if total_bid_volume + total_ask_volume == 0:
                 return 0.5
@@ -12387,7 +12387,8 @@ class FlowAnalysisAgent:
             imbalance = total_bid_volume / (total_bid_volume + total_ask_volume)
             
             # Apply threshold-based confidence
-            if abs(imbalance - 0.5) > (threshold - 0.5):
+            imbalance_strength = abs(imbalance - 0.5)
+            if imbalance_strength > (threshold - 0.5):
                 return max(0.7, imbalance)
             else:
                 return 0.5
@@ -12395,73 +12396,77 @@ class FlowAnalysisAgent:
         except Exception:
             return 0.5
     
-    def _detect_liquidity_waves(self, trades: List, large_order_threshold: int) -> float:
-        """Detect liquidity waves using Nifty50 threshold"""
+    def _detect_liquidity_waves(self, trades, large_order_threshold):
+        """Detect liquidity waves using live trade data"""
         try:
-            if len(trades) < 10:
+            # Require minimum live trades for analysis
+            if len(trades) < 3:
                 return 0.5
                 
-            recent_trades = trades[-10:]
+            recent_trades = trades[-5:]  # Use last 5 live trades
             
-            # Safely extract trade quantities
+            # Analyze live trade data
             large_trades = [
                 trade for trade in recent_trades 
-                if trade.get('quantity', 0) >= large_order_threshold
+                if isinstance(trade, dict) and trade.get('quantity', 0) >= large_order_threshold
             ]
             
             if not large_trades:
-                return 0.3
+                return 0.4
                 
-            # Higher confidence when large trades are present
             large_trade_ratio = len(large_trades) / len(recent_trades)
-            return min(0.9, 0.5 + large_trade_ratio * 0.4)
+            return min(0.9, 0.5 + large_trade_ratio * 0.5)
             
         except Exception:
             return 0.5
     
-    def _track_smart_money(self, large_orders: List, large_order_threshold: int) -> float:
-        """Track smart money flow with dynamic threshold"""
+    def _track_smart_money(self, large_orders, large_order_threshold):
+        """Track smart money flow using live order data"""
         try:
+            # Require live order data
             if not large_orders:
                 return 0.5
                 
-            # Filter orders by Nifty50 threshold
+            # Filter live orders by threshold
             significant_orders = [
                 order for order in large_orders 
-                if order.get('quantity', 0) >= large_order_threshold
+                if isinstance(order, dict) and order.get('quantity', 0) >= large_order_threshold
             ]
             
             if not significant_orders:
-                return 0.4
+                return 0.45
                 
             order_count = len(significant_orders)
-            return min(0.9, 0.5 + (order_count / 10.0) * 0.4)
+            return min(0.9, 0.5 + (order_count / 5.0) * 0.4)
             
         except Exception:
             return 0.5
 
-
 class PatternDetectionAgent:
-    """Advanced pattern detection with Nifty50-specific parameters"""
+    """Advanced pattern detection using live market data only"""
     
-    def analyze(self, market_data: Dict) -> Dict:
+    def analyze(self, market_data):
         volumes = market_data.get('volumes', [])
         prices = market_data.get('prices', [])
-        timestamps = market_data.get('timestamps', [])
         detection_params = market_data.get('detection_params', {})
+        
+        # Require sufficient live data
+        if len(prices) < 20 or len(volumes) < 20:
+            return {
+                'confidence': 0.5,
+                'momentum': 0.5,
+                'volatility': 0.5
+            }
         
         volume_anomaly_multiplier = detection_params.get('volume_anomaly_multiplier', 2.5)
         momentum_weight = detection_params.get('momentum_weight', 0.4)
         
-        volume_pattern = self._analyze_volume_fractals(volumes, volume_anomaly_multiplier) if volumes else 0.5
-        price_pattern = self._analyze_price_fractals(prices) if prices else 0.5
-        time_pattern = self._analyze_time_compression(timestamps) if timestamps else 0.5
+        volume_pattern = self._analyze_volume_fractals(volumes, volume_anomaly_multiplier)
+        price_pattern = self._analyze_price_fractals(prices)
         
-        # Use momentum weight from Nifty50 params
-        base_confidence = (0.6 * volume_pattern + 0.3 * price_pattern + 0.1 * time_pattern)
+        base_confidence = (0.6 * volume_pattern + 0.4 * price_pattern)
         momentum = self._calculate_pattern_momentum(market_data)
         
-        # Adjust confidence based on momentum
         adjusted_confidence = base_confidence * (1 + momentum_weight * momentum)
         
         return {
@@ -12470,32 +12475,24 @@ class PatternDetectionAgent:
             'volatility': market_data.get('volatility', 0)
         }
     
-    def _analyze_volume_fractals(self, volumes: List[float], anomaly_multiplier: float) -> float:
-        """Analyze volume patterns with Nifty50 anomaly multiplier"""
-        if len(volumes) < 5:
+    def _analyze_volume_fractals(self, volumes, anomaly_multiplier):
+        """Analyze live volume patterns"""
+        if len(volumes) < 10:
             return 0.5
         
         try:
-            # Calculate volume anomaly
-            avg_volume = np.mean(volumes[:-1]) if len(volumes) > 1 else volumes[0]
+            # Use live volume data
+            avg_volume = np.mean(volumes[-10:-1]) if len(volumes) > 10 else np.mean(volumes[:-1])
             current_volume = volumes[-1]
             
             volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1
             
-            # Use Nifty50 multiplier for anomaly detection
+            # Detect anomalies in live data
             if volume_ratio > anomaly_multiplier:
-                anomaly_score = min(0.8, 0.3 + (volume_ratio - anomaly_multiplier) * 0.2)
+                return min(0.9, 0.5 + (volume_ratio - anomaly_multiplier) * 0.1)
             else:
-                anomaly_score = 0.3
+                return 0.5
                 
-            # Combine with fractal analysis
-            log_volumes = np.log(np.array(volumes) + 1e-8)
-            hurst_exponent = self._calculate_hurst_exponent(log_volumes)
-            fractal_dimension = 2 - hurst_exponent
-            fractal_score = float(np.clip(fractal_dimension - 1.2, 0, 0.5) * 2)
-            
-            return 0.6 * anomaly_score + 0.4 * fractal_score
-            
         except:
             return 0.5
     
@@ -12564,35 +12561,35 @@ class PatternDetectionAgent:
 
 
 class QuantumIcebergDetector:
-    """Quantum-inspired iceberg order detection system"""
+    """Quantum-inspired iceberg order detection system using live data only"""
     
     def __init__(self):
         self.flow_agent = FlowAnalysisAgent()
         self.pattern_agent = PatternDetectionAgent()
         self.detection_history = []
         
-    def process_market_data(self, market_data: Dict) -> Dict:
-        """Process market data through all detection agents"""
+    def process_market_data(self, market_data):
+        """Process live market data through detection agents"""
         
         # Analyze through different agents
         flow_analysis = self.flow_agent.analyze(market_data)
         pattern_analysis = self.pattern_agent.analyze(market_data)
         
-        # Combine analyses with quantum-inspired weighting
+        # Combine analyses
         combined_confidence = self._quantum_fusion(
             flow_analysis['confidence'], 
             pattern_analysis['confidence'],
             market_data
         )
         
-        # Determine iceberg probability
+        # Determine iceberg probability based on live data
         iceberg_probability = self._calculate_iceberg_probability(
             combined_confidence, 
             market_data
         )
         
         # Determine market regime
-        regime = self._determine_market_regime(market_data)
+        regime = self._determine_market_regime(iceberg_probability, market_data)
         
         result = {
             'timestamp': datetime.now().isoformat(),
@@ -12607,79 +12604,70 @@ class QuantumIcebergDetector:
         
         return result
     
-    def _quantum_fusion(self, flow_conf: float, pattern_conf: float, market_data: Dict) -> float:
-        """Quantum-inspired confidence fusion"""
-        # Use entanglement-inspired weighting
+    def _quantum_fusion(self, flow_conf, pattern_conf, market_data):
+        """Combine analyses using live market conditions"""
+        # Use live market conditions to adjust weights
         volatility = market_data.get('volatility', 0.01)
         volume_ratio = market_data.get('volume_ratio', 1.0)
         
-        # Adjust weights based on market conditions
-        if volatility > 0.02:  # High volatility
-            flow_weight = 0.6
-            pattern_weight = 0.4
-        else:  # Normal volatility
-            flow_weight = 0.4
-            pattern_weight = 0.6
-            
-        # Apply volume-based adjustment
+        # Base weights
+        flow_weight = 0.5
+        pattern_weight = 0.5
+        
+        # Adjust based on live data quality
         if volume_ratio > 2.0:
-            flow_weight *= 1.2
-        elif volume_ratio < 0.5:
-            pattern_weight *= 1.2
-            
+            flow_weight *= 1.1
+        
         combined = (flow_weight * flow_conf + pattern_weight * pattern_conf)
         return float(np.clip(combined, 0, 1))
     
-    def _calculate_iceberg_probability(self, confidence: float, market_data: Dict) -> float:
-        """Calculate probability of iceberg presence"""
+    def _calculate_iceberg_probability(self, confidence, market_data):
+        """Calculate probability using live market metrics"""
         detection_params = market_data.get('detection_params', {})
-        min_confidence = detection_params.get('min_confidence', 0.7)
+        min_confidence = detection_params.get('min_confidence', 0.5)
         
+        # Base probability calculation
         if confidence < min_confidence:
-            return 0.0
-            
-        # Scale probability based on confidence above threshold
-        scaled_confidence = (confidence - min_confidence) / (1 - min_confidence)
+            scaled_probability = (confidence / min_confidence) * 0.3
+        else:
+            scaled_probability = 0.3 + ((confidence - min_confidence) / (1 - min_confidence)) * 0.7
         
-        # Apply additional factors
+        # Apply live volume boost
         volume_ratio = market_data.get('volume_ratio', 1.0)
-        volatility = market_data.get('volatility', 0.01)
+        if volume_ratio > 1.5:
+            volume_boost = min(0.3, (volume_ratio - 1.5) * 0.2)
+            scaled_probability += volume_boost
         
-        # Higher volume anomalies increase probability
-        volume_factor = min(1.5, volume_ratio / 2.0)
-        # Moderate volatility increases detection confidence
-        volatility_factor = 1.0 + min(0.5, volatility * 10)
-        
-        probability = scaled_confidence * volume_factor * volatility_factor
-        return float(np.clip(probability, 0, 1))
+        return float(np.clip(scaled_probability, 0, 1))
     
-    def _determine_market_regime(self, market_data: Dict):
-        """Determine current market regime"""
-        from enum import Enum
-        
-        class MarketRegime(Enum):
+    def _determine_market_regime(self, probability, market_data):
+        """Determine market regime based on live probability"""
+        class MarketRegime:
             NORMAL = "Normal"
-            ACCUMULATION = "Accumulation"
+            ACCUMULATION = "Accumulation" 
             DISTRIBUTION = "Distribution"
             BREAKOUT = "Breakout"
             ICEBERG_DETECTED = "Iceberg Detected"
         
-        confidence = market_data.get('iceberg_probability', 0)
         volume_ratio = market_data.get('volume_ratio', 1.0)
         
-        if confidence > 0.8:
+        if probability > 0.7:
             return MarketRegime.ICEBERG_DETECTED
-        elif volume_ratio > 2.0 and confidence > 0.6:
-            return MarketRegime.ACCUMULATION
-        elif volume_ratio > 2.0 and confidence < 0.4:
-            return MarketRegime.DISTRIBUTION
-        elif volume_ratio > 1.5:
-            return MarketRegime.BREAKOUT
+        elif probability > 0.5:
+            if volume_ratio > 1.5:
+                return MarketRegime.ACCUMULATION
+            else:
+                return MarketRegime.BREAKOUT
+        elif probability > 0.3:
+            if volume_ratio > 1.5:
+                return MarketRegime.DISTRIBUTION
+            else:
+                return MarketRegime.NORMAL
         else:
             return MarketRegime.NORMAL
     
-    def _generate_alerts(self, probability: float, regime) -> List[str]:
-        """Generate alerts based on detection results"""
+    def _generate_alerts(self, probability, regime):
+        """Generate alerts based on live detection results"""
         alerts = []
         
         if probability > 0.8:
@@ -12688,11 +12676,15 @@ class QuantumIcebergDetector:
             alerts.append("⚠️ Medium Iceberg Probability")
         elif probability > 0.4:
             alerts.append("🔍 Possible Iceberg Activity")
+        else:
+            alerts.append("✅ Normal Trading Activity")
             
-        if regime.value == "Accumulation":
+        if regime == "Accumulation":
             alerts.append("📈 Accumulation Pattern Detected")
-        elif regime.value == "Distribution":
+        elif regime == "Distribution":
             alerts.append("📉 Distribution Pattern Detected")
+        elif regime == "Iceberg Detected":
+            alerts.append("🧊 Iceberg Orders Detected")
             
         return alerts
 
@@ -12766,7 +12758,7 @@ class QuantumVisualizer:
         return fig
 
 def prepare_market_data(symbol, instrument_df, historical_data):
-    """Prepare market data for iceberg detection with Nifty50 parameters"""
+    """Prepare live market data for iceberg detection - NO SAMPLE DATA"""
     if historical_data.empty:
         return {}
     
@@ -12774,41 +12766,95 @@ def prepare_market_data(symbol, instrument_df, historical_data):
     if not is_nifty50_stock(symbol):
         return {}
     
-    # Calculate basic metrics
-    prices = historical_data['close'].tolist()
-    volumes = historical_data['volume'].tolist() if 'volume' in historical_data.columns else [1] * len(prices)
+    try:
+        # Calculate metrics from live historical data
+        prices = historical_data['close'].tolist()
+        volumes = historical_data['volume'].tolist() if 'volume' in historical_data.columns else []
+        
+        # Enhanced volatility calculation
+        returns = historical_data['close'].pct_change().dropna()
+        volatility = returns.std() if not returns.empty else 0.02
+        
+        # Volume analysis using live data
+        if volumes:
+            avg_volume = np.mean(volumes[-20:]) if len(volumes) >= 20 else np.mean(volumes)
+            current_volume = volumes[-1]
+            volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1
+        else:
+            volume_ratio = 1.0
+        
+        # Get live market depth
+        instrument_token = get_instrument_token(symbol, instrument_df, 'NSE')
+        order_book = get_market_depth_data(instrument_token) if instrument_token else {}
+        
+        # Get live trades (empty if not available)
+        live_trades = get_live_trades_data(instrument_token) if instrument_token else []
+        
+        # Get Nifty50 specific detection parameters
+        detection_params = get_nifty50_detection_params(symbol)
+        
+        market_data = {
+            'symbol': symbol,
+            'prices': prices,
+            'volumes': volumes,
+            'volatility': float(volatility),
+            'volume_ratio': float(volume_ratio),
+            'order_book': order_book,
+            'trades': live_trades,  # Only live trades
+            'large_orders': live_trades,  # Use same live data
+            'detection_params': detection_params,
+            'is_nifty50': True,
+            'stock_category': get_nifty50_stock_category(symbol),
+            'data_quality': self._assess_data_quality(order_book, live_trades, volumes)
+        }
+        
+        return market_data
+        
+    except Exception as e:
+        print(f"Error preparing live market data for {symbol}: {e}")
+        return {}
+
+def get_live_trades_data(instrument_token):
+    """Get live trade data from broker API"""
+    try:
+        client = get_broker_client()
+        if not client:
+            return []
+        
+        # Get live trades from broker (implementation depends on broker API)
+        # This is a placeholder - you need to implement based on your broker's API
+        quote_data = client.quote(str(instrument_token))
+        if quote_data and str(instrument_token) in quote_data:
+            instrument_quote = quote_data[str(instrument_token)]
+            return instrument_quote.get('trades', [])
+        
+        return []
+    except Exception as e:
+        print(f"Error fetching live trades: {e}")
+        return []
+
+def _assess_data_quality(self, order_book, trades, volumes):
+    """Assess quality of live market data"""
+    quality_score = 0
     
-    # Calculate volatility (standard deviation of returns)
-    returns = historical_data['close'].pct_change().dropna()
-    volatility = returns.std() if not returns.empty else 0
+    # Check order book data
+    if order_book.get('bids') and order_book.get('asks'):
+        quality_score += 1
     
-    # Calculate volume ratio (current vs average)
-    avg_volume = np.mean(volumes) if volumes else 1
-    current_volume = volumes[-1] if volumes else 1
-    volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1
+    # Check trade data
+    if len(trades) > 0:
+        quality_score += 1
     
-    # Get market depth
-    instrument_token = get_instrument_token(symbol, instrument_df, 'NSE')
-    order_book = get_market_depth_data(instrument_token) if instrument_token else {}
+    # Check volume data
+    if len(volumes) > 10:
+        quality_score += 1
     
-    # Get Nifty50 specific detection parameters
-    detection_params = get_nifty50_detection_params(symbol)
-    
-    market_data = {
-        'symbol': symbol,
-        'prices': prices,
-        'volumes': volumes,
-        'volatility': float(volatility),
-        'volume_ratio': float(volume_ratio),
-        'order_book': order_book,
-        'trades': [],  # Would need real trade data
-        'large_orders': [],  # Would need large order data
-        'detection_params': detection_params,
-        'is_nifty50': True,
-        'stock_category': get_nifty50_stock_category(symbol)
-    }
-    
-    return market_data
+    if quality_score == 3:
+        return "HIGH"
+    elif quality_score == 2:
+        return "MEDIUM"
+    else:
+        return "LOW"
 # ================ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
 def get_user_secret(user_profile):
