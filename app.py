@@ -325,8 +325,6 @@ NIFTY50_DETECTION_PARAMS = {
         "momentum_weight": 0.5
     }
 }
-
-}
 # ================ 1.5 INITIALIZATION ========================
 
 def initialize_session_state():
