@@ -7368,7 +7368,6 @@ def page_iceberg_detector():
     
     *Dynamic thresholds for low, medium, and high-priced stocks*
     *Enhanced 20-level market depth analysis*
-    *Integrated with Semi & Fully Automated Algorithmic Trading*
     """)
     
     # Check if broker is connected
@@ -7439,6 +7438,34 @@ def page_iceberg_detector():
             key="iceberg_period"
         )
     
+    # Show category breakdown
+    with st.expander("📊 Nifty50 Stock Categories", expanded=False):
+        col_cat1, col_cat2, col_cat3 = st.columns(3)
+        
+        with col_cat1:
+            st.write("**🔵 LOW Price (< ₹500)**")
+            low_stocks = [s for s in nifty50_symbols if get_nifty50_stock_category(s) == "LOW"]
+            for stock in low_stocks[:5]:
+                st.write(f"• {stock}")
+            if len(low_stocks) > 5:
+                st.caption(f"+ {len(low_stocks) - 5} more")
+        
+        with col_cat2:
+            st.write("**🟡 MEDIUM Price (₹500-₹5000)**")
+            med_stocks = [s for s in nifty50_symbols if get_nifty50_stock_category(s) == "MEDIUM"]
+            for stock in med_stocks[:5]:
+                st.write(f"• {stock}")
+            if len(med_stocks) > 5:
+                st.caption(f"+ {len(med_stocks) - 5} more")
+        
+        with col_cat3:
+            st.write("**🔴 HIGH Price (> ₹5000)**")
+            high_stocks = [s for s in nifty50_symbols if get_nifty50_stock_category(s) == "HIGH"]
+            for stock in high_stocks[:5]:
+                st.write(f"• {stock}")
+            if len(high_stocks) > 5:
+                st.caption(f"+ {len(high_stocks) - 5} more")
+    
     # Market depth configuration
     st.markdown("---")
     st.subheader("📊 Market Depth Configuration")
@@ -7461,79 +7488,9 @@ def page_iceberg_detector():
             help="Analyze full market depth for iceberg detection"
         )
     
-    # Algorithm Integration Section
-    st.markdown("---")
-    st.subheader("🤖 Algorithm Integration")
-    
-    col_algo1, col_algo2, col_algo3 = st.columns(3)
-    
-    with col_algo1:
-        enable_semi_auto = st.checkbox(
-            "Enable Semi-Auto Algos",
-            value=True,
-            help="Send signals to semi-automated algorithms with user confirmation"
-        )
-    
-    with col_algo2:
-        enable_fully_auto = st.checkbox(
-            "Enable Fully Auto Algos", 
-            value=False,
-            help="Automatically execute trades based on high-confidence signals"
-        )
-    
-    with col_algo3:
-        signal_confidence = st.slider(
-            "Minimum Confidence %",
-            min_value=60,
-            max_value=90,
-            value=75,
-            help="Minimum confidence level for auto-execution"
-        )
-    
-    # Algorithm Configuration
-    with st.expander("⚙️ Algorithm Configuration", expanded=False):
-        col_config1, col_config2 = st.columns(2)
-        
-        with col_config1:
-            st.write("**Semi-Auto Parameters**")
-            semi_order_type = st.selectbox(
-                "Order Type",
-                ["LIMIT", "MARKET", "SL", "SL-M"],
-                key="semi_order_type"
-            )
-            semi_quantity = st.number_input(
-                "Quantity (Shares)",
-                min_value=1,
-                max_value=10000,
-                value=100,
-                key="semi_quantity"
-            )
-        
-        with col_config2:
-            st.write("**Fully Auto Parameters**")
-            auto_order_type = st.selectbox(
-                "Order Type",
-                ["LIMIT", "MARKET", "SL", "SL-M"],
-                key="auto_order_type"
-            )
-            auto_quantity = st.number_input(
-                "Quantity (Shares)", 
-                min_value=1,
-                max_value=5000,
-                value=50,
-                key="auto_quantity"
-            )
-            risk_per_trade = st.number_input(
-                "Risk per Trade %",
-                min_value=0.1,
-                max_value=5.0,
-                value=1.0,
-                step=0.1
-            )
-    
     # Analysis controls
     st.markdown("---")
-    col_controls1, col_controls2, col_controls3, col_controls4 = st.columns([1, 1, 1, 1])
+    col_controls1, col_controls2, col_controls3 = st.columns([1, 1, 1])
     
     with col_controls1:
         if st.button("🔍 Run Iceberg Analysis", type="primary", use_container_width=True):
@@ -7544,11 +7501,6 @@ def page_iceberg_detector():
     
     with col_controls3:
         show_details = st.checkbox("📊 Show Detailed Analysis", value=True, key="iceberg_details")
-    
-    with col_controls4:
-        if st.button("🛑 Emergency Stop", type="secondary", use_container_width=True):
-            st.session_state.emergency_stop = True
-            st.error("🛑 ALL ALGORITHMS STOPPED - Emergency Stop Activated")
     
     # Run analysis when requested
     if st.session_state.get('run_iceberg_analysis', False) or auto_refresh:
@@ -7579,33 +7531,12 @@ def page_iceberg_detector():
                 detector = QuantumIcebergDetector()
                 detection_result = detector.process_market_data(market_data)
                 
-                # Generate trading signals based on detection
-                trading_signals = generate_trading_signals(detection_result, market_data)
-                
-                # Process algorithm integration
-                algo_results = process_algorithm_integration(
-                    trading_signals, 
-                    detection_result,
-                    market_data,
-                    enable_semi_auto,
-                    enable_fully_auto,
-                    signal_confidence/100.0
-                )
-                
-                # Display results with all parameters
-                display_iceberg_results_enhanced(
-                    detection_result=detection_result,
-                    market_data=market_data, 
-                    show_details=show_details, 
-                    depth_levels=depth_levels,
-                    trading_signals=trading_signals,
-                    algo_results=algo_results
-                )
+                # Display results
+                display_iceberg_results_enhanced(detection_result, market_data, show_details, depth_levels)
                 
             except Exception as e:
                 st.error(f"Analysis failed: {str(e)}")
-                import traceback
-                st.error(f"Detailed error: {traceback.format_exc()}")
+                st.info("Make sure you're connected to Kite and have sufficient market data permissions")
     
     # Auto-refresh logic
     if auto_refresh:
@@ -7614,556 +7545,29 @@ def page_iceberg_detector():
     # Information section
     with st.expander("ℹ️ About Enhanced Iceberg Detection", expanded=False):
         st.markdown(f"""
-        **Enhanced Iceberg Detection with Algorithm Integration:**
+        **Enhanced Iceberg Detection with {depth_levels}-Level Market Depth:**
         
-        **Detection Features:**
         - **20-Level Depth Analysis**: Monitors complete order book structure
         - **Volume Distribution**: Analyzes volume concentration across price levels
         - **Hidden Liquidity**: Detects unusually large orders distributed across levels
         - **Quantum Fusion**: Combines signals using quantum-inspired algorithms
         
-        **Algorithm Integration:**
-        - **Semi-Auto Algos**: Provides signals with user confirmation
-        - **Fully Auto Algos**: Automatic execution of high-confidence signals
-        - **Risk Management**: Integrated position sizing and stop-loss
-        - **Signal Refinement**: Multi-factor confirmation for trade signals
+        **Market Depth Features:**
+        - Bid/Ask volume distribution analysis
+        - Large order clustering detection
+        - Price level concentration metrics
+        - Liquidity wave pattern recognition
         
-        **Signal Types:**
-        - **ICEBERG_BUY**: Large hidden buy orders detected
-        - **ICEBERG_SELL**: Large hidden sell orders detected  
-        - **FLOW_BUY**: Strong buy-side liquidity flow
-        - **FLOW_SELL**: Strong sell-side liquidity flow
-        - **REVERSAL**: Potential trend reversal detected
+        **Detection Parameters by Category:**
+        - **LOW Price**: 50,000+ share threshold (high volume, low price)
+        - **MEDIUM Price**: 10,000+ share threshold (balanced sensitivity)  
+        - **HIGH Price**: 1,000+ share threshold (low volume, high price)
         
         **Confidence Levels:**
         - 🟢 < 40%: Normal trading
         - 🟡 40-70%: Possible iceberg activity
         - 🔴 > 70%: High probability iceberg detected
         """)
-
-# Add missing helper functions that might be causing issues
-def execute_semi_auto_trade(trading_signals, market_data):
-    """Execute semi-automated trade with user confirmation"""
-    try:
-        # For semi-auto, we'll use the same execution as fully-auto but with confirmation logging
-        result = execute_fully_auto_trade(trading_signals, market_data)
-        result['type'] = 'SEMI_AUTO'
-        return result
-    except Exception as e:
-        return {'status': 'FAILED', 'error': str(e), 'type': 'SEMI_AUTO'}
-
-def generate_trading_signals(detection_result, market_data):
-    """Generate refined trading signals from iceberg detection"""
-    
-    probability = detection_result['iceberg_probability']
-    confidence = detection_result['confidence']
-    order_book = market_data.get('order_book', {})
-    
-    signals = {
-        'primary_signal': 'HOLD',
-        'secondary_signals': [],
-        'confidence': confidence,
-        'probability': probability,
-        'timestamp': pd.Timestamp.now(),
-        'entry_price': market_data.get('last_price', 0),
-        'targets': [],
-        'stoploss': 0,
-        'position_size': calculate_position_size(market_data),
-        'risk_reward_ratio': 0
-    }
-    
-    # Calculate order book imbalance
-    bid_volume = order_book.get('total_bid_volume', 0)
-    ask_volume = order_book.get('total_ask_volume', 0)
-    total_volume = bid_volume + ask_volume
-    
-    if total_volume > 0:
-        imbalance = (bid_volume - ask_volume) / total_volume
-    else:
-        imbalance = 0
-    
-    # Generate signals based on detection results
-    if probability > 0.7 and confidence > 0.7:
-        if imbalance > 0.1:  # Strong buy-side imbalance
-            signals['primary_signal'] = 'ICEBERG_BUY'
-            signals['secondary_signals'].append('STRONG_BUY_FLOW')
-            signals['stoploss'] = calculate_stoploss(market_data, 'BUY')
-            signals['targets'] = calculate_targets(market_data, 'BUY')
-        elif imbalance < -0.1:  # Strong sell-side imbalance
-            signals['primary_signal'] = 'ICEBERG_SELL' 
-            signals['secondary_signals'].append('STRONG_SELL_FLOW')
-            signals['stoploss'] = calculate_stoploss(market_data, 'SELL')
-            signals['targets'] = calculate_targets(market_data, 'SELL')
-    
-    elif probability > 0.5 and confidence > 0.6:
-        if imbalance > 0.05:
-            signals['primary_signal'] = 'FLOW_BUY'
-            signals['secondary_signals'].append('MODERATE_BUY_PRESSURE')
-        elif imbalance < -0.05:
-            signals['primary_signal'] = 'FLOW_SELL'
-            signals['secondary_signals'].append('MODERATE_SELL_PRESSURE')
-    
-    # Add reversal signals for high volatility regimes
-    if detection_result['regime'].value == 'HIGH_VOLATILITY':
-        if abs(imbalance) > 0.15:
-            signals['secondary_signals'].append('POTENTIAL_REVERSAL')
-    
-    # Calculate risk-reward ratio
-    if signals['stoploss'] > 0 and signals['targets']:
-        risk = abs(signals['entry_price'] - signals['stoploss'])
-        reward = abs(signals['targets'][0] - signals['entry_price'])
-        if risk > 0:
-            signals['risk_reward_ratio'] = reward / risk
-    
-    return signals
-
-
-def process_algorithm_integration(trading_signals, detection_result, market_data, 
-                                semi_auto_enabled, fully_auto_enabled, min_confidence):
-    """Process integration with semi and fully automated algorithms"""
-    
-    algo_results = {
-        'semi_auto_triggered': False,
-        'fully_auto_triggered': False,
-        'orders_placed': [],
-        'signals_generated': [],
-        'risk_checks_passed': False,
-        'execution_status': 'PENDING'
-    }
-    
-    signal = trading_signals['primary_signal']
-    confidence = trading_signals['confidence']
-    
-    # Skip if no valid signal or below confidence threshold
-    if signal == 'HOLD' or confidence < min_confidence:
-        return algo_results
-    
-    # Perform risk checks
-    algo_results['risk_checks_passed'] = perform_risk_checks(trading_signals, market_data)
-    
-    if not algo_results['risk_checks_passed']:
-        return algo_results
-    
-    # Process semi-automated algorithms
-    if semi_auto_enabled and confidence >= min_confidence:
-        algo_results['semi_auto_triggered'] = True
-        algo_results['signals_generated'].append({
-            'type': 'SEMI_AUTO_SIGNAL',
-            'signal': signal,
-            'confidence': confidence,
-            'timestamp': pd.Timestamp.now(),
-            'suggested_action': 'REVIEW_AND_CONFIRM'
-        })
-    
-    # Process fully automated algorithms
-    if (fully_auto_enabled and confidence >= max(min_confidence + 0.1, 0.8) and 
-        algo_results['risk_checks_passed']):
-        
-        algo_results['fully_auto_triggered'] = True
-        execution_result = execute_fully_auto_trade(trading_signals, market_data)
-        algo_results['orders_placed'] = execution_result.get('orders', [])
-        algo_results['execution_status'] = execution_result.get('status', 'COMPLETED')
-    
-    return algo_results
-
-
-def perform_risk_checks(trading_signals, market_data):
-    """Perform comprehensive risk checks before algorithm execution"""
-    
-    checks = {
-        'market_hours': is_market_hours(),
-        'volatility_check': check_volatility_limit(market_data),
-        'position_size_check': check_position_size(trading_signals),
-        'daily_limit_check': check_daily_trade_limits(),
-        'concentration_check': check_portfolio_concentration(market_data['symbol'])
-    }
-    
-    return all(checks.values())
-
-
-def execute_fully_auto_trade(trading_signals, market_data):
-    """Execute fully automated trade based on iceberg signals"""
-    
-    try:
-        client = get_broker_client()
-        if not client:
-            return {'status': 'FAILED', 'error': 'Broker not connected'}
-        
-        symbol = market_data['symbol']
-        signal = trading_signals['primary_signal']
-        quantity = trading_signals['position_size']
-        price = market_data['last_price']
-        
-        # Map signal to order type
-        if signal in ['ICEBERG_BUY', 'FLOW_BUY']:
-            transaction_type = 'BUY'
-            order_id = place_limit_order(client, symbol, transaction_type, quantity, price)
-        elif signal in ['ICEBERG_SELL', 'FLOW_SELL']:
-            transaction_type = 'SELL' 
-            order_id = place_limit_order(client, symbol, transaction_type, quantity, price)
-        else:
-            return {'status': 'SKIPPED', 'reason': 'Invalid signal'}
-        
-        # Place stoploss order
-        sl_price = trading_signals['stoploss']
-        if sl_price > 0:
-            sl_order_id = place_stoploss_order(client, symbol, transaction_type, quantity, sl_price, price)
-        else:
-            sl_order_id = None
-        
-        return {
-            'status': 'COMPLETED',
-            'orders': [
-                {'type': 'MAIN', 'order_id': order_id, 'symbol': symbol, 'quantity': quantity},
-                {'type': 'STOPLOSS', 'order_id': sl_order_id, 'price': sl_price}
-            ]
-        }
-        
-    except Exception as e:
-        return {'status': 'FAILED', 'error': str(e)}
-
-
-def display_iceberg_results_enhanced(detection_result, market_data, show_details=True, depth_levels=20, trading_signals=None, algo_results=None):
-    """Display enhanced iceberg detection results with algorithm integration"""
-    
-    st.markdown("---")
-    st.subheader("🎯 Enhanced Detection Results")
-    
-    # Key metrics
-    probability = detection_result['iceberg_probability']
-    confidence = detection_result['confidence']
-    regime = detection_result['regime'].value
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        # Probability gauge
-        if probability > 0.7:
-            st.error(f"🔴 {probability:.1%}")
-            st.write("**High Iceberg Probability**")
-        elif probability > 0.4:
-            st.warning(f"🟡 {probability:.1%}")
-            st.write("**Medium Probability**")
-        else:
-            st.success(f"🟢 {probability:.1%}")
-            st.write("**Low Probability**")
-    
-    with col2:
-        st.metric("Confidence Score", f"{confidence:.1%}")
-    
-    with col3:
-        st.metric("Market Regime", regime)
-    
-    with col4:
-        category = market_data.get('stock_category', 'UNKNOWN')
-        st.metric("Stock Category", category)
-    
-    # Trading Signals Section
-    if trading_signals:
-        st.markdown("---")
-        st.subheader("📡 Trading Signals")
-        
-        col_signal1, col_signal2, col_signal3 = st.columns(3)
-        
-        with col_signal1:
-            signal_type = trading_signals['primary_signal']
-            if signal_type in ['ICEBERG_BUY', 'FLOW_BUY']:
-                st.success(f"🎯 **Primary Signal: {signal_type}**")
-            elif signal_type in ['ICEBERG_SELL', 'FLOW_SELL']:
-                st.error(f"🎯 **Primary Signal: {signal_type}**")
-            else:
-                st.info(f"🎯 **Primary Signal: {signal_type}**")
-            
-            st.metric("Entry Price", f"₹{trading_signals['entry_price']:.2f}")
-        
-        with col_signal2:
-            if trading_signals['stoploss'] > 0:
-                st.metric("Stop Loss", f"₹{trading_signals['stoploss']:.2f}")
-            else:
-                st.metric("Stop Loss", "N/A")
-            
-            if trading_signals['targets']:
-                st.metric("Target 1", f"₹{trading_signals['targets'][0]:.2f}")
-        
-        with col_signal3:
-            st.metric("Position Size", f"{trading_signals['position_size']} shares")
-            st.metric("Risk/Reward", f"{trading_signals['risk_reward_ratio']:.2f}:1")
-    
-    # Algorithm Integration Results
-    if algo_results:
-        st.markdown("---")
-        st.subheader("🤖 Algorithm Execution")
-        
-        col_algo1, col_algo2 = st.columns(2)
-        
-        with col_algo1:
-            if algo_results['semi_auto_triggered']:
-                st.warning("🟡 Semi-Auto Algorithm Triggered")
-                st.info("**Action Required:** Review and confirm trade execution")
-                
-                if st.button("✅ Confirm Trade", key="confirm_trade"):
-                    # Execute semi-auto trade
-                    execution_result = execute_semi_auto_trade(trading_signals, market_data)
-                    if execution_result.get('status') == 'COMPLETED':
-                        st.success(f"✅ Trade executed successfully!")
-                        for order in execution_result.get('orders', []):
-                            st.write(f"📦 Order {order['type']}: {order.get('order_id', 'Pending')}")
-                    else:
-                        st.error(f"❌ Trade execution failed: {execution_result.get('error', 'Unknown error')}")
-                
-                if st.button("❌ Reject Trade", key="reject_trade"):
-                    st.info("Trade rejected - no action taken")
-            
-            if algo_results['fully_auto_triggered']:
-                st.success("🟢 Fully Auto Algorithm Executed")
-                for order in algo_results['orders_placed']:
-                    st.write(f"📦 Order {order['type']}: {order.get('order_id', 'Pending')}")
-        
-        with col_algo2:
-            if algo_results['risk_checks_passed']:
-                st.success("✅ All Risk Checks Passed")
-            else:
-                st.error("❌ Risk Checks Failed")
-            
-            st.metric("Execution Status", algo_results['execution_status'])
-            
-            # Show generated signals
-            for signal in algo_results['signals_generated']:
-                st.write(f"📡 {signal['type']}: {signal['signal']}")
-    
-    # Enhanced depth analysis
-    order_book = market_data.get('order_book', {})
-    
-    st.markdown("---")
-    st.subheader("📊 Market Depth Analysis")
-    
-    col_depth1, col_depth2, col_depth3, col_depth4 = st.columns(4)
-    
-    with col_depth1:
-        st.metric("Depth Levels", depth_levels)
-        st.metric("Bid Volume", f"{order_book.get('total_bid_volume', 0):,}")
-    
-    with col_depth2:
-        st.metric("Ask Volume", f"{order_book.get('total_ask_volume', 0):,}")
-        st.metric("Bid/Ask Ratio", f"{order_book.get('bid_ask_ratio', 1):.2f}")
-    
-    with col_depth3:
-        st.metric("Bid Concentration", f"{order_book.get('bid_concentration', 0):.1%}")
-        st.metric("Large Bid Orders", order_book.get('large_bid_orders', 0))
-    
-    with col_depth4:
-        st.metric("Ask Concentration", f"{order_book.get('ask_concentration', 0):.1%}")
-        st.metric("Large Ask Orders", order_book.get('large_ask_orders', 0))
-    
-    # Display depth levels
-    if show_details:
-        st.markdown("---")
-        st.subheader("🔍 Detailed Market Depth")
-        
-        col_bids, col_asks = st.columns(2)
-        
-        with col_bids:
-            st.write("**🟢 Bid Levels**")
-            bids = order_book.get('bids', [])
-            for i, bid in enumerate(bids[:10]):  # Show first 10 levels
-                st.write(f"Level {i+1}: {bid['quantity']:,} @ ₹{bid['price']:.2f}")
-        
-        with col_asks:
-            st.write("**🔴 Ask Levels**")
-            asks = order_book.get('asks', [])
-            for i, ask in enumerate(asks[:10]):  # Show first 10 levels
-                st.write(f"Level {i+1}: {ask['quantity']:,} @ ₹{ask['price']:.2f}")
-    
-    # Alerts
-    alerts = detection_result.get('alerts', [])
-    if alerts:
-        st.markdown("---")
-        st.subheader("🚨 Alerts & Signals")
-        for alert in alerts:
-            if "HIGH" in alert:
-                st.error(alert)
-            elif "Medium" in alert:
-                st.warning(alert)
-            else:
-                st.info(alert)
-    
-    # Detailed analysis
-    if show_details:
-        st.markdown("---")
-        st.subheader("📈 Detailed Analysis")
-        
-        col_analysis1, col_analysis2 = st.columns(2)
-        
-        with col_analysis1:
-            st.write("**Flow Analysis**")
-            flow_data = detection_result['flow_analysis']
-            st.write(f"- Confidence: {flow_data['confidence']:.1%}")
-            st.write(f"- Momentum: {flow_data['momentum']:.1%}")
-            st.write(f"- Volatility: {flow_data['volatility']:.1%}")
-        
-        with col_analysis2:
-            st.write("**Pattern Analysis**")
-            pattern_data = detection_result['pattern_analysis']
-            st.write(f"- Confidence: {pattern_data['confidence']:.1%}")
-            st.write(f"- Momentum: {pattern_data['momentum']:.1%}")
-            st.write(f"- Volatility: {pattern_data['volatility']:.1%}")
-        
-        # Market data metrics
-        st.markdown("---")
-        st.subheader("📊 Market Data Metrics")
-        
-        col_metrics1, col_metrics2, col_metrics3 = st.columns(3)
-        
-        with col_metrics1:
-            st.metric("Volume Ratio", f"{market_data.get('volume_ratio', 1):.2f}x")
-            st.metric("Current Volume", f"{market_data.get('volume', 0):,}")
-        
-        with col_metrics2:
-            st.metric("Average Volume", f"{market_data.get('average_volume', 0):,}")
-            st.metric("Volatility", f"{market_data.get('volatility', 0):.3f}")
-        
-        with col_metrics3:
-            params = market_data.get('detection_params', {})
-            st.metric("Large Order Threshold", f"{params.get('large_order_threshold', 0):,}")
-            st.metric("Last Price", f"₹{market_data.get('last_price', 0):.2f}")
-        
-        # Create visualization
-        st.markdown("---")
-        st.subheader("🔬 Quantum Visualization")
-        
-        try:
-            visualizer = QuantumVisualizer()
-            fig = visualizer.create_quantum_chart(detection_result)
-            st.plotly_chart(fig, use_container_width=True)
-        except Exception as e:
-            st.warning(f"Visualization unavailable: {e}")
-
-
-# Helper functions for algorithm integration
-def calculate_position_size(market_data):
-    """Calculate position size based on risk parameters"""
-    base_size = 100
-    category = market_data.get('stock_category', 'MEDIUM')
-    
-    # Adjust position size based on stock category
-    if category == 'LOW':
-        return base_size * 2  # Larger positions for low-priced stocks
-    elif category == 'HIGH':
-        return base_size // 2  # Smaller positions for high-priced stocks
-    else:
-        return base_size
-
-
-def calculate_stoploss(market_data, signal_type):
-    """Calculate dynamic stoploss based on volatility"""
-    volatility = market_data.get('volatility', 0.02)
-    current_price = market_data.get('last_price', 0)
-    
-    # Use ATR-like calculation for stoploss
-    atr_distance = current_price * volatility * 2
-    
-    if signal_type == 'BUY':
-        return current_price - atr_distance
-    else:  # SELL
-        return current_price + atr_distance
-
-
-def calculate_targets(market_data, signal_type):
-    """Calculate profit targets"""
-    current_price = market_data.get('last_price', 0)
-    volatility = market_data.get('volatility', 0.02)
-    
-    target_distance = current_price * volatility * 3
-    
-    if signal_type == 'BUY':
-        return [current_price + target_distance, current_price + target_distance * 2]
-    else:  # SELL
-        return [current_price - target_distance, current_price - target_distance * 2]
-
-
-def is_market_hours():
-    """Check if current time is within market hours"""
-    now = pd.Timestamp.now().time()
-    market_start = pd.Timestamp('09:15:00').time()
-    market_end = pd.Timestamp('15:30:00').time()
-    
-    return market_start <= now <= market_end
-
-
-def check_volatility_limit(market_data):
-    """Check if volatility is within acceptable limits"""
-    volatility = market_data.get('volatility', 0)
-    return volatility < 0.05  # 5% volatility limit
-
-
-def check_position_size(signals):
-    """Validate position size"""
-    position_size = signals.get('position_size', 0)
-    return 0 < position_size <= 1000  # Maximum 1000 shares
-
-
-def check_daily_trade_limits():
-    """Check daily trading limits"""
-    # Implement daily limit checks
-    return True
-
-
-def check_portfolio_concentration(symbol):
-    """Check portfolio concentration risk"""
-    # Implement concentration checks
-    return True
-
-
-def execute_semi_auto_trade(trading_signals, market_data):
-    """Execute semi-automated trade with user confirmation"""
-    # Similar to fully_auto but with additional confirmation logging
-    return execute_fully_auto_trade(trading_signals, market_data)
-
-
-def place_limit_order(client, symbol, transaction_type, quantity, price):
-    """Place limit order through broker API"""
-    try:
-        # Get instrument token
-        instrument_df = get_instrument_df()
-        instrument_token = get_instrument_token(symbol, instrument_df, 'NSE')
-        
-        # Place order
-        order_id = client.place_order(
-            variety=client.VARIETY_REGULAR,
-            exchange=client.EXCHANGE_NSE,
-            tradingsymbol=symbol,
-            transaction_type=transaction_type,
-            quantity=quantity,
-            order_type=client.ORDER_TYPE_LIMIT,
-            product=client.PRODUCT_CNC,
-            price=price
-        )
-        
-        return order_id
-    except Exception as e:
-        st.error(f"Order placement failed: {e}")
-        return None
-
-
-def place_stoploss_order(client, symbol, transaction_type, quantity, stoploss_price, trigger_price):
-    """Place stoploss order"""
-    try:
-        order_id = client.place_order(
-            variety=client.VARIETY_REGULAR,
-            exchange=client.EXCHANGE_NSE,
-            tradingsymbol=symbol,
-            transaction_type='SELL' if transaction_type == 'BUY' else 'BUY',  # Opposite for stoploss
-            quantity=quantity,
-            order_type=client.ORDER_TYPE_SL,
-            product=client.PRODUCT_CNC,
-            price=stoploss_price,
-            trigger_price=trigger_price
-        )
-        
-        return order_id
-    except Exception as e:
-        st.error(f"Stoploss order failed: {e}")
-        return None
 
 
 def prepare_market_data_enhanced(symbol, instrument_df, historical_data, depth_levels=20, analyze_depth=True):
