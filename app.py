@@ -7592,19 +7592,20 @@ def page_iceberg_detector():
                     signal_confidence/100.0
                 )
                 
-                # Display results
+                # Display results with all parameters
                 display_iceberg_results_enhanced(
-                    detection_result, 
-                    market_data, 
-                    show_details, 
-                    depth_levels,
-                    trading_signals,
-                    algo_results
+                    detection_result=detection_result,
+                    market_data=market_data, 
+                    show_details=show_details, 
+                    depth_levels=depth_levels,
+                    trading_signals=trading_signals,
+                    algo_results=algo_results
                 )
                 
             except Exception as e:
                 st.error(f"Analysis failed: {str(e)}")
-                st.info("Make sure you're connected to Kite and have sufficient market data permissions")
+                import traceback
+                st.error(f"Detailed error: {traceback.format_exc()}")
     
     # Auto-refresh logic
     if auto_refresh:
@@ -7640,6 +7641,16 @@ def page_iceberg_detector():
         - 🔴 > 70%: High probability iceberg detected
         """)
 
+# Add missing helper functions that might be causing issues
+def execute_semi_auto_trade(trading_signals, market_data):
+    """Execute semi-automated trade with user confirmation"""
+    try:
+        # For semi-auto, we'll use the same execution as fully-auto but with confirmation logging
+        result = execute_fully_auto_trade(trading_signals, market_data)
+        result['type'] = 'SEMI_AUTO'
+        return result
+    except Exception as e:
+        return {'status': 'FAILED', 'error': str(e), 'type': 'SEMI_AUTO'}
 
 def generate_trading_signals(detection_result, market_data):
     """Generate refined trading signals from iceberg detection"""
@@ -7893,7 +7904,12 @@ def display_iceberg_results_enhanced(detection_result, market_data, show_details
                 if st.button("✅ Confirm Trade", key="confirm_trade"):
                     # Execute semi-auto trade
                     execution_result = execute_semi_auto_trade(trading_signals, market_data)
-                    st.success(f"Trade executed: {execution_result}")
+                    if execution_result.get('status') == 'COMPLETED':
+                        st.success(f"✅ Trade executed successfully!")
+                        for order in execution_result.get('orders', []):
+                            st.write(f"📦 Order {order['type']}: {order.get('order_id', 'Pending')}")
+                    else:
+                        st.error(f"❌ Trade execution failed: {execution_result.get('error', 'Unknown error')}")
                 
                 if st.button("❌ Reject Trade", key="reject_trade"):
                     st.info("Trade rejected - no action taken")
@@ -7901,7 +7917,7 @@ def display_iceberg_results_enhanced(detection_result, market_data, show_details
             if algo_results['fully_auto_triggered']:
                 st.success("🟢 Fully Auto Algorithm Executed")
                 for order in algo_results['orders_placed']:
-                    st.write(f"📦 Order {order['type']}: {order['order_id']}")
+                    st.write(f"📦 Order {order['type']}: {order.get('order_id', 'Pending')}")
         
         with col_algo2:
             if algo_results['risk_checks_passed']:
@@ -7991,6 +8007,25 @@ def display_iceberg_results_enhanced(detection_result, market_data, show_details
             st.write(f"- Confidence: {pattern_data['confidence']:.1%}")
             st.write(f"- Momentum: {pattern_data['momentum']:.1%}")
             st.write(f"- Volatility: {pattern_data['volatility']:.1%}")
+        
+        # Market data metrics
+        st.markdown("---")
+        st.subheader("📊 Market Data Metrics")
+        
+        col_metrics1, col_metrics2, col_metrics3 = st.columns(3)
+        
+        with col_metrics1:
+            st.metric("Volume Ratio", f"{market_data.get('volume_ratio', 1):.2f}x")
+            st.metric("Current Volume", f"{market_data.get('volume', 0):,}")
+        
+        with col_metrics2:
+            st.metric("Average Volume", f"{market_data.get('average_volume', 0):,}")
+            st.metric("Volatility", f"{market_data.get('volatility', 0):.3f}")
+        
+        with col_metrics3:
+            params = market_data.get('detection_params', {})
+            st.metric("Large Order Threshold", f"{params.get('large_order_threshold', 0):,}")
+            st.metric("Last Price", f"₹{market_data.get('last_price', 0):.2f}")
         
         # Create visualization
         st.markdown("---")
