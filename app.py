@@ -12361,38 +12361,39 @@ class FlowAnalysisAgent:
             }
     
     def _calculate_order_imbalance(self, order_book: Dict, threshold: float) -> float:
+        """Calculate order book imbalance with threshold adjustment"""
         try:
-        bids = order_book.get('bids', [])
-        asks = order_book.get('asks', [])
-        
-        # Handle different depth data sources
-        if not bids or not asks:
-            source = order_book.get('source', 'unknown')
-            if source == 'fallback':
-                return 0.5  # Neutral for fallback data
-            elif source == 'synthetic':
-                # For synthetic data, return slight bias based on recent price movement
-                return 0.55
+            bids = order_book.get('bids', [])
+            asks = order_book.get('asks', [])
+            
+            # Handle different depth data sources
+            if not bids or not asks:
+                source = order_book.get('source', 'unknown')
+                if source == 'fallback':
+                    return 0.5  # Neutral for fallback data
+                elif source == 'synthetic':
+                    # For synthetic data, return slight bias based on recent price movement
+                    return 0.55
+                else:
+                    return 0.5
+            
+            # Extract quantities safely
+            total_bid_volume = sum(bid.get('quantity', 0) for bid in bids)
+            total_ask_volume = sum(ask.get('quantity', 0) for ask in asks)
+            
+            if total_bid_volume + total_ask_volume == 0:
+                return 0.5
+                
+            imbalance = total_bid_volume / (total_bid_volume + total_ask_volume)
+            
+            # Apply threshold-based confidence
+            if abs(imbalance - 0.5) > (threshold - 0.5):
+                return max(0.7, imbalance)
             else:
                 return 0.5
-        
-        # Extract quantities safely
-        total_bid_volume = sum(bid.get('quantity', 0) for bid in bids)
-        total_ask_volume = sum(ask.get('quantity', 0) for ask in asks)
-        
-        if total_bid_volume + total_ask_volume == 0:
+                
+        except Exception:
             return 0.5
-            
-        imbalance = total_bid_volume / (total_bid_volume + total_ask_volume)
-        
-        # Apply threshold-based confidence
-        if abs(imbalance - 0.5) > (threshold - 0.5):
-            return max(0.7, imbalance)
-        else:
-            return 0.5
-            
-    except Exception:
-        return 0.5
     
     def _detect_liquidity_waves(self, trades: List, large_order_threshold: int) -> float:
         """Detect liquidity waves using Nifty50 threshold"""
