@@ -7367,6 +7367,7 @@ def page_iceberg_detector():
     **Advanced iceberg detection optimized for Nifty50 stocks with price-based parameters**
     
     *Dynamic thresholds for low, medium, and high-priced stocks*
+    *Enhanced 20-level market depth analysis*
     """)
     
     # Check if broker is connected
@@ -7465,6 +7466,28 @@ def page_iceberg_detector():
             if len(high_stocks) > 5:
                 st.caption(f"+ {len(high_stocks) - 5} more")
     
+    # Market depth configuration
+    st.markdown("---")
+    st.subheader("📊 Market Depth Configuration")
+    
+    col_depth1, col_depth2 = st.columns(2)
+    
+    with col_depth1:
+        depth_levels = st.slider(
+            "Market Depth Levels",
+            min_value=5,
+            max_value=20,
+            value=20,
+            help="Number of market depth levels to analyze (Kite supports up to 20)"
+        )
+    
+    with col_depth2:
+        analyze_depth = st.checkbox(
+            "Enable Depth Analysis", 
+            value=True,
+            help="Analyze full market depth for iceberg detection"
+        )
+    
     # Analysis controls
     st.markdown("---")
     col_controls1, col_controls2, col_controls3 = st.columns([1, 1, 1])
@@ -7491,8 +7514,14 @@ def page_iceberg_detector():
                     st.error("No historical data available for analysis")
                     return
                 
-                # Prepare market data
-                market_data = prepare_market_data(selected_symbol, instrument_df, historical_data)
+                # Prepare market data with enhanced depth
+                market_data = prepare_market_data_enhanced(
+                    selected_symbol, 
+                    instrument_df, 
+                    historical_data, 
+                    depth_levels=depth_levels,
+                    analyze_depth=analyze_depth
+                )
                 
                 if not market_data:
                     st.error("Failed to prepare market data for analysis")
@@ -7503,24 +7532,31 @@ def page_iceberg_detector():
                 detection_result = detector.process_market_data(market_data)
                 
                 # Display results
-                display_iceberg_results(detection_result, market_data, show_details)
+                display_iceberg_results_enhanced(detection_result, market_data, show_details, depth_levels)
                 
             except Exception as e:
                 st.error(f"Analysis failed: {str(e)}")
+                st.info("Make sure you're connected to Kite and have sufficient market data permissions")
     
     # Auto-refresh logic
     if auto_refresh:
         st_autorefresh(interval=30000, key="iceberg_autorefresh")
     
     # Information section
-    with st.expander("ℹ️ About Iceberg Detection", expanded=False):
-        st.markdown("""
-        **How Iceberg Detection Works:**
+    with st.expander("ℹ️ About Enhanced Iceberg Detection", expanded=False):
+        st.markdown(f"""
+        **Enhanced Iceberg Detection with {depth_levels}-Level Market Depth:**
         
-        - **Flow Analysis**: Monitors order book imbalances and liquidity waves
-        - **Pattern Detection**: Identifies volume and price anomalies
+        - **20-Level Depth Analysis**: Monitors complete order book structure
+        - **Volume Distribution**: Analyzes volume concentration across price levels
+        - **Hidden Liquidity**: Detects unusually large orders distributed across levels
         - **Quantum Fusion**: Combines signals using quantum-inspired algorithms
-        - **Nifty50 Optimization**: Uses price-based thresholds for different stock categories
+        
+        **Market Depth Features:**
+        - Bid/Ask volume distribution analysis
+        - Large order clustering detection
+        - Price level concentration metrics
+        - Liquidity wave pattern recognition
         
         **Detection Parameters by Category:**
         - **LOW Price**: 50,000+ share threshold (high volume, low price)
@@ -7534,11 +7570,127 @@ def page_iceberg_detector():
         """)
 
 
-def display_iceberg_results(detection_result, market_data, show_details=True):
-    """Display iceberg detection results"""
+def prepare_market_data_enhanced(symbol, instrument_df, historical_data, depth_levels=20, analyze_depth=True):
+    """Prepare enhanced market data with 20-level depth using KiteConnect"""
+    
+    try:
+        client = get_broker_client()
+        if not client:
+            return None
+        
+        # Get instrument token
+        instrument_token = get_instrument_token(symbol, instrument_df, 'NSE')
+        if not instrument_token:
+            return None
+        
+        # Get quote data with full market depth
+        quote_data = client.quote(str(instrument_token))
+        
+        if not quote_data:
+            return None
+        
+        # Extract the specific instrument quote
+        instrument_quote = quote_data.get(str(instrument_token), {})
+        
+        # Get enhanced market depth (up to 20 levels)
+        depth = instrument_quote.get('depth', {})
+        bids = depth.get('buy', [])
+        asks = depth.get('sell', [])
+        
+        # Limit to requested depth levels
+        bids = bids[:depth_levels]
+        asks = asks[:depth_levels]
+        
+        # Calculate enhanced order book metrics
+        total_bid_volume = sum(bid['quantity'] for bid in bids)
+        total_ask_volume = sum(ask['quantity'] for ask in asks)
+        
+        # Calculate volume concentration metrics
+        bid_concentration = calculate_volume_concentration(bids)
+        ask_concentration = calculate_volume_concentration(asks)
+        
+        # Calculate large order presence
+        large_bid_orders = count_large_orders(bids, get_nifty50_detection_params(symbol)['large_order_threshold'])
+        large_ask_orders = count_large_orders(asks, get_nifty50_detection_params(symbol)['large_order_threshold'])
+        
+        # Prepare enhanced order book data
+        order_book = {
+            'bids': bids,
+            'asks': asks,
+            'total_bid_volume': total_bid_volume,
+            'total_ask_volume': total_ask_volume,
+            'bid_ask_ratio': total_bid_volume / total_ask_volume if total_ask_volume > 0 else 1,
+            'bid_concentration': bid_concentration,
+            'ask_concentration': ask_concentration,
+            'large_bid_orders': large_bid_orders,
+            'large_ask_orders': large_ask_orders,
+            'depth_levels_analyzed': depth_levels
+        }
+        
+        # Calculate volume metrics from historical data
+        current_volume = historical_data['volume'].iloc[-1] if not historical_data.empty else 0
+        avg_volume = historical_data['volume'].tail(20).mean() if len(historical_data) >= 20 else current_volume
+        
+        # Prepare market data
+        market_data = {
+            'symbol': symbol,
+            'timestamp': pd.Timestamp.now(),
+            'last_price': instrument_quote.get('last_price', 0),
+            'volume': current_volume,
+            'average_volume': avg_volume,
+            'volume_ratio': current_volume / avg_volume if avg_volume > 0 else 1,
+            'high': historical_data['high'].iloc[-1] if not historical_data.empty else 0,
+            'low': historical_data['low'].iloc[-1] if not historical_data.empty else 0,
+            'close': historical_data['close'].iloc[-1] if not historical_data.empty else 0,
+            'order_book': order_book,
+            'volatility': historical_data['close'].pct_change().std() if len(historical_data) > 1 else 0,
+            'stock_category': get_nifty50_stock_category(symbol),
+            'detection_params': get_nifty50_detection_params(symbol),
+            'analyze_depth': analyze_depth
+        }
+        
+        return market_data
+        
+    except Exception as e:
+        st.error(f"Error preparing enhanced market data: {str(e)}")
+        return None
+
+
+def calculate_volume_concentration(orders):
+    """Calculate how concentrated volume is across price levels"""
+    if not orders:
+        return 0
+    
+    total_volume = sum(order['quantity'] for order in orders)
+    if total_volume == 0:
+        return 0
+    
+    # Calculate Gini coefficient-like concentration
+    volumes = [order['quantity'] for order in orders]
+    volumes.sort(reverse=True)
+    
+    cumulative_volume = 0
+    concentration_score = 0
+    
+    for i, volume in enumerate(volumes):
+        cumulative_volume += volume
+        concentration_score += (i + 1) * volume
+    
+    max_concentration = sum((i + 1) * volumes[0] for i in range(len(volumes)))
+    
+    return concentration_score / max_concentration if max_concentration > 0 else 0
+
+
+def count_large_orders(orders, threshold):
+    """Count number of orders exceeding large order threshold"""
+    return sum(1 for order in orders if order['quantity'] >= threshold)
+
+
+def display_iceberg_results_enhanced(detection_result, market_data, show_details=True, depth_levels=20):
+    """Display enhanced iceberg detection results with depth analysis"""
     
     st.markdown("---")
-    st.subheader("🎯 Detection Results")
+    st.subheader("🎯 Enhanced Detection Results")
     
     # Key metrics
     probability = detection_result['iceberg_probability']
@@ -7569,6 +7721,49 @@ def display_iceberg_results(detection_result, market_data, show_details=True):
         category = market_data.get('stock_category', 'UNKNOWN')
         st.metric("Stock Category", category)
     
+    # Enhanced depth analysis
+    order_book = market_data.get('order_book', {})
+    
+    st.markdown("---")
+    st.subheader("📊 Market Depth Analysis")
+    
+    col_depth1, col_depth2, col_depth3, col_depth4 = st.columns(4)
+    
+    with col_depth1:
+        st.metric("Depth Levels", depth_levels)
+        st.metric("Bid Volume", f"{order_book.get('total_bid_volume', 0):,}")
+    
+    with col_depth2:
+        st.metric("Ask Volume", f"{order_book.get('total_ask_volume', 0):,}")
+        st.metric("Bid/Ask Ratio", f"{order_book.get('bid_ask_ratio', 1):.2f}")
+    
+    with col_depth3:
+        st.metric("Bid Concentration", f"{order_book.get('bid_concentration', 0):.1%}")
+        st.metric("Large Bid Orders", order_book.get('large_bid_orders', 0))
+    
+    with col_depth4:
+        st.metric("Ask Concentration", f"{order_book.get('ask_concentration', 0):.1%}")
+        st.metric("Large Ask Orders", order_book.get('large_ask_orders', 0))
+    
+    # Display depth levels
+    if show_details:
+        st.markdown("---")
+        st.subheader("🔍 Detailed Market Depth")
+        
+        col_bids, col_asks = st.columns(2)
+        
+        with col_bids:
+            st.write("**🟢 Bid Levels**")
+            bids = order_book.get('bids', [])
+            for i, bid in enumerate(bids[:10]):  # Show first 10 levels
+                st.write(f"Level {i+1}: {bid['quantity']:,} @ ₹{bid['price']:.2f}")
+        
+        with col_asks:
+            st.write("**🔴 Ask Levels**")
+            asks = order_book.get('asks', [])
+            for i, ask in enumerate(asks[:10]):  # Show first 10 levels
+                st.write(f"Level {i+1}: {ask['quantity']:,} @ ₹{ask['price']:.2f}")
+    
     # Alerts
     alerts = detection_result.get('alerts', [])
     if alerts:
@@ -7585,7 +7780,7 @@ def display_iceberg_results(detection_result, market_data, show_details=True):
     # Detailed analysis
     if show_details:
         st.markdown("---")
-        st.subheader("📊 Detailed Analysis")
+        st.subheader("📈 Detailed Analysis")
         
         col_analysis1, col_analysis2 = st.columns(2)
         
@@ -7605,30 +7800,22 @@ def display_iceberg_results(detection_result, market_data, show_details=True):
         
         # Market data metrics
         st.markdown("---")
-        st.subheader("📈 Market Data Metrics")
+        st.subheader("📊 Market Data Metrics")
         
         col_metrics1, col_metrics2, col_metrics3 = st.columns(3)
         
         with col_metrics1:
             st.metric("Volume Ratio", f"{market_data.get('volume_ratio', 1):.2f}x")
-            st.metric("Volatility", f"{market_data.get('volatility', 0):.3f}")
+            st.metric("Current Volume", f"{market_data.get('volume', 0):,}")
         
         with col_metrics2:
-            order_book = market_data.get('order_book', {})
-            bid_volume = order_book.get('total_bid_volume', 0)
-            ask_volume = order_book.get('total_ask_volume', 0)
-            st.metric("Bid Volume", f"{bid_volume:,}")
-            st.metric("Ask Volume", f"{ask_volume:,}")
+            st.metric("Average Volume", f"{market_data.get('average_volume', 0):,}")
+            st.metric("Volatility", f"{market_data.get('volatility', 0):.3f}")
         
         with col_metrics3:
-            if bid_volume + ask_volume > 0:
-                imbalance = bid_volume / (bid_volume + ask_volume)
-                st.metric("Order Imbalance", f"{imbalance:.1%}")
-            else:
-                st.metric("Order Imbalance", "N/A")
-            
             params = market_data.get('detection_params', {})
             st.metric("Large Order Threshold", f"{params.get('large_order_threshold', 0):,}")
+            st.metric("Last Price", f"₹{market_data.get('last_price', 0):.2f}")
         
         # Create visualization
         st.markdown("---")
