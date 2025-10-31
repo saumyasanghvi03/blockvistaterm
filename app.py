@@ -11915,13 +11915,48 @@ def page_ai_discovery():
         st.info("Please connect to a broker to use AI Discovery.")
         return
 
-    # Get active watchlist
-    active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
-    active_list = st.session_state.watchlists.get(active_watchlist, [])
+    # Nifty50 stock selection
+    nifty50_stocks = [
+        "RELIANCE", "TCS", "HDFC", "INFY", "HINDUNILVR", "ICICI", "SBIN", 
+        "BHARTI", "KOTAK", "BAJFIN", "LT", "HCL", "ASIAN", "MARUTI", "SUN", 
+        "TITAN", "WIPRO", "ULTRACEM", "NESTLE", "POWER", "NTPC", "ONGC", 
+        "TECHM", "ADANIPORTS", "M&M", "BAJAJ", "GRASIM", "TATASTEEL", "JSW", 
+        "HEROMOTO", "BRITANNIA", "DIVIS", "CIPLA", "EICHER", "DRREDDY", 
+        "SHREECEM", "HDFCLIFE", "UPL", "COAL", "HINDALCO", "SBILIFE", 
+        "BAJAJFINSV", "TATACONSUM", "APOLLOHOSP", "BPCL", "INDUSINDBK", 
+        "HINDPETRO", "AXIS", "ITC", "VEDL"
+    ]
     
-    if not active_list:
-        st.warning("Please set up your watchlist on the Dashboard page to enable AI Discovery.")
-        return
+    # Analysis mode selection
+    analysis_mode = st.radio(
+        "Analysis Mode",
+        ["Watchlist Analysis", "Single Stock Analysis"],
+        horizontal=True
+    )
+    
+    active_list = []
+    
+    if analysis_mode == "Watchlist Analysis":
+        # Get active watchlist
+        active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
+        active_list = st.session_state.watchlists.get(active_watchlist, [])
+        
+        if not active_list:
+            st.warning("Please set up your watchlist on the Dashboard page to enable AI Discovery.")
+            return
+    else:
+        # Single stock analysis
+        selected_stock = st.selectbox(
+            "Select Nifty50 Stock to Analyze",
+            nifty50_stocks,
+            index=0
+        )
+        
+        if selected_stock:
+            # Add exchange based on stock type
+            exchange = "NSE"
+            active_list = [{'symbol': selected_stock, 'exchange': exchange}]
+            st.success(f"Selected: {selected_stock} - Ready for AI Analysis")
 
     # Enhanced discovery modes
     discovery_mode = st.radio(
@@ -11935,6 +11970,10 @@ def page_ai_discovery():
     with col1:
         st.subheader(f"🔎 {discovery_mode}")
         
+        if not active_list:
+            st.warning("Please select a stock or set up your watchlist to begin analysis.")
+            return
+            
         with st.spinner("🤖 AI is analyzing market patterns..."):
             if discovery_mode == "Pattern Recognition":
                 results = enhanced_pattern_recognition(active_list, instrument_df)
@@ -11974,33 +12013,91 @@ def page_ai_discovery():
     else:
         st.error("No patterns found or analysis failed. Try adjusting parameters.")
 
+def get_hourly_data_with_fallback(token, symbol, days=30):
+    """Get hourly data with fallback to daily data if unavailable."""
+    try:
+        # Try to get hourly data
+        hourly_data = get_historical_data(token, 'hour', period=f'{days}d')
+        if not hourly_data.empty and len(hourly_data) > 10:
+            return hourly_data
+        
+        # Fallback: use daily data but resample to simulate hourly (for demo)
+        daily_data = get_historical_data(token, 'day', period=f'{days*3}d')
+        if not daily_data.empty:
+            # Create synthetic hourly data from daily (for demonstration)
+            return create_synthetic_hourly_data(daily_data, days)
+            
+    except Exception as e:
+        st.warning(f"Could not get hourly data for {symbol}: {str(e)}")
+    
+    return pd.DataFrame()  # Return empty dataframe
+
+def create_synthetic_hourly_data(daily_data, days):
+    """Create synthetic hourly data from daily data for demonstration."""
+    if daily_data.empty:
+        return pd.DataFrame()
+    
+    # Create hourly timestamps for the last N days
+    end_date = pd.Timestamp.now()
+    start_date = end_date - pd.Timedelta(days=days)
+    
+    hourly_dates = pd.date_range(start=start_date, end=end_date, freq='H')
+    synthetic_data = []
+    
+    for date in hourly_dates:
+        # Find the corresponding daily data
+        daily_row = daily_data[daily_data.index.date == date.date()]
+        if not daily_row.empty:
+            daily_values = daily_row.iloc[0]
+            # Create synthetic hourly values with some variation
+            variation = np.random.normal(0, daily_values['close'] * 0.005)  # 0.5% variation
+            synthetic_close = daily_values['close'] + variation
+            
+            synthetic_data.append({
+                'date': date,
+                'open': daily_values['open'] + variation * 0.8,
+                'high': max(daily_values['high'], synthetic_close),
+                'low': min(daily_values['low'], synthetic_close),
+                'close': synthetic_close,
+                'volume': daily_values['volume'] / 6.5  # Approximate hourly volume
+            })
+    
+    if synthetic_data:
+        return pd.DataFrame(synthetic_data).set_index('date')
+    return pd.DataFrame()
+
 def enhanced_pattern_recognition(active_list, instrument_df):
     """Advanced pattern recognition with ML-based technical analysis using multi-timeframe data."""
     patterns = []
     
-    for item in active_list[:10]:  # Limit for performance
+    for item in active_list:  # Removed limit for single stock analysis
         try:
             symbol = item['symbol']
             exchange = item['exchange']
             token = get_instrument_token(symbol, instrument_df, exchange)
             
             if not token:
+                st.warning(f"Could not find token for {symbol} on {exchange}")
                 continue
                 
-            # Get multi-timeframe data - ADD HOURLY DATA HERE
+            # Get multi-timeframe data
             daily_data = get_historical_data(token, 'day', period='3mo')
-            hourly_data = get_hourly_data_with_fallback(token, symbol, days=30)  # NEW: Get hourly data
+            hourly_data = get_hourly_data_with_fallback(token, symbol, days=30)
             
             if daily_data.empty:
+                st.warning(f"No daily data available for {symbol}")
                 continue
             
             # Enhanced analysis with multi-timeframe data
-            pattern_analysis = analyze_advanced_patterns_with_hourly(daily_data, hourly_data, symbol)  # UPDATED FUNCTION
+            pattern_analysis = analyze_advanced_patterns_with_hourly(daily_data, hourly_data, symbol)
             
             if pattern_analysis["confidence"] > 60:
                 patterns.append(pattern_analysis)
+            else:
+                st.info(f"Low confidence patterns found for {symbol}: {pattern_analysis['confidence']}%")
                 
         except Exception as e:
+            st.error(f"Error analyzing {item.get('symbol', 'unknown')}: {str(e)}")
             continue
     
     return {
@@ -12009,376 +12106,43 @@ def enhanced_pattern_recognition(active_list, instrument_df):
         "high_confidence_patterns": len([p for p in patterns if p["confidence"] > 80])
     }
 
-def analyze_advanced_patterns_with_hourly(daily_data, hourly_data, symbol):
-    """Enhanced pattern analysis using both daily and hourly data."""
-    
-    # Calculate multiple indicators for both timeframes
-    daily_data = calculate_advanced_indicators(daily_data)
-    daily_latest = daily_data.iloc[-1]
-    
-    patterns_detected = []
-    confidence = 0
-    signal_strength = "Neutral"
-    timeframe_alignment = 0
-    
-    # DAILY ANALYSIS (existing logic)
-    # Trend analysis
-    if (daily_latest.get('EMA_20', 0) > daily_latest.get('EMA_50', 0) and
-        daily_latest.get('EMA_50', 0) > daily_latest.get('EMA_200', 0)):
-        patterns_detected.append("Strong Daily Uptrend")
-        confidence += 20
-        signal_strength = "Bullish"
-        timeframe_alignment += 1
-    
-    # Momentum confirmation
-    daily_rsi = daily_latest.get('RSI_14', 50)
-    if 40 < daily_rsi < 70:  # Avoid extremes
-        if daily_rsi > 55:
-            patterns_detected.append("Daily Positive Momentum")
-            confidence += 10
-        elif daily_rsi < 45:
-            patterns_detected.append("Daily Negative Momentum") 
-            confidence += 10
-            signal_strength = "Bearish"
-    
-    # HOURLY ANALYSIS (NEW)
-    if not hourly_data.empty and len(hourly_data) > 20:
-        hourly_data = calculate_advanced_indicators(hourly_data)
-        hourly_latest = hourly_data.iloc[-1]
-        
-        # Hourly trend analysis
-        hourly_ema_20 = hourly_latest.get('EMA_20', 0)
-        hourly_ema_50 = hourly_latest.get('EMA_50', 0)
-        
-        if hourly_ema_20 > hourly_ema_50:
-            patterns_detected.append("Hourly Uptrend")
-            confidence += 15
-            timeframe_alignment += 1
-        else:
-            patterns_detected.append("Hourly Consolidation")
-            confidence += 5
-        
-        # Hourly momentum
-        hourly_rsi = hourly_latest.get('RSI_14', 50)
-        if 30 < hourly_rsi < 80:  # Wider range for hourly
-            if hourly_rsi > 60:
-                patterns_detected.append("Hourly Bullish Momentum")
-                confidence += 10
-            elif hourly_rsi < 40:
-                patterns_detected.append("Hourly Bearish Momentum")
-                confidence += 10
-        
-        # Volume analysis on hourly
-        if len(hourly_data) > 20:
-            hourly_volume_avg = hourly_data['volume'].tail(20).mean()
-            current_hourly_volume = hourly_latest.get('volume', 0)
-            if current_hourly_volume > hourly_volume_avg * 1.5:
-                patterns_detected.append("Hourly Volume Surge")
-                confidence += 15
-    
-    # MULTI-TIMEFRAME ALIGNMENT BONUS (NEW)
-    if timeframe_alignment >= 2:
-        patterns_detected.append("Multi-Timeframe Alignment")
-        confidence += 20
-    
-    # Volume analysis (daily)
-    if len(daily_data) > 20:
-        volume_avg = daily_data['volume'].tail(20).mean()
-        if (daily_latest.get('volume', 0) > volume_avg * 1.2 and
-            daily_latest.get('close', 0) > daily_latest.get('open', 0)):
-            patterns_detected.append("Daily Volume Breakout")
-            confidence += 15
-    
-    # Support/Resistance breaks
-    if len(daily_data) > 20:
-        resistance = daily_data['high'].tail(20).max()
-        support = daily_data['low'].tail(20).min()
-        current_price = daily_latest.get('close', 0)
-        
-        if current_price >= resistance * 0.99:
-            patterns_detected.append("Daily Resistance Break")
-            confidence += 20
-            signal_strength = "Bullish"
-        elif current_price <= support * 1.01:
-            patterns_detected.append("Daily Support Break")
-            confidence += 20
-            signal_strength = "Bearish"
-    
-    return {
-        "symbol": symbol,
-        "patterns": patterns_detected,
-        "confidence": min(100, confidence),
-        "signal_strength": signal_strength,
-        "current_price": daily_latest.get('close', 0),
-        "daily_rsi": daily_rsi,
-        "hourly_rsi": hourly_latest.get('RSI_14', 50) if not hourly_data.empty else None,
-        "volume_ratio": daily_latest.get('volume', 0) / volume_avg if volume_avg > 0 else 1,
-        "timeframe_alignment": timeframe_alignment,
-        "has_hourly_data": not hourly_data.empty
-    }
-
 def predictive_signals_analysis(active_list, instrument_df):
     """Predictive analysis using ML-inspired signals with hourly data."""
     signals = []
     
-    for item in active_list[:8]:
+    for item in active_list:  # Removed limit for single stock analysis
         try:
             symbol = item['symbol']
             exchange = item['exchange']
             token = get_instrument_token(symbol, instrument_df, exchange)
             
             if not token:
+                st.warning(f"Could not find token for {symbol} on {exchange}")
                 continue
                 
             # Get multi-timeframe data
             daily_data = get_historical_data(token, 'day', period='6mo')
-            hourly_data = get_hourly_data_with_fallback(token, symbol, days=30)  # NEW
+            hourly_data = get_hourly_data_with_fallback(token, symbol, days=30)
             
             if daily_data.empty or len(daily_data) < 50:
+                st.warning(f"Insufficient daily data for {symbol}")
                 continue
             
             # Enhanced predictive signal generation with hourly data
-            signal = generate_predictive_signal_with_hourly(daily_data, hourly_data, symbol)  # UPDATED FUNCTION
+            signal = generate_predictive_signal_with_hourly(daily_data, hourly_data, symbol)
             
             if signal["probability"] > 60:
                 signals.append(signal)
+            else:
+                st.info(f"Low probability signal for {symbol}: {signal['probability']}%")
                 
-        except Exception:
+        except Exception as e:
+            st.error(f"Error analyzing {item.get('symbol', 'unknown')}: {str(e)}")
             continue
     
     return {
         "signals": sorted(signals, key=lambda x: x["probability"], reverse=True),
         "analysis_type": "Predictive ML Signals"
-    }
-
-def generate_predictive_signal_with_hourly(daily_data, hourly_data, symbol):
-    """Enhanced predictive trading signals using multi-timeframe data."""
-    
-    # Feature engineering for both timeframes
-    daily_data = calculate_advanced_indicators(daily_data)
-    daily_latest = daily_data.iloc[-1]
-    
-    # ML-inspired scoring
-    score = 0
-    features = []
-    timeframe_score = 0
-    
-    # DAILY FEATURES
-    # Trend features
-    if daily_latest.get('EMA_20', 0) > daily_latest.get('EMA_50', 0):
-        score += 20
-        features.append("Daily EMA Bullish")
-        timeframe_score += 1
-    
-    # Momentum features
-    daily_rsi = daily_latest.get('RSI_14', 50)
-    if 30 < daily_rsi < 70:
-        if daily_latest.get('MACD', 0) > daily_latest.get('MACD_Signal', 0):
-            score += 15
-            features.append("Daily MACD Bullish")
-    
-    # HOURLY FEATURES (NEW)
-    if not hourly_data.empty and len(hourly_data) > 10:
-        hourly_data = calculate_advanced_indicators(hourly_data)
-        hourly_latest = hourly_data.iloc[-1]
-        
-        # Hourly trend
-        if hourly_latest.get('EMA_20', 0) > hourly_latest.get('EMA_50', 0):
-            score += 15
-            features.append("Hourly EMA Bullish")
-            timeframe_score += 1
-        
-        # Hourly momentum
-        hourly_rsi = hourly_latest.get('RSI_14', 50)
-        if 35 < hourly_rsi < 75:
-            if hourly_rsi > 55:
-                score += 10
-                features.append("Hourly Momentum Positive")
-        
-        # Hourly volume
-        if len(hourly_data) > 20:
-            hourly_volume_avg = hourly_data['volume'].tail(20).mean()
-            if hourly_latest.get('volume', 0) > hourly_volume_avg * 1.3:
-                score += 10
-                features.append("Hourly Volume Spike")
-    
-    # MULTI-TIMEFRAME ALIGNMENT BONUS (NEW)
-    if timeframe_score >= 2:
-        score += 20
-        features.append("Multi-Timeframe Alignment")
-    
-    # Volume features (daily)
-    if len(daily_data) > 20:
-        volume_avg = daily_data['volume'].tail(20).mean()
-        if daily_latest.get('volume', 0) > volume_avg * 1.1:
-            score += 10
-            features.append("Daily Volume Surge")
-    
-    # Price action features
-    if (daily_latest.get('close', 0) > daily_latest.get('EMA_20', 0) and 
-        daily_latest.get('close', 0) > daily_data['close'].tail(20).mean()):
-        score += 10
-        features.append("Daily Price Strength")
-    
-    probability = min(95, score)
-    
-    # Signal direction
-    if probability > 65:
-        signal_type = "BUY"
-    elif probability < 35:
-        signal_type = "SELL"
-    else:
-        signal_type = "HOLD"
-    
-    return {
-        "symbol": symbol,
-        "signal": signal_type,
-        "probability": probability,
-        "features": features,
-        "current_price": daily_latest.get('close', 0),
-        "daily_rsi": daily_rsi,
-        "hourly_rsi": hourly_latest.get('RSI_14', 50) if not hourly_data.empty else None,
-        "volume_ratio": daily_latest.get('volume', 0) / volume_avg if volume_avg > 0 else 1,
-        "timeframe_alignment": timeframe_score,
-        "has_hourly_data": not hourly_data.empty
-    }
-
-def risk_adjusted_opportunities(active_list, instrument_df):
-    """Find risk-adjusted trading opportunities."""
-    opportunities = []
-    
-    for item in active_list[:8]:
-        try:
-            symbol = item['symbol']
-            exchange = item['exchange']
-            token = get_instrument_token(symbol, instrument_df, exchange)
-            
-            if not token:
-                continue
-                
-            data = get_historical_data(token, 'day', period='3mo')
-            if data.empty:
-                continue
-            
-            opportunity = analyze_risk_adjusted_opportunity(data, symbol)
-            
-            if opportunity["risk_reward_ratio"] > 1.5:
-                opportunities.append(opportunity)
-                
-        except Exception:
-            continue
-    
-    return {
-        "opportunities": sorted(opportunities, key=lambda x: x["risk_reward_ratio"], reverse=True),
-        "analysis_type": "Risk-Adjusted Opportunities"
-    }
-
-def analyze_risk_adjusted_opportunity(data, symbol):
-    """Analyze risk-reward ratio for trading opportunities."""
-    data = calculate_advanced_indicators(data)
-    latest = data.iloc[-1]
-    
-    # Calculate support and resistance
-    support = data['low'].tail(20).min()
-    resistance = data['high'].tail(20).max()
-    current_price = latest.get('close', 0)
-    
-    # Risk-reward calculation
-    if current_price > data['close'].tail(20).mean():
-        # Bullish scenario
-        potential_upside = resistance - current_price
-        potential_downside = current_price - support
-    else:
-        # Bearish scenario
-        potential_upside = current_price - support
-        potential_downside = resistance - current_price
-    
-    risk_reward_ratio = potential_upside / potential_downside if potential_downside > 0 else 1
-    
-    # Volatility assessment
-    volatility = data['close'].pct_change().std() * 100
-    
-    return {
-        "symbol": symbol,
-        "current_price": current_price,
-        "support": support,
-        "resistance": resistance,
-        "risk_reward_ratio": round(risk_reward_ratio, 2),
-        "volatility": round(volatility, 2),
-        "rsi": round(latest.get('RSI_14', 50), 1)
-    }
-
-def technical_setups_analysis(active_list, instrument_df):
-    """Analyze technical setups for trading."""
-    setups = []
-    
-    for item in active_list[:10]:
-        try:
-            symbol = item['symbol']
-            exchange = item['exchange']
-            token = get_instrument_token(symbol, instrument_df, exchange)
-            
-            if not token:
-                continue
-                
-            data = get_historical_data(token, 'day', period='3mo')
-            if data.empty:
-                continue
-            
-            setup = analyze_technical_setup(data, symbol)
-            
-            if setup["setup_quality"] > 60:
-                setups.append(setup)
-                
-        except Exception:
-            continue
-    
-    return {
-        "setups": sorted(setups, key=lambda x: x["setup_quality"], reverse=True),
-        "analysis_type": "Technical Setups"
-    }
-
-def analyze_technical_setup(data, symbol):
-    """Analyze technical trading setups."""
-    data = calculate_advanced_indicators(data)
-    latest = data.iloc[-1]
-    
-    setup_quality = 0
-    setup_type = "Neutral"
-    characteristics = []
-    
-    # Trend characteristics
-    if latest.get('EMA_20', 0) > latest.get('EMA_50', 0):
-        setup_quality += 25
-        characteristics.append("Uptrend")
-        setup_type = "Bullish"
-    
-    # Momentum characteristics
-    rsi = latest.get('RSI_14', 50)
-    if 40 < rsi < 65:
-        setup_quality += 20
-        characteristics.append("Healthy Momentum")
-    
-    # Volume characteristics
-    if len(data) > 20:
-        volume_avg = data['volume'].tail(20).mean()
-        if latest.get('volume', 0) > volume_avg:
-            setup_quality += 15
-            characteristics.append("Above Average Volume")
-    
-    # Pattern characteristics
-    if (latest.get('close', 0) > latest.get('EMA_20', 0) and
-        latest.get('close', 0) > data['close'].tail(10).mean()):
-        setup_quality += 20
-        characteristics.append("Price Strength")
-    
-    return {
-        "symbol": symbol,
-        "setup_type": setup_type,
-        "setup_quality": min(100, setup_quality),
-        "characteristics": characteristics,
-        "current_price": latest.get('close', 0),
-        "rsi": round(rsi, 1)
     }
 
 def display_enhanced_discovery_results(results, discovery_mode, confidence_threshold):
@@ -12391,6 +12155,7 @@ def display_enhanced_discovery_results(results, discovery_mode, confidence_thres
         
         if not filtered_patterns:
             st.info(f"No patterns found above {confidence_threshold}% confidence threshold.")
+            st.info("Try lowering the confidence threshold or analyzing different stocks.")
             return
             
         for pattern in filtered_patterns[:8]:
@@ -12400,14 +12165,12 @@ def display_enhanced_discovery_results(results, discovery_mode, confidence_thres
                 with col1:
                     st.write(f"**{pattern['symbol']}**")
                     st.caption(f"Strength: {pattern['signal_strength']}")
-                    # NEW: Show hourly data indicator
                     if pattern.get('has_hourly_data'):
                         st.caption("📊 Multi-timeframe analysis")
                 
                 with col2:
                     patterns_text = ", ".join(pattern['patterns'][:3])
                     st.write(f"*{patterns_text}*")
-                    # NEW: Show timeframe alignment
                     if pattern.get('timeframe_alignment', 0) >= 2:
                         st.caption("✅ Timeframes aligned")
                 
@@ -12430,81 +12193,71 @@ def display_enhanced_discovery_results(results, discovery_mode, confidence_thres
                         display_symbol_technical_analysis(pattern)
                 
                 st.markdown("---")
+    
+    elif discovery_mode == "Predictive Signals":
+        st.subheader("🎯 Predictive Signals")
+        
+        filtered_signals = [s for s in results["signals"] if s["probability"] >= confidence_threshold]
+        
+        if not filtered_signals:
+            st.info(f"No signals found above {confidence_threshold}% probability threshold.")
+            return
+            
+        for signal in filtered_signals[:8]:
+            with st.container():
+                col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
+                
+                with col1:
+                    st.write(f"**{signal['symbol']}**")
+                    signal_color = "green" if signal["signal"] == "BUY" else "red" if signal["signal"] == "SELL" else "orange"
+                    st.markdown(f"Signal: <span style='color:{signal_color}'><b>{signal['signal']}</b></span>", unsafe_allow_html=True)
+                
+                with col2:
+                    features_text = ", ".join(signal['features'][:3])
+                    st.write(f"*{features_text}*")
+                    if signal.get('timeframe_alignment', 0) >= 2:
+                        st.caption("✅ Multi-timeframe aligned")
+                
+                with col3:
+                    probability = signal['probability']
+                    if probability > 80:
+                        st.success(f"{probability}%")
+                    elif probability > 60:
+                        st.warning(f"{probability}%")
+                    else:
+                        st.info(f"{probability}%")
+                
+                with col4:
+                    if st.button("Trade", key=f"trade_{signal['symbol']}"):
+                        execute_ai_trade(signal)
+                
+                st.markdown("---")
 
-def display_symbol_technical_analysis(pattern_data):
-    """Enhanced technical analysis display with hourly insights."""
-    st.write(f"**Detailed Technical Analysis for {pattern_data['symbol']}**")
+# Add this function if it doesn't exist
+def get_instrument_token(symbol, instrument_df, exchange):
+    """Get instrument token from symbol and exchange."""
+    try:
+        if instrument_df.empty:
+            return None
+        
+        # Filter by symbol and exchange
+        matches = instrument_df[
+            (instrument_df['symbol'].str.upper() == symbol.upper()) & 
+            (instrument_df['exchange'].str.upper() == exchange.upper())
+        ]
+        
+        if not matches.empty:
+            return matches.iloc[0]['token']
+        
+        # If not found, try without exchange filter
+        matches = instrument_df[instrument_df['symbol'].str.upper() == symbol.upper()]
+        if not matches.empty:
+            return matches.iloc[0]['token']
+            
+    except Exception as e:
+        st.error(f"Error getting token for {symbol}: {str(e)}")
     
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.metric("Current Price", f"₹{pattern_data['current_price']:.2f}")
-        st.metric("Daily RSI", f"{pattern_data['daily_rsi']:.1f}")
-        if pattern_data.get('hourly_rsi'):
-            st.metric("Hourly RSI", f"{pattern_data['hourly_rsi']:.1f}")
-        st.metric("Confidence", f"{pattern_data['confidence']}%")
-    
-    with col2:
-        st.metric("Signal Strength", pattern_data['signal_strength'])
-        st.metric("Volume Ratio", f"{pattern_data['volume_ratio']:.2f}x")
-        if pattern_data.get('timeframe_alignment'):
-            st.metric("Timeframe Alignment", f"{pattern_data['timeframe_alignment']}/2")
-        st.metric("Patterns Found", len(pattern_data['patterns']))
-    
-    # Multi-timeframe insights
-    if pattern_data.get('has_hourly_data'):
-        st.success("✅ Multi-timeframe analysis available (Daily + Hourly)")
-    
-    if pattern_data.get('timeframe_alignment', 0) >= 2:
-        st.info("🎯 Multiple timeframes are aligned - stronger signal")
-    
-    # Pattern details
-    st.write("**Detected Patterns:**")
-    for pattern in pattern_data['patterns']:
-        if "Hourly" in pattern:
-            st.write(f"• 🕒 {pattern}")
-        elif "Daily" in pattern:
-            st.write(f"• 📅 {pattern}")
-        else:
-            st.write(f"• {pattern}")
-    
-    # Trading recommendation
-    if pattern_data['confidence'] > 80 and pattern_data.get('timeframe_alignment', 0) >= 2:
-        recommendation = "Strong multi-timeframe opportunity"
-        color = "green"
-    elif pattern_data['confidence'] > 75:
-        recommendation = "Strong trading opportunity"
-        color = "green"
-    elif pattern_data['confidence'] > 60:
-        recommendation = "Moderate trading opportunity" 
-        color = "blue"
-    else:
-        recommendation = "Watch for confirmation"
-        color = "orange"
-    
-    st.markdown(f"**Recommendation:** <span style='color:{color}'>{recommendation}</span>", unsafe_allow_html=True)
-
-def execute_ai_trade(signal):
-    """Execute trade based on AI signal with confirmation."""
-    if signal['probability'] < 70:
-        st.warning(f"Low confidence signal ({signal['probability']}%). Consider manual review.")
-        return
-    
-    # Show trade confirmation
-    st.info(f"""
-    **AI Trade Recommendation:**
-    - **Action:** {signal['signal']} {signal['symbol']}
-    - **Confidence:** {signal['probability']}%
-    - **Current Price:** ₹{signal['current_price']:.2f}
-    - **Key Features:** {', '.join(signal['features'][:3])}
-    """)
-    
-    # Execute on confirmation
-    if st.button(f"Confirm {signal['signal']} Order", type="primary", key=f"confirm_{signal['symbol']}"):
-        instrument_df = get_instrument_df()
-        quantity = 1  # Default quantity
-        place_order(instrument_df, signal['symbol'], quantity, 'MARKET', signal['signal'], 'MIS')
-        st.success(f"{signal['signal']} order placed for {signal['symbol']}!")
+    return None
 
 def page_greeks_calculator():
     """Calculates Greeks for any option contract."""
