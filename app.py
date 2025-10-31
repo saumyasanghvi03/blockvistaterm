@@ -9850,6 +9850,132 @@ def mean_absolute_percentage_error(y_true, y_pred):
     # Avoid division by zero
     return np.mean(np.abs((y_true - y_pred) / np.maximum(np.abs(y_true), 1))) * 100
 
+def train_seasonal_arima_model(data, forecast_steps):
+    """
+    Train a Seasonal ARIMA model and generate forecasts with confidence intervals.
+    """
+    try:
+        if data.empty:
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+            
+        # Use closing prices for modeling
+        prices = data['Close'].dropna()
+        
+        if len(prices) < 50:
+            st.error("Insufficient data for modeling. Need at least 50 data points.")
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        
+        # Simple differencing to make series stationary
+        diff_prices = prices.diff().dropna()
+        
+        # For demonstration - using simple parameters
+        # In production, you'd use auto_arima or grid search for optimal parameters
+        order = (1, 1, 1)  # (p, d, q)
+        seasonal_order = (1, 1, 1, 5)  # (P, D, Q, s)
+        
+        # Split data for backtesting
+        split_point = int(len(prices) * 0.8)
+        train = prices.iloc[:split_point]
+        test = prices.iloc[split_point:]
+        
+        # Fit model
+        with st.spinner("Fitting SARIMA model..."):
+            model = SARIMAX(train, order=order, seasonal_order=seasonal_order)
+            fitted_model = model.fit(disp=False)
+        
+        # Backtest predictions
+        backtest_predictions = fitted_model.get_forecast(steps=len(test))
+        backtest_mean = backtest_predictions.predicted_mean
+        backtest_conf_int = backtest_predictions.conf_int()
+        
+        # Create backtest DataFrame - use 'Predicted' to match create_chart expectations
+        backtest_df = pd.DataFrame({
+            'Actual': test,
+            'Predicted': backtest_mean
+        }, index=test.index)
+        
+        # Generate future forecast
+        full_model = SARIMAX(prices, order=order, seasonal_order=seasonal_order)
+        full_fitted_model = full_model.fit(disp=False)
+        
+        forecast_result = full_fitted_model.get_forecast(steps=forecast_steps)
+        forecast_mean = forecast_result.predicted_mean
+        forecast_conf_int = forecast_result.conf_int()
+        
+        # Create future dates for forecast
+        last_date = prices.index[-1]
+        future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_steps, freq='D')
+        
+        # Use 'Predicted' column name to match create_chart expectations
+        forecast_df = pd.DataFrame({'Predicted': forecast_mean}, index=future_dates)
+        conf_int_df = pd.DataFrame({
+            'Lower_CI': forecast_conf_int.iloc[:, 0],
+            'Upper_CI': forecast_conf_int.iloc[:, 1]
+        }, index=future_dates)
+        
+        return forecast_df, backtest_df, conf_int_df
+        
+    except Exception as e:
+        st.error(f"Error in model training: {str(e)}")
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+def create_chart(data, title, forecast_df=None, conf_int_df=None):
+    """
+    Create a Plotly chart for historical data and forecasts.
+    Updated to handle the correct column names.
+    """
+    fig = go.Figure()
+    
+    # Add historical data as candlestick or line
+    if all(col in data.columns for col in ['Open', 'High', 'Low', 'Close']):
+        fig.add_trace(go.Candlestick(
+            x=data.index,
+            open=data['Open'],
+            high=data['High'],
+            low=data['Low'],
+            close=data['Close'],
+            name=title
+        ))
+    else:
+        fig.add_trace(go.Scatter(
+            x=data.index,
+            y=data['Close'],
+            mode='lines',
+            name=title,
+            line=dict(color='blue')
+        ))
+    
+    # Add forecast if provided
+    if forecast_df is not None and not forecast_df.empty:
+        # Use the correct column name 'Predicted'
+        fig.add_trace(go.Scatter(
+            x=forecast_df.index, 
+            y=forecast_df['Predicted'], 
+            mode='lines', 
+            line=dict(color='yellow', dash='dash'), 
+            name='Forecast'
+        ))
+        
+        # Add confidence intervals if provided
+        if conf_int_df is not None and not conf_int_df.empty:
+            fig.add_trace(go.Scatter(
+                x=conf_int_df.index.tolist() + conf_int_df.index.tolist()[::-1],
+                y=conf_int_df['Upper_CI'].tolist() + conf_int_df['Lower_CI'].tolist()[::-1],
+                fill='toself',
+                fillcolor='rgba(255,255,0,0.2)',
+                line=dict(color='rgba(255,255,0,0)'),
+                name='Confidence Interval'
+            ))
+    
+    fig.update_layout(
+        title=title,
+        xaxis_title='Date',
+        yaxis_title='Price',
+        template='plotly_dark'
+    )
+    
+    return fig
+
 def page_forecasting_ml():
     """A page for advanced ML forecasting with an improved UI and corrected formulas."""
     display_header()
@@ -9895,6 +10021,10 @@ def page_forecasting_ml():
             duration_key = st.session_state.get('ml_duration_key')
 
             if forecast_df is not None and backtest_df is not None and data is not None and conf_int_df is not None:
+                # Make sure the forecast_df has the correct column name
+                if 'Predicted' not in forecast_df.columns and 'Forecast' in forecast_df.columns:
+                    forecast_df = forecast_df.rename(columns={'Forecast': 'Predicted'})
+                
                 fig = create_chart(data.tail(252), instrument_name, forecast_df=forecast_df, conf_int_df=conf_int_df)
                 fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Backtest Prediction', line=dict(color='orange', dash='dot')))
                 fig.update_layout(title=f"{instrument_name} Forecast vs. Historical Data")
@@ -9915,7 +10045,8 @@ def page_forecasting_ml():
                 metric_cols[1].metric(f"MAPE ({backtest_duration_key})", f"{mape:.2f}%")
 
                 with st.expander(f"View {duration_key} Forecast Data"):
-                    display_df_forecast = forecast_df.join(conf_int_df)
+                    # Rename for display to be more user-friendly
+                    display_df_forecast = forecast_df.rename(columns={'Predicted': 'Forecast'}).join(conf_int_df)
                     st.dataframe(display_df_forecast.style.format("₹{:.2f}"), use_container_width=True)
             else:
                 st.info("Train a model to see the forecast results.")
