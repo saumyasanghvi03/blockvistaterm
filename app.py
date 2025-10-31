@@ -13287,9 +13287,9 @@ def page_hft_terminal():
     with col_search:
         symbol = st.text_input(
             "**Trading Symbol**", 
-            "NIFTY24OCTFUT", 
+            "RELIANCE", 
             key="hft_symbol",
-            help="Enter the instrument symbol (e.g., RELIANCE, NIFTY24OCTFUT)"
+            help="Enter the instrument symbol (e.g., RELIANCE, TCS)"
         ).upper()
     
     instrument_info = instrument_df[instrument_df['tradingsymbol'] == symbol]
