@@ -15361,6 +15361,7 @@ def main_app():
         "Forecasting (ML)": page_forecasting_ml,
         "Algo Strategy Hub": page_algo_strategy_maker,
         "Economic Calendar": page_economic_calendar,
+        "IPO Terminal": page_ipo_terminal,
         "Settings": page_settings
         },
         "Options": {
@@ -15380,12 +15381,7 @@ def main_app():
         "HFT": {
             "HFT Terminal": page_hft_terminal,
             "Portfolio & Risk": page_portfolio_and_risk,
-        },
-        "IPO": {
-            "LIVE IPO Dashboard": display_ipo_dashboard,
-            "IPO Alerts & Reminders": display_ipo_alerts,
-            "IPO Subscribe": display_ipo_subscribe_recommendations,
-        },
+        }, 
     }
     
     selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
