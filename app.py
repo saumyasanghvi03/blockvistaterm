@@ -12235,14 +12235,14 @@ def get_instrument_token(symbol, instrument_df, exchange):
     except Exception as e:
         return None
 
-def get_historical_data_within_limits(token, interval, days=400):
-    """Get historical data within Kite API limits (400 days max for hourly)."""
+def get_historical_data_within_limits(token, interval, days=365):
+    """Get historical data within Kite API limits (365 days max for hourly)."""
     try:
         # Ensure we don't exceed API limits
-        if interval == 'hour' and days > 400:
-            days = 400
-        elif interval == 'day' and days > 2000:
-            days = 2000
+        if interval == 'hour' and days > 200:
+            days = 200
+        elif interval == 'day' and days > 365:
+            days = 365
             
         # Use the existing function but with safe limits
         data = get_historical_data(token, interval, period=f'{days}d')
@@ -12251,16 +12251,16 @@ def get_historical_data_within_limits(token, interval, days=400):
         if "interval exceeds max limit" in str(e):
             # Auto-adjust to maximum allowed days
             if interval == 'hour':
-                return get_historical_data(token, interval, period='400d')
+                return get_historical_data(token, interval, period='365d')
             elif interval == 'day':
-                return get_historical_data(token, interval, period='2000d')
+                return get_historical_data(token, interval, period='365d')
         return pd.DataFrame()
 
 def get_hourly_data_with_fallback(token, symbol, days=60):
     """Get hourly data with fallback to daily data if unavailable, respecting 400-day limit."""
     try:
         # Ensure we don't exceed the 400-day limit for hourly data
-        days = min(days, 400)
+        days = min(days, 365)
         
         # Try to get hourly data
         hourly_data = get_historical_data_within_limits(token, 'hour', days)
@@ -12268,7 +12268,7 @@ def get_hourly_data_with_fallback(token, symbol, days=60):
             return hourly_data
         
         # Fallback: use daily data
-        daily_data = get_historical_data_within_limits(token, 'day', min(days*3, 400))
+        daily_data = get_historical_data_within_limits(token, 'day', min(days*3, 365))
         if not daily_data.empty:
             return daily_data
             
