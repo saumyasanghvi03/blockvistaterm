@@ -7890,7 +7890,7 @@ def page_iceberg_detector():
         volume_alert_threshold = st.slider(
             "Volume Spike Alert %",
             min_value=110,
-            max_value: 200,
+            max_value=200,  # FIXED: Changed colon to equals
             value=120,
             step=5,
             help="Alert when volume exceeds expected intraday level by this percentage"
@@ -7900,7 +7900,7 @@ def page_iceberg_detector():
         volume_impact_weight = st.slider(
             "Volume Impact on Confidence %",
             min_value=10,
-            max_value: 50,
+            max_value=50,  # FIXED: Changed colon to equals
             value=25,
             step=5,
             help="How much volume spikes affect overall confidence score"
