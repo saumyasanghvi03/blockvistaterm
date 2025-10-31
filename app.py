@@ -13659,6 +13659,828 @@ def initialize_hft_session_state():
 # Call this in your main app initialization
 initialize_hft_session_state()
 
+# ================ IPO TERMINAL MODE ================
+
+def page_ipo_terminal():
+    """Main IPO Terminal page with comprehensive IPO features."""
+    display_header()
+    st.title("📈 IPO Terminal")
+    
+    # Initialize IPO session state
+    if 'ipo_data' not in st.session_state:
+        st.session_state.ipo_data = {
+            'live_gmp': {},
+            'ipo_calendar': [],
+            'ipo_news': [],
+            'subscription_tracker': {},
+            'alerts': [],
+            'last_refresh': None
+        }
+    
+    # Auto-refresh control
+    col_refresh1, col_refresh2 = st.columns([3, 1])
+    with col_refresh1:
+        st.info("🔄 Data auto-refreshes daily. Manual refresh available below.")
+    with col_refresh2:
+        if st.button("🔄 Refresh IPO Data", use_container_width=True):
+            st.cache_data.clear()
+            st.session_state.ipo_data['last_refresh'] = get_ist_time()
+            st.rerun()
+    
+    # Main IPO tabs
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Live IPO Dashboard", "⏰ IPO Alerts", "🤖 IPO Subscribe", "📰 IPO News & Sentiment"])
+    
+    with tab1:
+        display_ipo_dashboard()
+    
+    with tab2:
+        display_ipo_alerts()
+    
+    with tab3:
+        display_ipo_subscribe_recommendations()
+    
+    with tab4:
+        display_ipo_news_sentiment()
+
+def display_ipo_dashboard():
+    """Display comprehensive IPO dashboard with live GMP and details."""
+    st.subheader("📊 Live IPO Dashboard")
+    
+    # Fetch IPO data
+    ipo_data = get_ipo_data()
+    
+    if not ipo_data:
+        st.error("Unable to fetch IPO data. Please check your connection.")
+        return
+    
+    # Current IPOs section
+    st.markdown("### 🚀 Current & Upcoming IPOs")
+    
+    current_ipos = [ipo for ipo in ipo_data if ipo.get('status') in ['open', 'upcoming']]
+    
+    if not current_ipos:
+        st.info("No current or upcoming IPOs found.")
+    else:
+        for ipo in current_ipos[:5]:  # Show top 5
+            display_ipo_card(ipo)
+    
+    # Live GMP section
+    st.markdown("### 💰 Live Grey Market Premium (GMP)")
+    
+    gmp_data = get_live_gmp_data()
+    if gmp_data:
+        display_gmp_table(gmp_data)
+    else:
+        st.info("Live GMP data not available. Showing last known data.")
+        # Fallback to stored GMP data
+        if st.session_state.ipo_data['live_gmp']:
+            display_gmp_table(st.session_state.ipo_data['live_gmp'])
+    
+    # IPO Calendar
+    st.markdown("### 📅 IPO Calendar")
+    display_ipo_calendar(ipo_data)
+
+def display_ipo_card(ipo):
+    """Display individual IPO card with key details."""
+    with st.container():
+        col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+        
+        with col1:
+            st.write(f"**{ipo.get('name', 'N/A')}**")
+            st.caption(f"*{ipo.get('company', '')}*")
+            st.write(f"🆔 {ipo.get('symbol', '')}")
+        
+        with col2:
+            status = ipo.get('status', 'unknown')
+            if status == 'open':
+                st.success("🟢 OPEN")
+                days_left = ipo.get('days_left', 0)
+                st.caption(f"{days_left} days left")
+            elif status == 'upcoming':
+                st.info("🔵 UPCOMING")
+                open_date = ipo.get('open_date', 'TBA')
+                st.caption(f"Opens: {open_date}")
+            else:
+                st.warning("⚪ {status.upper()}")
+        
+        with col3:
+            price_range = ipo.get('price_range', 'N/A')
+            st.write(f"**Price:** {price_range}")
+            lot_size = ipo.get('lot_size', 'N/A')
+            st.caption(f"Lot: {lot_size}")
+        
+        with col4:
+            gmp = ipo.get('gmp', 'N/A')
+            if gmp != 'N/A':
+                gmp_percent = ipo.get('gmp_percent', 0)
+                if gmp_percent > 50:
+                    st.success(f"💰 +{gmp_percent}%")
+                elif gmp_percent > 20:
+                    st.info(f"💰 +{gmp_percent}%")
+                else:
+                    st.warning(f"💰 +{gmp_percent}%")
+                st.caption(f"GMP: {gmp}")
+            else:
+                st.caption("GMP: N/A")
+            
+            # Quick action
+            if st.button("📊 Analyze", key=f"analyze_{ipo.get('symbol')}"):
+                st.session_state.selected_ipo = ipo
+                st.rerun()
+        
+        st.markdown("---")
+
+def display_gmp_table(gmp_data):
+    """Display live GMP data in a table."""
+    if not gmp_data:
+        return
+    
+    gmp_df = pd.DataFrame(gmp_data)
+    
+    # Style the GMP table
+    def style_gmp(row):
+        styles = [''] * len(row)
+        gmp_percent = row.get('GMP %', 0) if isinstance(row.get('GMP %'), (int, float)) else 0
+        
+        if gmp_percent > 70:
+            styles[gmp_df.columns.get_loc('GMP %')] = 'background-color: #d4edda; color: #155724; font-weight: bold;'
+            styles[gmp_df.columns.get_loc('Company')] = 'background-color: #d4edda;'
+        elif gmp_percent > 40:
+            styles[gmp_df.columns.get_loc('GMP %')] = 'background-color: #fff3cd; color: #856404; font-weight: bold;'
+            styles[gmp_df.columns.get_loc('Company')] = 'background-color: #fff3cd;'
+        elif gmp_percent > 0:
+            styles[gmp_df.columns.get_loc('GMP %')] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
+            styles[gmp_df.columns.get_loc('Company')] = 'background-color: #f8d7da;'
+        
+        return styles
+    
+    styled_gmp = gmp_df.style.apply(style_gmp, axis=1)
+    st.dataframe(styled_gmp, use_container_width=True, hide_index=True)
+
+def display_ipo_calendar(ipo_data):
+    """Display IPO calendar view."""
+    calendar_df = pd.DataFrame(ipo_data)
+    
+    if calendar_df.empty:
+        st.info("No IPO calendar data available.")
+        return
+    
+    # Filter relevant columns
+    display_columns = ['name', 'open_date', 'close_date', 'price_range', 'status']
+    if all(col in calendar_df.columns for col in display_columns):
+        calendar_display = calendar_df[display_columns].copy()
+        calendar_display = calendar_display.sort_values('open_date')
+        
+        # Style based on status
+        def style_calendar(row):
+            status = row['status']
+            if status == 'open':
+                return ['background-color: #d4edda'] * len(row)
+            elif status == 'upcoming':
+                return ['background-color: #cce7ff'] * len(row)
+            else:
+                return [''] * len(row)
+        
+        styled_calendar = calendar_display.style.apply(style_calendar, axis=1)
+        st.dataframe(styled_calendar, use_container_width=True, hide_index=True)
+    else:
+        st.warning("Incomplete calendar data available.")
+
+def display_ipo_alerts():
+    """Display IPO alerts and reminders."""
+    st.subheader("⏰ IPO Alerts & Reminders")
+    
+    # Fetch current alerts
+    alerts = get_ipo_alerts()
+    
+    if not alerts:
+        st.info("No active IPO alerts at the moment.")
+        return
+    
+    # Categorize alerts
+    critical_alerts = [alert for alert in alerts if alert.get('priority') == 'high']
+    warning_alerts = [alert for alert in alerts if alert.get('priority') == 'medium']
+    info_alerts = [alert for alert in alerts if alert.get('priority') == 'low']
+    
+    # Display critical alerts first
+    if critical_alerts:
+        st.error("### 🚨 Critical Alerts")
+        for alert in critical_alerts:
+            display_alert_card(alert)
+    
+    # Warning alerts
+    if warning_alerts:
+        st.warning("### ⚠️ Important Reminders")
+        for alert in warning_alerts:
+            display_alert_card(alert)
+    
+    # Info alerts
+    if info_alerts:
+        st.info("### 💡 Upcoming Events")
+        for alert in info_alerts:
+            display_alert_card(alert)
+    
+    # Alert settings
+    with st.expander("🔔 Alert Preferences"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.checkbox("Opening Day Alerts", value=True, key="alert_open")
+            st.checkbox("Closing Day Alerts", value=True, key="alert_close")
+            st.checkbox("Allotment Day Alerts", value=True, key="alert_allotment")
+        
+        with col2:
+            st.checkbox("Listing Day Alerts", value=True, key="alert_listing")
+            st.checkbox("GMP Change Alerts", value=True, key="alert_gmp")
+            st.checkbox("News Alert", value=True, key="alert_news")
+        
+        if st.button("Save Alert Preferences"):
+            st.success("Alert preferences saved!")
+
+def display_alert_card(alert):
+    """Display individual alert card."""
+    with st.container():
+        col1, col2, col3 = st.columns([3, 1, 1])
+        
+        with col1:
+            st.write(f"**{alert.get('title', 'Alert')}**")
+            st.caption(alert.get('description', ''))
+            st.caption(f"🕒 {alert.get('time_remaining', '')}")
+        
+        with col2:
+            priority = alert.get('priority', 'medium')
+            if priority == 'high':
+                st.error("🚨 HIGH")
+            elif priority == 'medium':
+                st.warning("⚠️ MEDIUM")
+            else:
+                st.info("💡 LOW")
+        
+        with col3:
+            if st.button("Dismiss", key=f"dismiss_{alert.get('id')}"):
+                # Remove alert from session state
+                st.session_state.ipo_data['alerts'] = [
+                    a for a in st.session_state.ipo_data['alerts'] 
+                    if a.get('id') != alert.get('id')
+                ]
+                st.rerun()
+        
+        st.markdown("---")
+
+def display_ipo_subscribe_recommendations():
+    """Display IPO subscription recommendations with confidence scores."""
+    st.subheader("🤖 IPO Subscribe - AI Recommendations")
+    
+    # Current IPOs for analysis
+    ipo_data = get_ipo_data()
+    current_ipos = [ipo for ipo in ipo_data if ipo.get('status') in ['open', 'upcoming']]
+    
+    if not current_ipos:
+        st.info("No current IPOs available for analysis.")
+        return
+    
+    st.write("### 📈 IPO Analysis & Recommendations")
+    st.caption("AI-powered analysis to help you make informed subscription decisions")
+    
+    for ipo in current_ipos:
+        with st.container():
+            # Analyze IPO
+            analysis = analyze_ipo_subscription(ipo)
+            
+            col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+            
+            with col1:
+                st.write(f"**{ipo.get('name', 'N/A')}**")
+                st.caption(f"*{ipo.get('symbol', '')}* | {ipo.get('price_range', 'N/A')}")
+                
+                # Display key metrics
+                st.caption(f"💼 Size: {ipo.get('issue_size', 'N/A')} | 📊 QIB: {ipo.get('qib_portion', 'N/A')}")
+            
+            with col2:
+                confidence = analysis.get('confidence_score', 0)
+                if confidence >= 80:
+                    st.success(f"🎯 {confidence}%")
+                    st.caption("STRONG BUY")
+                elif confidence >= 60:
+                    st.info(f"🎯 {confidence}%")
+                    st.caption("MODERATE BUY")
+                elif confidence >= 40:
+                    st.warning(f"🎯 {confidence}%")
+                    st.caption("NEUTRAL")
+                else:
+                    st.error(f"🎯 {confidence}%")
+                    st.caption("AVOID")
+            
+            with col3:
+                recommendation = analysis.get('recommendation', 'HOLD')
+                if recommendation == 'SUBSCRIBE':
+                    st.success("✅ SUBSCRIBE")
+                elif recommendation == 'AVOID':
+                    st.error("❌ AVOID")
+                else:
+                    st.warning("⚪ HOLD")
+                
+                risk_level = analysis.get('risk_level', 'Medium')
+                st.caption(f"Risk: {risk_level}")
+            
+            with col4:
+                if st.button("📋 Details", key=f"details_{ipo.get('symbol')}"):
+                    st.session_state.selected_ipo_analysis = analysis
+                    st.rerun()
+            
+            # Expandable detailed analysis
+            with st.expander("🔍 View Detailed Analysis", expanded=False):
+                display_detailed_analysis(analysis)
+            
+            st.markdown("---")
+    
+    # Subscription helper
+    st.markdown("### 🧮 Subscription Helper")
+    col_calc1, col_calc2 = st.columns(2)
+    
+    with col_calc1:
+        selected_ipo = st.selectbox(
+            "Select IPO",
+            [f"{ipo['name']} ({ipo['symbol']})" for ipo in current_ipos],
+            key="subscription_helper"
+        )
+        
+        lots = st.number_input("Number of Lots", min_value=1, max_value=100, value=1)
+    
+    with col_calc2:
+        # Find selected IPO
+        selected_symbol = selected_ipo.split('(')[-1].replace(')', '')
+        selected_ipo_data = next((ipo for ipo in current_ipos if ipo['symbol'] == selected_symbol), None)
+        
+        if selected_ipo_data:
+            lot_size = selected_ipo_data.get('lot_size', 1)
+            price_per_share = selected_ipo_data.get('price_range', '0-0').split('-')[0]
+            
+            try:
+                price_per_share = float(price_per_share)
+                total_amount = lots * lot_size * price_per_share
+                
+                st.metric("Total Application Amount", f"₹{total_amount:,.2f}")
+                st.caption(f"Lot Size: {lot_size} shares | Price: ₹{price_per_share:.2f}")
+                
+                if st.button("💳 Calculate UPI Limit", key="upi_calc"):
+                    st.info(f"Set UPI limit to: ₹{total_amount * 1.1:,.2f} (10% buffer)")
+            except ValueError:
+                st.warning("Could not calculate amount - check price data")
+
+def display_detailed_analysis(analysis):
+    """Display detailed IPO analysis."""
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("**📊 Fundamental Analysis**")
+        
+        # Company fundamentals
+        fundamentals = analysis.get('fundamentals', {})
+        st.write(f"• **Valuation:** {fundamentals.get('valuation', 'N/A')}")
+        st.write(f"• **P/E Ratio:** {fundamentals.get('pe_ratio', 'N/A')}")
+        st.write(f"• **ROE:** {fundamentals.get('roe', 'N/A')}")
+        st.write(f"• **Debt/Equity:** {fundamentals.get('debt_equity', 'N/A')}")
+        
+        # GMP analysis
+        gmp_analysis = analysis.get('gmp_analysis', {})
+        st.write(f"• **Current GMP:** {gmp_analysis.get('current_gmp', 'N/A')}")
+        st.write(f"• **GMP Trend:** {gmp_analysis.get('trend', 'Stable')}")
+    
+    with col2:
+        st.write("**🎯 Market Sentiment**")
+        
+        sentiment = analysis.get('sentiment', {})
+        st.write(f"• **Overall Sentiment:** {sentiment.get('overall', 'Neutral')}")
+        st.write(f"• **Retail Interest:** {sentiment.get('retail_interest', 'Medium')}")
+        st.write(f"• **Institutional Interest:** {sentiment.get('institutional_interest', 'Medium')}")
+        
+        # Risk factors
+        risks = analysis.get('risks', [])
+        st.write("**⚠️ Key Risks:**")
+        for risk in risks[:3]:  # Show top 3 risks
+            st.write(f"• {risk}")
+
+def display_ipo_news_sentiment():
+    """Display IPO news and sentiment analysis."""
+    st.subheader("📰 IPO News & Market Sentiment")
+    
+    # Fetch IPO news
+    ipo_news = get_ipo_news()
+    
+    if not ipo_news:
+        st.info("No recent IPO news available.")
+        return
+    
+    # Sentiment summary
+    sentiment_summary = analyze_ipo_sentiment(ipo_news)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total News", len(ipo_news))
+    
+    with col2:
+        positive_news = sentiment_summary.get('positive', 0)
+        st.metric("Positive News", positive_news)
+    
+    with col3:
+        negative_news = sentiment_summary.get('negative', 0)
+        st.metric("Negative News", negative_news)
+    
+    with col4:
+        neutral_news = sentiment_summary.get('neutral', 0)
+        st.metric("Neutral News", neutral_news)
+    
+    # Sentiment gauge
+    overall_sentiment = sentiment_summary.get('overall_sentiment', 0)
+    fig = create_sentiment_gauge(overall_sentiment)
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # News articles
+    st.markdown("### 📋 Recent IPO News")
+    
+    for news_item in ipo_news[:10]:  # Show latest 10 news items
+        with st.container():
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                st.write(f"**{news_item.get('title', 'No Title')}**")
+                st.caption(f"📰 {news_item.get('source', 'Unknown')} | 🕒 {news_item.get('date', 'Unknown')}")
+                st.write(news_item.get('summary', 'No summary available.'))
+                
+                if news_item.get('url'):
+                    st.markdown(f"[Read more]({news_item['url']})")
+            
+            with col2:
+                sentiment = news_item.get('sentiment', 'neutral')
+                sentiment_score = news_item.get('sentiment_score', 0)
+                
+                if sentiment == 'positive':
+                    st.success(f"📈 Positive")
+                    st.caption(f"Score: +{sentiment_score:.2f}")
+                elif sentiment == 'negative':
+                    st.error(f"📉 Negative")
+                    st.caption(f"Score: {sentiment_score:.2f}")
+                else:
+                    st.info(f"➡️ Neutral")
+                    st.caption(f"Score: {sentiment_score:.2f}")
+            
+            st.markdown("---")
+
+def create_sentiment_gauge(sentiment_score):
+    """Create a sentiment gauge chart."""
+    fig = go.Figure(go.Indicator(
+        mode = "gauge+number+delta",
+        value = sentiment_score,
+        domain = {'x': [0, 1], 'y': [0, 1]},
+        title = {'text': "Overall IPO Sentiment"},
+        delta = {'reference': 0},
+        gauge = {
+            'axis': {'range': [-100, 100]},
+            'bar': {'color': "darkblue"},
+            'steps': [
+                {'range': [-100, -33], 'color': "lightcoral"},
+                {'range': [-33, 33], 'color': "lightyellow"},
+                {'range': [33, 100], 'color': "lightgreen"}
+            ],
+            'threshold': {
+                'line': {'color': "red", 'width': 4},
+                'thickness': 0.75,
+                'value': 90
+            }
+        }
+    ))
+    
+    fig.update_layout(height=300)
+    return fig
+
+# ================ IPO DATA FUNCTIONS ================
+
+@st.cache_data(ttl=86400)  # Cache for 24 hours
+def get_ipo_data():
+    """Fetch comprehensive IPO data from multiple sources."""
+    try:
+        # This would typically call external APIs
+        # For now, we'll return mock data
+        
+        mock_ipo_data = [
+            {
+                'name': 'Paytm Payments Bank',
+                'symbol': 'PAYTM',
+                'company': 'One97 Communications',
+                'status': 'open',
+                'open_date': '2024-11-15',
+                'close_date': '2024-11-17',
+                'price_range': '₹2,150 - ₹2,250',
+                'lot_size': 6,
+                'issue_size': '₹18,300 Cr',
+                'gmp': '₹350',
+                'gmp_percent': 15.6,
+                'days_left': 2,
+                'qib_portion': '50%',
+                'category': 'FinTech'
+            },
+            {
+                'name': 'Ola Electric',
+                'symbol': 'OLA',
+                'company': 'Ola Electric Mobility',
+                'status': 'upcoming',
+                'open_date': '2024-11-20',
+                'close_date': '2024-11-22',
+                'price_range': '₹1,200 - ₹1,300',
+                'lot_size': 10,
+                'issue_size': '₹7,200 Cr',
+                'gmp': '₹180',
+                'gmp_percent': 14.4,
+                'days_left': 5,
+                'qib_portion': '75%',
+                'category': 'Automobile'
+            },
+            {
+                'name': 'PhonePe Digital',
+                'symbol': 'PHONEPE',
+                'company': 'PhonePe Private Limited',
+                'status': 'upcoming',
+                'open_date': '2024-11-25',
+                'close_date': '2024-11-27',
+                'price_range': '₹950 - ₹1,050',
+                'lot_size': 15,
+                'issue_size': '₹12,500 Cr',
+                'gmp': '₹120',
+                'gmp_percent': 12.0,
+                'days_left': 8,
+                'qib_portion': '60%',
+                'category': 'FinTech'
+            }
+        ]
+        
+        return mock_ipo_data
+        
+    except Exception as e:
+        st.error(f"Error fetching IPO data: {e}")
+        return []
+
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def get_live_gmp_data():
+    """Fetch live Grey Market Premium data."""
+    try:
+        # Mock GMP data - in real implementation, this would come from GMP APIs
+        mock_gmp_data = [
+            {'Company': 'Paytm Payments Bank', 'GMP': '₹350', 'GMP %': 15.6, 'Trend': '↑ Rising'},
+            {'Company': 'Ola Electric', 'GMP': '₹180', 'GMP %': 14.4, 'Trend': '→ Stable'},
+            {'Company': 'PhonePe Digital', 'GMP': '₹120', 'GMP %': 12.0, 'Trend': '↑ Rising'},
+            {'Company': 'MobiKwik Systems', 'GMP': '₹85', 'GMP %': 9.2, 'Trend': '↓ Falling'},
+            {'Company': 'Go Airlines', 'GMP': '₹45', 'GMP %': 5.1, 'Trend': '→ Stable'}
+        ]
+        
+        return mock_gmp_data
+        
+    except Exception as e:
+        st.error(f"Error fetching GMP data: {e}")
+        return []
+
+def get_ipo_alerts():
+    """Generate IPO alerts based on current data."""
+    alerts = []
+    
+    # Get current date
+    current_date = datetime.now().date()
+    
+    # Fetch IPO data
+    ipo_data = get_ipo_data()
+    
+    for ipo in ipo_data:
+        # Check for opening day alerts
+        open_date_str = ipo.get('open_date')
+        if open_date_str:
+            try:
+                open_date = datetime.strptime(open_date_str, '%Y-%m-%d').date()
+                days_to_open = (open_date - current_date).days
+                
+                if days_to_open == 0:
+                    alerts.append({
+                        'id': f"open_{ipo['symbol']}",
+                        'title': f"{ipo['name']} Opens Today!",
+                        'description': f"IPO subscription opens today. Price: {ipo['price_range']}",
+                        'priority': 'high',
+                        'time_remaining': 'Opens today'
+                    })
+                elif days_to_open == 1:
+                    alerts.append({
+                        'id': f"open_soon_{ipo['symbol']}",
+                        'title': f"{ipo['name']} Opens Tomorrow",
+                        'description': f"IPO opens tomorrow. Get documents ready.",
+                        'priority': 'medium',
+                        'time_remaining': '1 day to go'
+                    })
+            except ValueError:
+                pass
+        
+        # Check for closing day alerts
+        close_date_str = ipo.get('close_date')
+        if close_date_str:
+            try:
+                close_date = datetime.strptime(close_date_str, '%Y-%m-%d').date()
+                days_to_close = (close_date - current_date).days
+                
+                if days_to_close == 0:
+                    alerts.append({
+                        'id': f"close_{ipo['symbol']}",
+                        'title': f"{ipo['name']} Closes Today!",
+                        'description': f"Last day to apply. Don't miss out!",
+                        'priority': 'high',
+                        'time_remaining': 'Closes today'
+                    })
+                elif days_to_close == 1:
+                    alerts.append({
+                        'id': f"close_soon_{ipo['symbol']}",
+                        'title': f"{ipo['name']} Closes Tomorrow",
+                        'description': f"Last chance to apply tomorrow.",
+                        'priority': 'medium',
+                        'time_remaining': '1 day left'
+                    })
+            except ValueError:
+                pass
+    
+    # Add GMP alerts
+    gmp_data = get_live_gmp_data()
+    for gmp in gmp_data:
+        if '↑' in gmp.get('Trend', ''):
+            alerts.append({
+                'id': f"gmp_rise_{gmp['Company']}",
+                'title': f"GMP Rising: {gmp['Company']}",
+                'description': f"GMP increased to {gmp['GMP']} ({gmp['GMP %']}%)",
+                'priority': 'medium',
+                'time_remaining': 'Recent change'
+            })
+    
+    return alerts
+
+def analyze_ipo_subscription(ipo):
+    """Analyze IPO and provide subscription recommendation."""
+    # This would typically use ML models and comprehensive analysis
+    # For now, we'll use rule-based analysis
+    
+    confidence_score = 50  # Base score
+    
+    # Factor 1: GMP Analysis (30% weight)
+    gmp_percent = ipo.get('gmp_percent', 0)
+    if gmp_percent > 50:
+        confidence_score += 25
+    elif gmp_percent > 25:
+        confidence_score += 15
+    elif gmp_percent > 10:
+        confidence_score += 5
+    else:
+        confidence_score -= 10
+    
+    # Factor 2: Issue Size (20% weight)
+    issue_size_str = ipo.get('issue_size', '0 Cr')
+    try:
+        issue_size = float(issue_size_str.replace(' Cr', '').replace('₹', '').strip())
+        if issue_size > 10000:  # Very large issue
+            confidence_score += 10
+        elif issue_size > 5000:  # Large issue
+            confidence_score += 5
+        elif issue_size < 1000:  # Small issue
+            confidence_score -= 5
+    except ValueError:
+        pass
+    
+    # Factor 3: Industry/Sector (20% weight)
+    category = ipo.get('category', '').lower()
+    hot_sectors = ['fintech', 'technology', 'electric vehicle', 'renewable energy']
+    if any(sector in category for sector in hot_sectors):
+        confidence_score += 10
+    
+    # Factor 4: QIB Portion (15% weight)
+    qib_portion = ipo.get('qib_portion', '0%')
+    try:
+        qib_percent = float(qib_portion.replace('%', ''))
+        if qib_percent > 60:
+            confidence_score += 8
+        elif qib_percent > 40:
+            confidence_score += 4
+    except ValueError:
+        pass
+    
+    # Factor 5: Market Conditions (15% weight)
+    # This would typically use real market data
+    confidence_score += 5  # Assume neutral market
+    
+    # Clamp score between 0-100
+    confidence_score = max(0, min(100, confidence_score))
+    
+    # Determine recommendation
+    if confidence_score >= 70:
+        recommendation = 'SUBSCRIBE'
+        risk_level = 'Low'
+    elif confidence_score >= 50:
+        recommendation = 'SUBSCRIBE'
+        risk_level = 'Medium'
+    elif confidence_score >= 30:
+        recommendation = 'AVOID'
+        risk_level = 'High'
+    else:
+        recommendation = 'AVOID'
+        risk_level = 'Very High'
+    
+    return {
+        'confidence_score': confidence_score,
+        'recommendation': recommendation,
+        'risk_level': risk_level,
+        'fundamentals': {
+            'valuation': 'Reasonable',
+            'pe_ratio': '25.3',
+            'roe': '18.2%',
+            'debt_equity': '0.45'
+        },
+        'gmp_analysis': {
+            'current_gmp': ipo.get('gmp', 'N/A'),
+            'trend': 'Rising' if gmp_percent > 20 else 'Stable'
+        },
+        'sentiment': {
+            'overall': 'Positive' if confidence_score > 60 else 'Neutral',
+            'retail_interest': 'High',
+            'institutional_interest': 'Medium'
+        },
+        'risks': [
+            'Market volatility may affect listing',
+            'High competition in sector',
+            'Valuation concerns'
+        ]
+    }
+
+@st.cache_data(ttl=7200)  # Cache for 2 hours
+def get_ipo_news():
+    """Fetch IPO-related news with sentiment analysis."""
+    try:
+        # Mock news data - in real implementation, fetch from news APIs
+        mock_news = [
+            {
+                'title': 'Paytm IPO Oversubscribed 15 Times on Day 1',
+                'source': 'Economic Times',
+                'date': '2024-11-15',
+                'summary': 'Paytm Payments Bank IPO sees strong institutional interest with 15 times oversubscription on opening day.',
+                'sentiment': 'positive',
+                'sentiment_score': 0.8,
+                'url': '#'
+            },
+            {
+                'title': 'Ola Electric Faces Production Delays Ahead of IPO',
+                'source': 'Business Standard',
+                'date': '2024-11-14',
+                'summary': 'Ola Electric reports minor production delays, but analysts remain positive about IPO prospects.',
+                'sentiment': 'neutral',
+                'sentiment_score': 0.1,
+                'url': '#'
+            },
+            {
+                'title': 'PhonePe IPO Valuation Concerns Raised by Analysts',
+                'source': 'Money Control',
+                'date': '2024-11-13',
+                'summary': 'Some analysts express concerns about PhonePe\'s high valuation in current market conditions.',
+                'sentiment': 'negative',
+                'sentiment_score': -0.6,
+                'url': '#'
+            },
+            {
+                'title': 'IPO Market Shows Strong Recovery in Q4 2024',
+                'source': 'Financial Express',
+                'date': '2024-11-12',
+                'summary': 'Indian IPO market demonstrates strong recovery with multiple successful listings in recent months.',
+                'sentiment': 'positive',
+                'sentiment_score': 0.7,
+                'url': '#'
+            }
+        ]
+        
+        return mock_news
+        
+    except Exception as e:
+        st.error(f"Error fetching IPO news: {e}")
+        return []
+
+def analyze_ipo_sentiment(news_items):
+    """Analyze sentiment across IPO news."""
+    if not news_items:
+        return {'overall_sentiment': 0, 'positive': 0, 'negative': 0, 'neutral': 0}
+    
+    positive_count = sum(1 for item in news_items if item.get('sentiment') == 'positive')
+    negative_count = sum(1 for item in news_items if item.get('sentiment') == 'negative')
+    neutral_count = sum(1 for item in news_items if item.get('sentiment') == 'neutral')
+    
+    total = len(news_items)
+    overall_sentiment = ((positive_count - negative_count) / total) * 100 if total > 0 else 0
+    
+    return {
+        'overall_sentiment': overall_sentiment,
+        'positive': positive_count,
+        'negative': negative_count,
+        'neutral': neutral_count
+    }
+
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 # ================ ICEBERG DETECTOR CORE CLASSES ================
 # Add this import at the TOP of your file (with other imports)
@@ -14558,7 +15380,12 @@ def main_app():
         "HFT": {
             "HFT Terminal": page_hft_terminal,
             "Portfolio & Risk": page_portfolio_and_risk,
-        }
+        },
+        "IPO": {
+            "LIVE IPO Dashboard": display_ipo_dashboard,
+            "IPO Alerts & Reminders": display_ipo_alerts,
+            "IPO Subscribe": display_ipo_subscribe_recommendations,
+        },
     }
     
     selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
