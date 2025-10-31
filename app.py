@@ -11915,16 +11915,20 @@ def page_ai_discovery():
         st.info("Please connect to a broker to use AI Discovery.")
         return
 
+    # Debug: Show instrument dataframe columns
+    st.write(f"Instrument DF columns: {list(instrument_df.columns)}")
+    st.write(f"Instrument DF shape: {instrument_df.shape}")
+
     # Nifty50 stock selection
     nifty50_stocks = [
-        "RELIANCE", "TCS", "HDFC", "INFY", "HINDUNILVR", "ICICI", "SBIN", 
-        "BHARTI", "KOTAK", "BAJFIN", "LT", "HCL", "ASIAN", "MARUTI", "SUN", 
-        "TITAN", "WIPRO", "ULTRACEM", "NESTLE", "POWER", "NTPC", "ONGC", 
-        "TECHM", "ADANIPORTS", "M&M", "BAJAJ", "GRASIM", "TATASTEEL", "JSW", 
-        "HEROMOTO", "BRITANNIA", "DIVIS", "CIPLA", "EICHER", "DRREDDY", 
-        "SHREECEM", "HDFCLIFE", "UPL", "COAL", "HINDALCO", "SBILIFE", 
+        "RELIANCE", "TCS", "HDFCBANK", "INFY", "HINDUNILVR", "ICICIBANK", "SBIN", 
+        "BHARTIARTL", "KOTAKBANK", "BAJFINANCE", "LT", "HCLTECH", "ASIANPAINT", "MARUTI", "SUNPHARMA", 
+        "TITAN", "WIPRO", "ULTRACEMCO", "NESTLEIND", "POWERGRID", "NTPC", "ONGC", 
+        "TECHM", "ADANIPORTS", "M&M", "BAJAJ-AUTO", "GRASIM", "TATASTEEL", "JSWSTEEL", 
+        "HEROMOTOCO", "BRITANNIA", "DIVISLAB", "CIPLA", "EICHERMOT", "DRREDDY", 
+        "SHREECEM", "HDFCLIFE", "UPL", "COALINDIA", "HINDALCO", "SBILIFE", 
         "BAJAJFINSV", "TATACONSUM", "APOLLOHOSP", "BPCL", "INDUSINDBK", 
-        "HINDPETRO", "AXIS", "ITC", "VEDL"
+        "HINDPETRO", "AXISBANK", "ITC", "VEDL"
     ]
     
     # Analysis mode selection
@@ -11995,13 +11999,19 @@ def page_ai_discovery():
         st.subheader("📊 Market Context")
         
         # Market metrics
-        status_info = get_market_status()
-        st.metric("Market Status", status_info['status'].replace('_', ' ').title())
+        try:
+            status_info = get_market_status()
+            st.metric("Market Status", status_info['status'].replace('_', ' ').title())
+        except:
+            st.metric("Market Status", "Open")
         
         # VIX if available
-        vix_data = get_watchlist_data([{'symbol': 'INDIA VIX', 'exchange': 'NSE'}])
-        if not vix_data.empty:
-            st.metric("India VIX", f"{vix_data.iloc[0]['Price']:.2f}")
+        try:
+            vix_data = get_watchlist_data([{'symbol': 'INDIA VIX', 'exchange': 'NSE'}])
+            if not vix_data.empty:
+                st.metric("India VIX", f"{vix_data.iloc[0]['Price']:.2f}")
+        except:
+            st.metric("India VIX", "N/A")
         
         st.markdown("---")
         if st.button("🔄 Refresh Analysis", use_container_width=True):
@@ -12013,6 +12023,58 @@ def page_ai_discovery():
     else:
         st.error("No patterns found or analysis failed. Try adjusting parameters.")
 
+def get_instrument_token(symbol, instrument_df, exchange):
+    """Get instrument token from symbol and exchange with robust column detection."""
+    try:
+        if instrument_df.empty:
+            st.warning("Instrument dataframe is empty")
+            return None
+        
+        # Debug: Check available columns
+        available_columns = list(instrument_df.columns)
+        
+        # Try different possible column names for symbol
+        symbol_column = None
+        for col in ['tradingsymbol', 'symbol', 'name', 'trading_symbol']:
+            if col in available_columns:
+                symbol_column = col
+                break
+        
+        if not symbol_column:
+            st.error(f"No symbol column found in instrument data. Available columns: {available_columns}")
+            return None
+        
+        # Filter by symbol and exchange
+        symbol_upper = symbol.upper()
+        
+        # Try exact match first
+        matches = instrument_df[
+            (instrument_df[symbol_column].str.upper() == symbol_upper) & 
+            (instrument_df['exchange'].str.upper() == exchange.upper())
+        ]
+        
+        # If no exact match, try partial match
+        if matches.empty:
+            matches = instrument_df[
+                (instrument_df[symbol_column].str.upper().str.contains(symbol_upper)) & 
+                (instrument_df['exchange'].str.upper() == exchange.upper())
+            ]
+        
+        if not matches.empty:
+            token = matches.iloc[0]['instrument_token'] if 'instrument_token' in matches.columns else matches.iloc[0]['token']
+            st.success(f"Found token {token} for {symbol} on {exchange}")
+            return token
+        else:
+            st.warning(f"No instrument found for {symbol} on {exchange}")
+            # Show available symbols for debugging
+            available_symbols = instrument_df[instrument_df['exchange'] == exchange][symbol_column].unique()[:10]
+            st.write(f"Available symbols on {exchange}: {list(available_symbols)}")
+            return None
+            
+    except Exception as e:
+        st.error(f"Error getting token for {symbol}: {str(e)}")
+        return None
+
 def get_hourly_data_with_fallback(token, symbol, days=30):
     """Get hourly data with fallback to daily data if unavailable."""
     try:
@@ -12021,63 +12083,28 @@ def get_hourly_data_with_fallback(token, symbol, days=30):
         if not hourly_data.empty and len(hourly_data) > 10:
             return hourly_data
         
-        # Fallback: use daily data but resample to simulate hourly (for demo)
+        # Fallback: use daily data
         daily_data = get_historical_data(token, 'day', period=f'{days*3}d')
         if not daily_data.empty:
-            # Create synthetic hourly data from daily (for demonstration)
-            return create_synthetic_hourly_data(daily_data, days)
+            st.info(f"Using daily data as fallback for {symbol} hourly analysis")
+            return daily_data
             
     except Exception as e:
         st.warning(f"Could not get hourly data for {symbol}: {str(e)}")
     
-    return pd.DataFrame()  # Return empty dataframe
-
-def create_synthetic_hourly_data(daily_data, days):
-    """Create synthetic hourly data from daily data for demonstration."""
-    if daily_data.empty:
-        return pd.DataFrame()
-    
-    # Create hourly timestamps for the last N days
-    end_date = pd.Timestamp.now()
-    start_date = end_date - pd.Timedelta(days=days)
-    
-    hourly_dates = pd.date_range(start=start_date, end=end_date, freq='H')
-    synthetic_data = []
-    
-    for date in hourly_dates:
-        # Find the corresponding daily data
-        daily_row = daily_data[daily_data.index.date == date.date()]
-        if not daily_row.empty:
-            daily_values = daily_row.iloc[0]
-            # Create synthetic hourly values with some variation
-            variation = np.random.normal(0, daily_values['close'] * 0.005)  # 0.5% variation
-            synthetic_close = daily_values['close'] + variation
-            
-            synthetic_data.append({
-                'date': date,
-                'open': daily_values['open'] + variation * 0.8,
-                'high': max(daily_values['high'], synthetic_close),
-                'low': min(daily_values['low'], synthetic_close),
-                'close': synthetic_close,
-                'volume': daily_values['volume'] / 6.5  # Approximate hourly volume
-            })
-    
-    if synthetic_data:
-        return pd.DataFrame(synthetic_data).set_index('date')
     return pd.DataFrame()
 
 def enhanced_pattern_recognition(active_list, instrument_df):
     """Advanced pattern recognition with ML-based technical analysis using multi-timeframe data."""
     patterns = []
     
-    for item in active_list:  # Removed limit for single stock analysis
+    for item in active_list:
         try:
             symbol = item['symbol']
             exchange = item['exchange']
             token = get_instrument_token(symbol, instrument_df, exchange)
             
             if not token:
-                st.warning(f"Could not find token for {symbol} on {exchange}")
                 continue
                 
             # Get multi-timeframe data
@@ -12091,7 +12118,7 @@ def enhanced_pattern_recognition(active_list, instrument_df):
             # Enhanced analysis with multi-timeframe data
             pattern_analysis = analyze_advanced_patterns_with_hourly(daily_data, hourly_data, symbol)
             
-            if pattern_analysis["confidence"] > 60:
+            if pattern_analysis["confidence"] > 40:  # Lower threshold for demo
                 patterns.append(pattern_analysis)
             else:
                 st.info(f"Low confidence patterns found for {symbol}: {pattern_analysis['confidence']}%")
@@ -12106,44 +12133,215 @@ def enhanced_pattern_recognition(active_list, instrument_df):
         "high_confidence_patterns": len([p for p in patterns if p["confidence"] > 80])
     }
 
-def predictive_signals_analysis(active_list, instrument_df):
-    """Predictive analysis using ML-inspired signals with hourly data."""
-    signals = []
+def analyze_advanced_patterns_with_hourly(daily_data, hourly_data, symbol):
+    """Enhanced pattern analysis using both daily and hourly data."""
     
-    for item in active_list:  # Removed limit for single stock analysis
+    try:
+        # Calculate multiple indicators for both timeframes
+        daily_data = calculate_advanced_indicators(daily_data)
+        daily_latest = daily_data.iloc[-1]
+        
+        patterns_detected = []
+        confidence = 0
+        signal_strength = "Neutral"
+        timeframe_alignment = 0
+        
+        # DAILY ANALYSIS
+        # Trend analysis
+        if (daily_latest.get('EMA_20', 0) > daily_latest.get('EMA_50', 0) and
+            daily_latest.get('EMA_50', 0) > daily_latest.get('EMA_200', 0)):
+            patterns_detected.append("Strong Daily Uptrend")
+            confidence += 20
+            signal_strength = "Bullish"
+            timeframe_alignment += 1
+        
+        # Momentum confirmation
+        daily_rsi = daily_latest.get('RSI_14', 50)
+        if 40 < daily_rsi < 70:  # Avoid extremes
+            if daily_rsi > 55:
+                patterns_detected.append("Daily Positive Momentum")
+                confidence += 10
+            elif daily_rsi < 45:
+                patterns_detected.append("Daily Negative Momentum") 
+                confidence += 10
+                signal_strength = "Bearish"
+        
+        # HOURLY ANALYSIS
+        if not hourly_data.empty and len(hourly_data) > 20:
+            hourly_data = calculate_advanced_indicators(hourly_data)
+            hourly_latest = hourly_data.iloc[-1]
+            
+            # Hourly trend analysis
+            hourly_ema_20 = hourly_latest.get('EMA_20', 0)
+            hourly_ema_50 = hourly_latest.get('EMA_50', 0)
+            
+            if hourly_ema_20 > hourly_ema_50:
+                patterns_detected.append("Hourly Uptrend")
+                confidence += 15
+                timeframe_alignment += 1
+            else:
+                patterns_detected.append("Hourly Consolidation")
+                confidence += 5
+            
+            # Hourly momentum
+            hourly_rsi = hourly_latest.get('RSI_14', 50)
+            if 30 < hourly_rsi < 80:  # Wider range for hourly
+                if hourly_rsi > 60:
+                    patterns_detected.append("Hourly Bullish Momentum")
+                    confidence += 10
+                elif hourly_rsi < 40:
+                    patterns_detected.append("Hourly Bearish Momentum")
+                    confidence += 10
+            
+            # Volume analysis on hourly
+            if len(hourly_data) > 20:
+                hourly_volume_avg = hourly_data['volume'].tail(20).mean()
+                current_hourly_volume = hourly_latest.get('volume', 0)
+                if current_hourly_volume > hourly_volume_avg * 1.5:
+                    patterns_detected.append("Hourly Volume Surge")
+                    confidence += 15
+        
+        # MULTI-TIMEFRAME ALIGNMENT BONUS
+        if timeframe_alignment >= 2:
+            patterns_detected.append("Multi-Timeframe Alignment")
+            confidence += 20
+        
+        # Volume analysis (daily)
+        volume_avg = 1
+        if len(daily_data) > 20:
+            volume_avg = daily_data['volume'].tail(20).mean()
+            if (daily_latest.get('volume', 0) > volume_avg * 1.2 and
+                daily_latest.get('close', 0) > daily_latest.get('open', 0)):
+                patterns_detected.append("Daily Volume Breakout")
+                confidence += 15
+        
+        # Support/Resistance breaks
+        if len(daily_data) > 20:
+            resistance = daily_data['high'].tail(20).max()
+            support = daily_data['low'].tail(20).min()
+            current_price = daily_latest.get('close', 0)
+            
+            if current_price >= resistance * 0.99:
+                patterns_detected.append("Daily Resistance Break")
+                confidence += 20
+                signal_strength = "Bullish"
+            elif current_price <= support * 1.01:
+                patterns_detected.append("Daily Support Break")
+                confidence += 20
+                signal_strength = "Bearish"
+        
+        return {
+            "symbol": symbol,
+            "patterns": patterns_detected,
+            "confidence": min(100, confidence),
+            "signal_strength": signal_strength,
+            "current_price": daily_latest.get('close', 0),
+            "daily_rsi": daily_rsi,
+            "hourly_rsi": hourly_latest.get('RSI_14', 50) if not hourly_data.empty else None,
+            "volume_ratio": daily_latest.get('volume', 0) / volume_avg if volume_avg > 0 else 1,
+            "timeframe_alignment": timeframe_alignment,
+            "has_hourly_data": not hourly_data.empty
+        }
+    
+    except Exception as e:
+        st.error(f"Error in pattern analysis for {symbol}: {str(e)}")
+        return {
+            "symbol": symbol,
+            "patterns": ["Analysis Error"],
+            "confidence": 0,
+            "signal_strength": "Error",
+            "current_price": 0,
+            "daily_rsi": 50,
+            "hourly_rsi": None,
+            "volume_ratio": 1,
+            "timeframe_alignment": 0,
+            "has_hourly_data": False
+        }
+
+def technical_setups_analysis(active_list, instrument_df):
+    """Analyze technical setups for trading."""
+    setups = []
+    
+    for item in active_list:
         try:
             symbol = item['symbol']
             exchange = item['exchange']
             token = get_instrument_token(symbol, instrument_df, exchange)
             
             if not token:
-                st.warning(f"Could not find token for {symbol} on {exchange}")
                 continue
                 
-            # Get multi-timeframe data
-            daily_data = get_historical_data(token, 'day', period='6mo')
-            hourly_data = get_hourly_data_with_fallback(token, symbol, days=30)
-            
-            if daily_data.empty or len(daily_data) < 50:
-                st.warning(f"Insufficient daily data for {symbol}")
+            data = get_historical_data(token, 'day', period='3mo')
+            if data.empty:
                 continue
             
-            # Enhanced predictive signal generation with hourly data
-            signal = generate_predictive_signal_with_hourly(daily_data, hourly_data, symbol)
+            setup = analyze_technical_setup(data, symbol)
             
-            if signal["probability"] > 60:
-                signals.append(signal)
-            else:
-                st.info(f"Low probability signal for {symbol}: {signal['probability']}%")
+            if setup["setup_quality"] > 40:  # Lower threshold for demo
+                setups.append(setup)
                 
         except Exception as e:
-            st.error(f"Error analyzing {item.get('symbol', 'unknown')}: {str(e)}")
+            st.error(f"Error in technical setup analysis for {item.get('symbol', 'unknown')}: {str(e)}")
             continue
     
     return {
-        "signals": sorted(signals, key=lambda x: x["probability"], reverse=True),
-        "analysis_type": "Predictive ML Signals"
+        "setups": sorted(setups, key=lambda x: x["setup_quality"], reverse=True),
+        "analysis_type": "Technical Setups"
     }
+
+def analyze_technical_setup(data, symbol):
+    """Analyze technical trading setups."""
+    try:
+        data = calculate_advanced_indicators(data)
+        latest = data.iloc[-1]
+        
+        setup_quality = 0
+        setup_type = "Neutral"
+        characteristics = []
+        
+        # Trend characteristics
+        if latest.get('EMA_20', 0) > latest.get('EMA_50', 0):
+            setup_quality += 25
+            characteristics.append("Uptrend")
+            setup_type = "Bullish"
+        
+        # Momentum characteristics
+        rsi = latest.get('RSI_14', 50)
+        if 40 < rsi < 65:
+            setup_quality += 20
+            characteristics.append("Healthy Momentum")
+        
+        # Volume characteristics
+        if len(data) > 20:
+            volume_avg = data['volume'].tail(20).mean()
+            if latest.get('volume', 0) > volume_avg:
+                setup_quality += 15
+                characteristics.append("Above Average Volume")
+        
+        # Pattern characteristics
+        if (latest.get('close', 0) > latest.get('EMA_20', 0) and
+            latest.get('close', 0) > data['close'].tail(10).mean()):
+            setup_quality += 20
+            characteristics.append("Price Strength")
+        
+        return {
+            "symbol": symbol,
+            "setup_type": setup_type,
+            "setup_quality": min(100, setup_quality),
+            "characteristics": characteristics,
+            "current_price": latest.get('close', 0),
+            "rsi": round(rsi, 1)
+        }
+    except Exception as e:
+        st.error(f"Error analyzing setup for {symbol}: {str(e)}")
+        return {
+            "symbol": symbol,
+            "setup_type": "Error",
+            "setup_quality": 0,
+            "characteristics": ["Analysis Error"],
+            "current_price": 0,
+            "rsi": 50
+        }
 
 def display_enhanced_discovery_results(results, discovery_mode, confidence_threshold):
     """Display enhanced discovery results with hourly data insights."""
@@ -12187,77 +12385,68 @@ def display_enhanced_discovery_results(results, discovery_mode, confidence_thres
                     if st.button("Analyze", key=f"analyze_{pattern['symbol']}"):
                         st.session_state[f"detailed_{pattern['symbol']}"] = True
                 
-                # Detailed analysis on click
-                if st.session_state.get(f"detailed_{pattern['symbol']}", False):
-                    with st.expander(f"Detailed Analysis - {pattern['symbol']}", expanded=True):
-                        display_symbol_technical_analysis(pattern)
-                
                 st.markdown("---")
     
-    elif discovery_mode == "Predictive Signals":
-        st.subheader("🎯 Predictive Signals")
+    elif discovery_mode == "Technical Setups":
+        st.subheader("🎯 Technical Setups")
         
-        filtered_signals = [s for s in results["signals"] if s["probability"] >= confidence_threshold]
+        filtered_setups = [s for s in results["setups"] if s["setup_quality"] >= confidence_threshold]
         
-        if not filtered_signals:
-            st.info(f"No signals found above {confidence_threshold}% probability threshold.")
+        if not filtered_setups:
+            st.info(f"No technical setups found above {confidence_threshold}% quality threshold.")
             return
             
-        for signal in filtered_signals[:8]:
+        for setup in filtered_setups[:8]:
             with st.container():
                 col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
                 
                 with col1:
-                    st.write(f"**{signal['symbol']}**")
-                    signal_color = "green" if signal["signal"] == "BUY" else "red" if signal["signal"] == "SELL" else "orange"
-                    st.markdown(f"Signal: <span style='color:{signal_color}'><b>{signal['signal']}</b></span>", unsafe_allow_html=True)
+                    st.write(f"**{setup['symbol']}**")
+                    setup_color = "green" if setup["setup_type"] == "Bullish" else "red" if setup["setup_type"] == "Bearish" else "orange"
+                    st.markdown(f"Setup: <span style='color:{setup_color}'><b>{setup['setup_type']}</b></span>", unsafe_allow_html=True)
                 
                 with col2:
-                    features_text = ", ".join(signal['features'][:3])
-                    st.write(f"*{features_text}*")
-                    if signal.get('timeframe_alignment', 0) >= 2:
-                        st.caption("✅ Multi-timeframe aligned")
+                    characteristics_text = ", ".join(setup['characteristics'][:3])
+                    st.write(f"*{characteristics_text}*")
                 
                 with col3:
-                    probability = signal['probability']
-                    if probability > 80:
-                        st.success(f"{probability}%")
-                    elif probability > 60:
-                        st.warning(f"{probability}%")
+                    quality = setup['setup_quality']
+                    if quality > 80:
+                        st.success(f"{quality}%")
+                    elif quality > 60:
+                        st.warning(f"{quality}%")
                     else:
-                        st.info(f"{probability}%")
+                        st.info(f"{quality}%")
                 
                 with col4:
-                    if st.button("Trade", key=f"trade_{signal['symbol']}"):
-                        execute_ai_trade(signal)
+                    st.metric("RSI", f"{setup['rsi']:.1f}")
                 
                 st.markdown("---")
 
-# Add this function if it doesn't exist
-def get_instrument_token(symbol, instrument_df, exchange):
-    """Get instrument token from symbol and exchange."""
+# Add missing function if not exists
+def calculate_advanced_indicators(data):
+    """Calculate advanced technical indicators."""
     try:
-        if instrument_df.empty:
-            return None
+        # Simple RSI calculation
+        data['price_change'] = data['close'].diff()
+        data['gain'] = data['price_change'].apply(lambda x: x if x > 0 else 0)
+        data['loss'] = data['price_change'].apply(lambda x: -x if x < 0 else 0)
         
-        # Filter by symbol and exchange
-        matches = instrument_df[
-            (instrument_df['symbol'].str.upper() == symbol.upper()) & 
-            (instrument_df['exchange'].str.upper() == exchange.upper())
-        ]
+        # Simple moving averages
+        data['EMA_20'] = data['close'].ewm(span=20).mean()
+        data['EMA_50'] = data['close'].ewm(span=50).mean()
+        data['EMA_200'] = data['close'].ewm(span=200).mean()
         
-        if not matches.empty:
-            return matches.iloc[0]['token']
+        # Simple RSI (14 period)
+        data['avg_gain'] = data['gain'].rolling(window=14).mean()
+        data['avg_loss'] = data['loss'].rolling(window=14).mean()
+        data['RS'] = data['avg_gain'] / data['avg_loss']
+        data['RSI_14'] = 100 - (100 / (1 + data['RS']))
         
-        # If not found, try without exchange filter
-        matches = instrument_df[instrument_df['symbol'].str.upper() == symbol.upper()]
-        if not matches.empty:
-            return matches.iloc[0]['token']
-            
+        return data
     except Exception as e:
-        st.error(f"Error getting token for {symbol}: {str(e)}")
-    
-    return None
+        st.error(f"Error calculating indicators: {str(e)}")
+        return data
 
 def page_greeks_calculator():
     """Calculates Greeks for any option contract."""
