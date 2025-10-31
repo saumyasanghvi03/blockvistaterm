@@ -14,6 +14,7 @@ from email.utils import mktime_tz
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 import numpy as np
 from scipy.stats import norm
 from scipy.optimize import newton
@@ -9742,6 +9743,112 @@ def page_market_sentiment():
     """Market Sentiment Analysis Page - Uses the new improved version"""
     page_ai_sentiment_analyzer()
 
+
+def load_and_combine_data(instrument_name):
+    """
+    Load and combine historical data for the selected instrument.
+    This is a placeholder - you'll need to implement actual data loading.
+    """
+    try:
+        # Example implementation - replace with your actual data loading logic
+        if instrument_name in ML_DATA_SOURCES:
+            # For demonstration, generating sample data
+            # In a real implementation, you would load from ML_DATA_SOURCES[instrument_name]
+            dates = pd.date_range(start='2020-01-01', end=pd.Timestamp.now(), freq='D')
+            # Generate realistic price data with trend and noise
+            np.random.seed(42)  # For reproducible results
+            prices = 100 + 0.1 * np.arange(len(dates)) + 10 * np.random.randn(len(dates))
+            
+            data = pd.DataFrame({
+                'Close': prices,
+                'Open': prices - 2 + 4 * np.random.rand(len(dates)),
+                'High': prices + 5 * np.random.rand(len(dates)),
+                'Low': prices - 5 * np.random.rand(len(dates)),
+                'Volume': 1000000 + 500000 * np.random.rand(len(dates))
+            }, index=dates)
+            
+            return data
+        else:
+            st.error(f"No data source configured for {instrument_name}")
+            return pd.DataFrame()
+            
+    except Exception as e:
+        st.error(f"Error loading data: {str(e)}")
+        return pd.DataFrame()
+
+def train_seasonal_arima_model(data, forecast_steps):
+    """
+    Train a Seasonal ARIMA model and generate forecasts with confidence intervals.
+    """
+    try:
+        if data.empty:
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+            
+        # Use closing prices for modeling
+        prices = data['Close'].dropna()
+        
+        if len(prices) < 50:
+            st.error("Insufficient data for modeling. Need at least 50 data points.")
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        
+        # Simple differencing to make series stationary
+        diff_prices = prices.diff().dropna()
+        
+        # For demonstration - using simple parameters
+        # In production, you'd use auto_arima or grid search for optimal parameters
+        order = (1, 1, 1)  # (p, d, q)
+        seasonal_order = (1, 1, 1, 5)  # (P, D, Q, s)
+        
+        # Split data for backtesting
+        split_point = int(len(prices) * 0.8)
+        train = prices.iloc[:split_point]
+        test = prices.iloc[split_point:]
+        
+        # Fit model
+        with st.spinner("Fitting SARIMA model..."):
+            model = SARIMAX(train, order=order, seasonal_order=seasonal_order)
+            fitted_model = model.fit(disp=False)
+        
+        # Backtest predictions
+        backtest_predictions = fitted_model.get_forecast(steps=len(test))
+        backtest_mean = backtest_predictions.predicted_mean
+        backtest_conf_int = backtest_predictions.conf_int()
+        
+        # Create backtest DataFrame
+        backtest_df = pd.DataFrame({
+            'Actual': test,
+            'Predicted': backtest_mean
+        }, index=test.index)
+        
+        # Generate future forecast
+        full_model = SARIMAX(prices, order=order, seasonal_order=seasonal_order)
+        full_fitted_model = full_model.fit(disp=False)
+        
+        forecast_result = full_fitted_model.get_forecast(steps=forecast_steps)
+        forecast_mean = forecast_result.predicted_mean
+        forecast_conf_int = forecast_result.conf_int()
+        
+        # Create future dates for forecast
+        last_date = prices.index[-1]
+        future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_steps, freq='D')
+        
+        forecast_df = pd.DataFrame({'Forecast': forecast_mean}, index=future_dates)
+        conf_int_df = pd.DataFrame({
+            'Lower_CI': forecast_conf_int.iloc[:, 0],
+            'Upper_CI': forecast_conf_int.iloc[:, 1]
+        }, index=future_dates)
+        
+        return forecast_df, backtest_df, conf_int_df
+        
+    except Exception as e:
+        st.error(f"Error in model training: {str(e)}")
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+def mean_absolute_percentage_error(y_true, y_pred):
+    """Calculate Mean Absolute Percentage Error"""
+    y_true, y_pred = np.array(y_true), np.array(y_pred)
+    # Avoid division by zero
+    return np.mean(np.abs((y_true - y_pred) / np.maximum(np.abs(y_true), 1))) * 100
 
 def page_forecasting_ml():
     """A page for advanced ML forecasting with an improved UI and corrected formulas."""
