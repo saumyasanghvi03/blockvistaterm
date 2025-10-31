@@ -7763,11 +7763,6 @@ def count_large_orders(orders, threshold):
         return 0
     return sum(1 for order in orders if order.get('quantity', 0) >= threshold)
 
-
-import streamlit as st
-import pandas as pd
-import numpy as np
-from datetime import datetime, time, timedelta
 from nsepy import get_history
 import requests
 from io import StringIO
@@ -7813,12 +7808,23 @@ def page_iceberg_detector():
         # Allow analysis but warn user
         st.info("You can still run analysis, but data may be stale")
     
-    # Load instrument data
+    # Load instrument data with proper error handling
     with st.spinner("📊 Loading live market data..."):
-        instrument_df = get_instrument_df()
-        if instrument_df.empty:
-            st.error("❌ No instrument data available")
-            st.info("Please check broker connection and try again")
+        try:
+            instrument_df = get_instrument_df()
+            # Check if instrument_df is None or empty
+            if instrument_df is None:
+                st.error("❌ Instrument data is None - check broker connection")
+                return
+            elif not hasattr(instrument_df, 'empty'):
+                st.error("❌ Invalid instrument data format")
+                return
+            elif instrument_df.empty:
+                st.error("❌ No instrument data available")
+                st.info("Please check broker connection and try again")
+                return
+        except Exception as e:
+            st.error(f"❌ Failed to load instrument data: {str(e)}")
             return
     
     # Filter only Nifty50 stocks
@@ -7829,25 +7835,29 @@ def page_iceberg_detector():
     symbol_mapping = {}
     
     for symbol in nifty50_symbols:
-        # Check if symbol exists in instrument data
-        instrument_match = instrument_df[instrument_df['tradingsymbol'] == symbol]
-        if instrument_match.empty:
-            # Try alternative representations
-            if symbol == "BAJAJ-AUTO":
-                alt_symbol = "BAJAJAUTO"
-            elif symbol == "M&M":
-                alt_symbol = "M_M"
-            elif symbol == "L&T":
-                alt_symbol = "L_T"
-            else:
-                alt_symbol = symbol
-                
-            instrument_match = instrument_df[instrument_df['tradingsymbol'] == alt_symbol]
+        try:
+            # Check if symbol exists in instrument data
+            instrument_match = instrument_df[instrument_df['tradingsymbol'] == symbol]
+            if instrument_match.empty:
+                # Try alternative representations
+                if symbol == "BAJAJ-AUTO":
+                    alt_symbol = "BAJAJAUTO"
+                elif symbol == "M&M":
+                    alt_symbol = "M_M"
+                elif symbol == "L&T":
+                    alt_symbol = "L_T"
+                else:
+                    alt_symbol = symbol
+                    
+                instrument_match = instrument_df[instrument_df['tradingsymbol'] == alt_symbol]
+                if not instrument_match.empty:
+                    symbol_mapping[symbol] = alt_symbol
+            
             if not instrument_match.empty:
-                symbol_mapping[symbol] = alt_symbol
-        
-        if not instrument_match.empty:
-            display_symbols.append(symbol)
+                display_symbols.append(symbol)
+        except Exception as e:
+            st.warning(f"Could not process symbol {symbol}: {str(e)}")
+            continue
     
     if not display_symbols:
         st.error("❌ No Nifty50 stocks found in instrument data")
@@ -7951,7 +7961,7 @@ def page_iceberg_detector():
                 # Get historical data for volume analysis using NSEpy
                 historical_data = get_historical_data_nsepy(selected_symbol, period)
                 
-                if historical_data.empty:
+                if historical_data is None or historical_data.empty:
                     st.error("❌ No historical data available")
                     st.info("Please try a different timeframe or period")
                     return
@@ -8014,8 +8024,11 @@ def page_iceberg_detector():
     
     # Auto-refresh logic
     if auto_refresh:
-        st_autorefresh(interval=15000, key="iceberg_autorefresh")
-        st.info("🔄 Auto-refresh enabled - updating every 15 seconds")
+        try:
+            st_autorefresh(interval=15000, key="iceberg_autorefresh")
+            st.info("🔄 Auto-refresh enabled - updating every 15 seconds")
+        except:
+            st.info("🔄 Auto-refresh not available")
 
 
 def get_historical_data_nsepy(symbol, period="1mo"):
@@ -8042,7 +8055,7 @@ def get_historical_data_nsepy(symbol, period="1mo"):
             end=end_date
         )
         
-        if stock_data.empty:
+        if stock_data is None or stock_data.empty:
             st.warning(f"No historical data found for {symbol} using NSEpy")
             return pd.DataFrame()
         
@@ -8120,8 +8133,8 @@ def prepare_live_market_data(symbol, actual_symbol, instrument_token, instrument
             st.warning("⚠️ No market depth data available")
         
         # Calculate enhanced order book metrics
-        total_bid_volume = sum(bid.get('quantity', 0) for bid in bids)
-        total_ask_volume = sum(ask.get('quantity', 0) for ask in asks)
+        total_bid_volume = sum(bid.get('quantity', 0) for bid in bids) if bids else 0
+        total_ask_volume = sum(ask.get('quantity', 0) for ask in asks) if asks else 0
         
         # Calculate volume concentration metrics
         bid_concentration = calculate_volume_concentration(bids)
@@ -8134,8 +8147,8 @@ def prepare_live_market_data(symbol, actual_symbol, instrument_token, instrument
         
         # Prepare enhanced order book data
         order_book = {
-            'bids': bids,
-            'asks': asks,
+            'bids': bids if bids else [],
+            'asks': asks if asks else [],
             'total_bid_volume': total_bid_volume,
             'total_ask_volume': total_ask_volume,
             'bid_ask_ratio': total_bid_volume / total_ask_volume if total_ask_volume > 0 else 1,
@@ -8143,14 +8156,14 @@ def prepare_live_market_data(symbol, actual_symbol, instrument_token, instrument
             'ask_concentration': ask_concentration,
             'large_bid_orders': large_bid_orders,
             'large_ask_orders': large_ask_orders,
-            'depth_levels_analyzed': min(20, max(len(bids), len(asks)))
+            'depth_levels_analyzed': min(20, max(len(bids) if bids else 0, len(asks) if asks else 0))
         }
         
         # Get REAL volume data from quote
         current_volume = instrument_quote.get('volume', 0)
         if current_volume == 0:
             st.warning("⚠️ Live volume data not available - using historical fallback")
-            current_volume = historical_data['volume'].iloc[-1] if not historical_data.empty else 0
+            current_volume = historical_data['volume'].iloc[-1] if historical_data is not None and not historical_data.empty else 0
         
         # Calculate daily average volume from historical data (more accurate)
         daily_avg_volume = calculate_accurate_daily_volume(historical_data)
@@ -8162,13 +8175,13 @@ def prepare_live_market_data(symbol, actual_symbol, instrument_token, instrument
         last_price = instrument_quote.get('last_price', 0)
         if last_price == 0:
             st.warning("⚠️ Live price not available - using historical close")
-            last_price = historical_data['close'].iloc[-1] if not historical_data.empty else 0
+            last_price = historical_data['close'].iloc[-1] if historical_data is not None and not historical_data.empty else 0
         
         # Get OHLC from real-time quote
         ohlc = instrument_quote.get('ohlc', {})
-        high = ohlc.get('high', historical_data['high'].iloc[-1] if not historical_data.empty else last_price)
-        low = ohlc.get('low', historical_data['low'].iloc[-1] if not historical_data.empty else last_price)
-        open_price = ohlc.get('open', historical_data['open'].iloc[-1] if not historical_data.empty else last_price)
+        high = ohlc.get('high', historical_data['high'].iloc[-1] if historical_data is not None and not historical_data.empty else last_price)
+        low = ohlc.get('low', historical_data['low'].iloc[-1] if historical_data is not None and not historical_data.empty else last_price)
+        open_price = ohlc.get('open', historical_data['open'].iloc[-1] if historical_data is not None and not historical_data.empty else last_price)
         close = last_price  # Use last price as close for real-time
         
         # Calculate live volatility from recent price movements
@@ -8206,30 +8219,34 @@ def prepare_live_market_data(symbol, actual_symbol, instrument_token, instrument
 
 def calculate_accurate_daily_volume(historical_data, lookback_days=20):
     """Calculate accurate daily average volume from historical data"""
-    if historical_data.empty:
+    if historical_data is None or historical_data.empty:
         return 0
     
-    # Convert to daily data if we have intraday data
-    if 'date' in historical_data.columns:
-        # Resample to daily if we have intraday data
-        historical_data['date'] = pd.to_datetime(historical_data['date'])
-        daily_volumes = historical_data.groupby(historical_data['date'].dt.date)['volume'].sum()
-    else:
-        # Assume already daily data
-        daily_volumes = historical_data['volume']
-    
-    # Use recent lookback period
-    if len(daily_volumes) > lookback_days:
-        recent_volumes = daily_volumes.tail(lookback_days)
-    else:
-        recent_volumes = daily_volumes
-    
-    # Calculate average, excluding outliers
-    if len(recent_volumes) > 0:
-        avg_volume = recent_volumes.mean()
-        return avg_volume
-    else:
-        return historical_data['volume'].mean() if not historical_data.empty else 0
+    try:
+        # Convert to daily data if we have intraday data
+        if 'date' in historical_data.columns:
+            # Resample to daily if we have intraday data
+            historical_data['date'] = pd.to_datetime(historical_data['date'])
+            daily_volumes = historical_data.groupby(historical_data['date'].dt.date)['volume'].sum()
+        else:
+            # Assume already daily data
+            daily_volumes = historical_data['volume']
+        
+        # Use recent lookback period
+        if len(daily_volumes) > lookback_days:
+            recent_volumes = daily_volumes.tail(lookback_days)
+        else:
+            recent_volumes = daily_volumes
+        
+        # Calculate average, excluding outliers
+        if len(recent_volumes) > 0:
+            avg_volume = recent_volumes.mean()
+            return avg_volume
+        else:
+            return historical_data['volume'].mean() if not historical_data.empty else 0
+    except Exception as e:
+        st.error(f"Error calculating daily volume: {str(e)}")
+        return historical_data['volume'].mean() if historical_data is not None and not historical_data.empty else 0
 
 
 def analyze_live_intraday_volume(current_volume, daily_avg_volume, symbol):
@@ -8347,16 +8364,19 @@ def analyze_live_intraday_volume(current_volume, daily_avg_volume, symbol):
 
 def calculate_live_volatility(historical_data, current_price):
     """Calculate live volatility from recent price movements"""
-    if historical_data.empty:
+    if historical_data is None or historical_data.empty:
         return 0.02  # Default volatility
     
-    # Use recent price data for volatility calculation
-    recent_prices = historical_data['close'].tail(20)
-    if len(recent_prices) > 1:
-        returns = recent_prices.pct_change().dropna()
-        volatility = returns.std()
-        return volatility
-    else:
+    try:
+        # Use recent price data for volatility calculation
+        recent_prices = historical_data['close'].tail(20)
+        if len(recent_prices) > 1:
+            returns = recent_prices.pct_change().dropna()
+            volatility = returns.std()
+            return volatility
+        else:
+            return 0.02
+    except Exception:
         return 0.02
 
 
@@ -8365,8 +8385,8 @@ def generate_trading_signals_enhanced(detection_result, market_data, volume_impa
     
     probability = detection_result.get('iceberg_probability', 0)
     confidence = detection_result.get('confidence', 0)
-    order_book = market_data.get('order_book', {})
-    volume_analysis = market_data.get('volume_analysis', {})
+    order_book = market_data.get('order_book', {}) if market_data else {}
+    volume_analysis = market_data.get('volume_analysis', {}) if market_data else {}
     
     # Base signals
     signals = {
@@ -8375,7 +8395,7 @@ def generate_trading_signals_enhanced(detection_result, market_data, volume_impa
         'confidence': confidence,
         'probability': probability,
         'timestamp': pd.Timestamp.now(),
-        'entry_price': market_data.get('last_price', 0),
+        'entry_price': market_data.get('last_price', 0) if market_data else 0,
         'volume_impact': 0,
         'volume_alerts': [],
         'volume_analysis': volume_analysis
@@ -8408,8 +8428,8 @@ def generate_trading_signals_enhanced(detection_result, market_data, volume_impa
             signals['secondary_signals'].append(f"VOLUME_{alert_level}")
     
     # Calculate order book imbalance
-    bid_volume = order_book.get('total_bid_volume', 0)
-    ask_volume = order_book.get('total_ask_volume', 0)
+    bid_volume = order_book.get('total_bid_volume', 0) if order_book else 0
+    ask_volume = order_book.get('total_ask_volume', 0) if order_book else 0
     total_volume = bid_volume + ask_volume
     
     if total_volume > 0:
@@ -8461,8 +8481,8 @@ def display_live_iceberg_results(detection_result, market_data, trading_signals,
     st.subheader("🎯 Live Detection Results")
     
     # Key metrics
-    probability = detection_result.get('iceberg_probability', 0)
-    confidence = detection_result.get('confidence', 0)
+    probability = detection_result.get('iceberg_probability', 0) if detection_result else 0
+    confidence = detection_result.get('confidence', 0) if detection_result else 0
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -8482,14 +8502,14 @@ def display_live_iceberg_results(detection_result, market_data, trading_signals,
         st.metric("Confidence Score", f"{confidence:.1%}")
     
     with col3:
-        st.metric("Live Price", f"₹{market_data.get('last_price', 0):.2f}")
+        st.metric("Live Price", f"₹{market_data.get('last_price', 0):.2f}" if market_data else "₹0.00")
     
     with col4:
-        category = market_data.get('stock_category', 'MEDIUM')
+        category = market_data.get('stock_category', 'MEDIUM') if market_data else 'UNKNOWN'
         st.metric("Stock Category", category)
     
     # Volume Analysis Section - ALWAYS SHOW
-    volume_analysis = market_data.get('volume_analysis', {})
+    volume_analysis = market_data.get('volume_analysis', {}) if market_data else {}
     st.markdown("---")
     st.subheader("📈 Live Volume Analysis")
     
@@ -8577,7 +8597,7 @@ def display_live_iceberg_results(detection_result, market_data, trading_signals,
             st.metric("Volume Contribution", f"+{trading_signals.get('volume_impact', 0):.1%}")
     
     # Market Depth Display
-    if show_details:
+    if show_details and market_data:
         order_book = market_data.get('order_book', {})
         st.markdown("---")
         st.subheader("📊 Live Market Depth")
@@ -8619,16 +8639,17 @@ def display_live_iceberg_results(detection_result, market_data, trading_signals,
                     st.write(f"Level {i+1}: {ask['quantity']:,} @ ₹{ask['price']:.2f}")
     
     # Data freshness
-    timestamp = market_data.get('timestamp', pd.Timestamp.now())
-    current_time = pd.Timestamp.now()
-    data_age = (current_time - timestamp).total_seconds()
-    
-    if data_age < 30:
-        st.success(f"✅ Data is live (updated {data_age:.0f} seconds ago)")
-    elif data_age < 60:
-        st.warning(f"⚠️ Data may be stale (updated {data_age:.0f} seconds ago)")
-    else:
-        st.error(f"❌ Data is stale (updated {data_age:.0f} seconds ago)")
+    if market_data:
+        timestamp = market_data.get('timestamp', pd.Timestamp.now())
+        current_time = pd.Timestamp.now()
+        data_age = (current_time - timestamp).total_seconds()
+        
+        if data_age < 30:
+            st.success(f"✅ Data is live (updated {data_age:.0f} seconds ago)")
+        elif data_age < 60:
+            st.warning(f"⚠️ Data may be stale (updated {data_age:.0f} seconds ago)")
+        else:
+            st.error(f"❌ Data is stale (updated {data_age:.0f} seconds ago)")
 
 
 def is_market_hours():
@@ -8646,6 +8667,131 @@ def is_market_hours():
         return market_start <= current_time <= market_end and is_weekday
     except:
         return False  # Conservative approach
+
+
+def calculate_volume_concentration(orders):
+    """Calculate how concentrated volume is across price levels"""
+    if not orders:
+        return 0
+    
+    try:
+        total_volume = sum(order.get('quantity', 0) for order in orders)
+        if total_volume == 0:
+            return 0
+        
+        # Calculate Gini coefficient-like concentration
+        volumes = [order.get('quantity', 0) for order in orders]
+        volumes.sort(reverse=True)
+        
+        cumulative_volume = 0
+        concentration_score = 0
+        
+        for i, volume in enumerate(volumes):
+            cumulative_volume += volume
+            concentration_score += (i + 1) * volume
+        
+        max_concentration = sum((i + 1) * volumes[0] for i in range(len(volumes)))
+        
+        return concentration_score / max_concentration if max_concentration > 0 else 0
+    except Exception:
+        return 0
+
+
+def count_large_orders(orders, threshold):
+    """Count number of orders exceeding large order threshold"""
+    if not orders:
+        return 0
+    
+    try:
+        return sum(1 for order in orders if order.get('quantity', 0) >= threshold)
+    except Exception:
+        return 0
+
+
+# Required helper functions (you may need to implement these)
+def display_header():
+    """Display the application header"""
+    st.markdown("---")
+    st.markdown("### BlockVista Terminal - Professional Trading Analytics")
+    st.markdown("---")
+
+
+def get_broker_client():
+    """Get the broker client instance - implement based on your broker"""
+    # This should return your broker client instance
+    # For Kite Connect: return kite
+    # Return None if not connected
+    return None
+
+
+def get_instrument_df():
+    """Get instrument data - implement based on your broker"""
+    # This should return your instrument dataframe
+    # Return empty DataFrame if not available
+    return pd.DataFrame()
+
+
+def get_instrument_token(symbol, instrument_df, exchange):
+    """Get instrument token for a symbol - implement based on your broker"""
+    # This should return the instrument token for the given symbol
+    # Return None if not found
+    return None
+
+
+def get_nifty50_detection_params(symbol):
+    """Get detection parameters for Nifty50 stock"""
+    # Return parameters like large_order_threshold based on stock category
+    base_threshold = 5000  # Default threshold
+    category = get_nifty50_stock_category(symbol)
+    
+    if category == 'LOW':
+        return {'large_order_threshold': base_threshold * 3}
+    elif category == 'MEDIUM':
+        return {'large_order_threshold': base_threshold * 2}
+    else:  # HIGH
+        return {'large_order_threshold': base_threshold}
+
+
+def get_nifty50_stock_category(symbol):
+    """Get stock category based on price range"""
+    # Implement logic to categorize stocks as LOW, MEDIUM, HIGH
+    # based on their typical price range
+    return 'MEDIUM'  # Default
+
+
+class QuantumIcebergDetector:
+    """Iceberg detection logic - implement your detection algorithm"""
+    
+    def process_market_data(self, market_data):
+        """Process market data and return detection results"""
+        # Implement your iceberg detection logic here
+        return {
+            'iceberg_probability': 0.5,  # Example probability
+            'confidence': 0.6,  # Example confidence
+            'alerts': []  # Example alerts
+        }
+
+
+def st_autorefresh(interval, key):
+    """Auto-refresh component for Streamlit"""
+    # Implement auto-refresh logic or use streamlit-autorefresh package
+    # This is a placeholder - you may need to install streamlit-autorefresh
+    pass
+
+
+# Add NIFTY50_STOCKS dictionary if not defined
+NIFTY50_STOCKS = {
+    'RELIANCE': 'Reliance Industries',
+    'TCS': 'Tata Consultancy Services',
+    'HDFCBANK': 'HDFC Bank',
+    'INFY': 'Infosys',
+    'HINDUNILVR': 'Hindustan Unilever',
+    'ICICIBANK': 'ICICI Bank',
+    'KOTAKBANK': 'Kotak Mahindra Bank',
+    'BHARTIARTL': 'Bharti Airtel',
+    'ITC': 'ITC',
+    'SBIN': 'State Bank of India'
+}
 
 
 def calculate_volume_concentration(orders):
