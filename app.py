@@ -8684,7 +8684,7 @@ def generate_trading_signals(detection_result, market_data):
             signals['secondary_signals'].append('MODERATE_BUY_PRESSURE')
         elif imbalance < -0.05:
             signals['primary_signal'] = 'FLOW_SELL'
-            signals['secondary_signals'].append('MODERATE_SELL_PRESSURE'
+            signals['secondary_signals'].append('MODERATE_SELL_PRESSURE')
     
     # Add reversal signals for high volatility regimes
     regime = detection_result.get('regime', {})
