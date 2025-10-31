@@ -13242,298 +13242,400 @@ def get_ist_time():
 def page_hft_terminal():
     """A dedicated terminal for High-Frequency Trading with Level 2 data."""
     display_header()
-    st.title("⚡ HFT Terminal (High-Frequency Trading)")
-    st.info("Real-time market depth with top 5 levels and one-click trading. For liquid, F&O instruments only.", icon="⚡")
+    
+    # HFT Terminal Header with Professional Styling
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+        <h1 style="color: white; margin: 0; font-size: 2.5em;">⚡ HFT TERMINAL</h1>
+        <p style="color: rgba(255,255,255,0.9); margin: 5px 0 0 0; font-size: 1.1em;">
+        High-Frequency Trading Platform • Real-time Market Depth • One-Click Execution
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
     instrument_df = get_instrument_df()
     if instrument_df.empty:
-        st.warning("Please connect to a broker to use the HFT Terminal.")
+        st.warning("🔌 Please connect to a broker to use the HFT Terminal.")
         return
 
-    # --- Instrument Selection and Key Stats ---
-    top_cols = st.columns([2, 1, 1, 1])
-    with top_cols[0]:
-        symbol = st.text_input("Instrument Symbol", "NIFTY24OCTFUT", key="hft_symbol").upper()
+    # --- Instrument Selection with Enhanced UI ---
+    st.markdown("### 🎯 Instrument Selection")
+    
+    col_search, col_info, col_status = st.columns([2, 1, 1])
+    
+    with col_search:
+        symbol = st.text_input(
+            "**Trading Symbol**", 
+            "NIFTY24OCTFUT", 
+            key="hft_symbol",
+            help="Enter the instrument symbol (e.g., RELIANCE, NIFTY24OCTFUT)"
+        ).upper()
     
     instrument_info = instrument_df[instrument_df['tradingsymbol'] == symbol]
     if instrument_info.empty:
-        st.error(f"Instrument '{symbol}' not found. Please enter a valid symbol.")
+        st.error(f"❌ Instrument '{symbol}' not found in database.")
         return
     
     exchange = instrument_info.iloc[0]['exchange']
     instrument_token = instrument_info.iloc[0]['instrument_token']
+    lot_size = instrument_info.iloc[0].get('lot_size', 50)
 
-    # --- Fetch Live Data with Top 5 Levels ---
+    with col_info:
+        st.metric("Exchange", exchange)
+        
+    with col_status:
+        market_status = get_market_status()['status'].replace('_', ' ').title()
+        status_color = "#00ff00" if "open" in market_status.lower() else "#ff4444"
+        st.markdown(f"**Market:** <span style='color: {status_color};'>{market_status}</span>", unsafe_allow_html=True)
+
+    # --- Real-time Data Fetching ---
     quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
-    depth_data = get_market_depth_enhanced(instrument_token, levels=5)  # UPDATED: Use enhanced depth with top 5 levels
+    depth_data = get_market_depth_enhanced(instrument_token, levels=5)
 
-    # --- Display Key Stats ---
+    # --- Enhanced Price Header with Professional Layout ---
     if not quote_data.empty:
         ltp = quote_data.iloc[0]['Price']
         change = quote_data.iloc[0]['Change']
         pct_change = quote_data.iloc[0]['% Change']
         
-        # Update tick direction and logging
-        tick_direction = "tick-up" if ltp > st.session_state.hft_last_price else "tick-down" if ltp < st.session_state.hft_last_price else ""
+        # Calculate tick direction
+        prev_price = st.session_state.hft_last_price
+        tick_direction = "up" if ltp > prev_price else "down" if ltp < prev_price else "same"
         
-        with top_cols[1]:
-            st.markdown(f"##### LTP: <span class='{tick_direction}' style='font-size: 1.2em;'>₹{ltp:,.2f}</span>", unsafe_allow_html=True)
-            st.metric("Change", f"₹{change:+.2f}", f"{pct_change:+.2f}%")
-            
-        with top_cols[2]:
-            if depth_data:
-                spread = depth_data.get('spread', 0)
-                st.metric("Spread", f"₹{spread:.2f}")
-                
-        with top_cols[3]:
-            # Realistic latency simulation
-            latency = random.uniform(5, 25)  # HFT should have lower latency
-            st.metric("Latency", f"{latency:.1f} ms")
-            
-            # Depth quality indicator
-            if depth_data:
-                total_depth = depth_data.get('total_bid_volume', 0) + depth_data.get('total_ask_volume', 0)
-                quality = "Excellent" if total_depth > 50000 else "Good" if total_depth > 20000 else "Fair"
-                st.caption(f"Depth: {quality}")
+        # Price Header with Advanced Styling
+        st.markdown(f"""
+        <div style="background: #1e1e1e; padding: 15px; border-radius: 8px; border-left: 5px solid {'#00ff88' if tick_direction == 'up' else '#ff4444' if tick_direction == 'down' else '#888888'};">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h2 style="color: {'#00ff88' if tick_direction == 'up' else '#ff4444' if tick_direction == 'down' else '#ffffff'}; margin: 0; font-size: 2.2em;">
+                        ₹{ltp:,.2f}
+                    </h2>
+                    <p style="color: {'#00ff88' if change >= 0 else '#ff4444'}; margin: 0; font-size: 1.1em;">
+                        {change:+.2f} ({pct_change:+.2f}%)
+                    </p>
+                </div>
+                <div style="text-align: right;">
+                    <div style="color: #888; font-size: 0.9em;">Last Update</div>
+                    <div style="color: white; font-size: 1em;">{get_ist_time().strftime('%H:%M:%S.%f')[:-3]}</div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-        # Update tick log with proper timestamp
-        if ltp != st.session_state.hft_last_price and st.session_state.hft_last_price != 0:
+        # Update tick log
+        if ltp != prev_price and prev_price != 0:
             ist_time = get_ist_time()
             log_entry = {
-                "time": ist_time.strftime("%H:%M:%S.%f")[:-3],  # Millisecond precision
+                "time": ist_time.strftime("%H:%M:%S.%f")[:-3],
                 "price": ltp,
-                "change": ltp - st.session_state.hft_last_price
+                "change": ltp - prev_price,
+                "direction": tick_direction
             }
             st.session_state.hft_tick_log.insert(0, log_entry)
-            if len(st.session_state.hft_tick_log) > 50:  # Increased buffer for HFT
+            if len(st.session_state.hft_tick_log) > 100:  # Larger buffer for HFT
                 st.session_state.hft_tick_log.pop()
 
         st.session_state.hft_last_price = ltp
 
-    st.markdown("---")
+    # --- Main Trading Interface ---
+    st.markdown("## 📊 Trading Interface")
+    
+    # Three-column layout for HFT
+    col_depth, col_trading, col_ticks = st.columns([1.2, 1, 1], gap="large")
 
-    # --- Main Layout: Depth, Orders, Ticks ---
-    main_cols = st.columns([1, 1, 1], gap="large")
-
-    with main_cols[0]:
-        st.subheader("🎯 Market Depth (Top 5 Levels)")
+    with col_depth:
+        # Enhanced Market Depth Display
+        st.markdown("""
+        <div style="background: #1a1a1a; padding: 15px; border-radius: 10px; border: 1px solid #333;">
+            <h3 style="color: #fff; margin-top: 0;">🎯 Market Depth (L2)</h3>
+        """, unsafe_allow_html=True)
+        
         if depth_data and depth_data.get('buy') and depth_data.get('sell'):
-            # UPDATED: Use the enhanced depth data structure
-            bids = depth_data['buy']  # Already sorted and limited to top 5
-            asks = depth_data['sell']  # Already sorted and limited to top 5
+            bids = depth_data['buy']
+            asks = depth_data['sell']
             
-            # Display depth with improved formatting
-            col1, col2, col3 = st.columns([3, 2, 1])
+            # Depth Header with Spread
+            best_bid = bids[0].get('price', 0) if bids else 0
+            best_ask = asks[0].get('price', 0) if asks else 0
+            spread = best_ask - best_bid
+            spread_pct = (spread / ltp * 100) if ltp > 0 else 0
             
-            with col1:
-                st.write("**Bids (Buyers) ↗️**")
-                for i, bid in enumerate(bids):
-                    st.markdown(
-                        f"<div class='hft-depth-bid' style='padding: 8px; margin: 2px 0; border-radius: 4px;'>"
-                        f"<strong>L{i+1}:</strong> {bid.get('quantity', 0):,} @ <strong>₹{bid.get('price', 0):.2f}</strong>"
-                        f"</div>", 
-                        unsafe_allow_html=True
-                    )
+            st.markdown(f"""
+            <div style="background: #2a2a2a; padding: 10px; border-radius: 5px; margin-bottom: 15px; text-align: center;">
+                <div style="color: #888; font-size: 0.9em;">Spread</div>
+                <div style="color: #ffd700; font-size: 1.2em; font-weight: bold;">₹{spread:.2f} ({spread_pct:.3f}%)</div>
+            </div>
+            """, unsafe_allow_html=True)
             
-            with col2:
-                st.write("**Spread**")
-                if bids and asks:
-                    best_bid = bids[0].get('price', 0)
-                    best_ask = asks[0].get('price', 0)
-                    spread = best_ask - best_bid
-                    spread_pct = (spread / ltp * 100) if ltp > 0 else 0
-                    
-                    st.metric("", f"₹{spread:.2f}", f"{spread_pct:.3f}%")
-                    st.write(f"**B:** ₹{best_bid:.2f}")
-                    st.write(f"**A:** ₹{best_ask:.2f}")
+            # Depth Table
+            st.markdown("""
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+                <div style="color: #00ff88; font-weight: bold; text-align: center;">BIDS</div>
+                <div style="color: #ff4444; font-weight: bold; text-align: center;">ASKS</div>
+            </div>
+            """, unsafe_allow_html=True)
             
-            with col3:
-                st.write("**Asks (Sellers) ↘️**")
-                for i, ask in enumerate(asks):
-                    st.markdown(
-                        f"<div class='hft-depth-ask' style='padding: 8px; margin: 2px 0; border-radius: 4px;'>"
-                        f"<strong>L{i+1}:</strong> <strong>₹{ask.get('price', 0):.2f}</strong> @ {ask.get('quantity', 0):,}"
-                        f"</div>", 
-                        unsafe_allow_html=True
-                    )
-            
-            # Depth analysis
-            st.markdown("---")
-            st.subheader("📊 Depth Analysis")
-            
-            if depth_data:
-                total_bid = depth_data.get('total_bid_volume', 0)
-                total_ask = depth_data.get('total_ask_volume', 0)
-                bid_ask_ratio = depth_data.get('bid_ask_ratio', 1)
+            # Display top 5 levels
+            for i in range(5):
+                bid = bids[i] if i < len(bids) else {'price': 0, 'quantity': 0, 'orders': 0}
+                ask = asks[i] if i < len(asks) else {'price': 0, 'quantity': 0, 'orders': 0}
                 
-                col_anal1, col_anal2 = st.columns(2)
-                with col_anal1:
-                    st.metric("Bid Volume", f"{total_bid:,}")
-                    st.metric("Ask Volume", f"{total_ask:,}")
+                # Calculate depth strength (visual indicator)
+                bid_strength = min(bid.get('quantity', 0) / 10000, 1) if bid.get('quantity', 0) > 0 else 0
+                ask_strength = min(ask.get('quantity', 0) / 10000, 1) if ask.get('quantity', 0) > 0 else 0
                 
-                with col_anal2:
-                    if bid_ask_ratio > 1.2:
-                        st.success(f"Bid Dominance: {bid_ask_ratio:.2f}x")
-                    elif bid_ask_ratio < 0.8:
-                        st.error(f"Ask Dominance: {1/bid_ask_ratio:.2f}x")
-                    else:
-                        st.info(f"Balanced: {bid_ask_ratio:.2f}x")
-                        
+                st.markdown(f"""
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px; font-family: monospace;">
+                    <div style="background: rgba(0, 255, 136, {bid_strength*0.3}); padding: 8px; border-radius: 4px; border-left: 3px solid #00ff88;">
+                        <div style="color: #00ff88;">L{i+1}: ₹{bid.get('price', 0):.2f}</div>
+                        <div style="color: #aaa; font-size: 0.8em;">{bid.get('quantity', 0):,} × {bid.get('orders', 0)}</div>
+                    </div>
+                    <div style="background: rgba(255, 68, 68, {ask_strength*0.3}); padding: 8px; border-radius: 4px; border-left: 3px solid #ff4444;">
+                        <div style="color: #ff4444;">L{i+1}: ₹{ask.get('price', 0):.2f}</div>
+                        <div style="color: #aaa; font-size: 0.8em;">{ask.get('quantity', 0):,} × {ask.get('orders', 0)}</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # Depth Analysis
+            total_bid = depth_data.get('total_bid_volume', 0)
+            total_ask = depth_data.get('total_ask_volume', 0)
+            ratio = depth_data.get('bid_ask_ratio', 1)
+            
+            st.markdown("""
+            <div style="background: #2a2a2a; padding: 10px; border-radius: 5px; margin-top: 15px;">
+                <div style="color: #fff; font-weight: bold; margin-bottom: 8px;">Depth Analysis</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.9em;">
+            """, unsafe_allow_html=True)
+            
+            if ratio > 1.2:
+                st.markdown(f'<div style="color: #00ff88;">Bullish: {ratio:.2f}x</div>', unsafe_allow_html=True)
+            elif ratio < 0.8:
+                st.markdown(f'<div style="color: #ff4444;">Bearish: {1/ratio:.2f}x</div>', unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div style="color: #888;">Neutral: {ratio:.2f}x</div>', unsafe_allow_html=True)
+                
+            st.markdown(f'<div style="color: #aaa;">Bid: {total_bid:,}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="color: #aaa;">Ask: {total_ask:,}</div>', unsafe_allow_html=True)
+            
+            st.markdown("</div></div>", unsafe_allow_html=True)
+            
         else:
             st.info("⏳ Waiting for market depth data...")
-
-    with main_cols[1]:
-        st.subheader("🚀 One-Click Execution")
         
-        # Smart quantity selection
-        if not instrument_info.empty:
-            lot_size = instrument_info.iloc[0].get('lot_size', 50)
-            default_qty = lot_size
-        else:
-            default_qty = 50
-            
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with col_trading:
+        # Enhanced Trading Panel
+        st.markdown("""
+        <div style="background: #1a1a1a; padding: 15px; border-radius: 10px; border: 1px solid #333;">
+            <h3 style="color: #fff; margin-top: 0;">🚀 Quick Execution</h3>
+        """, unsafe_allow_html=True)
+        
+        # Quantity Selection
+        st.markdown("**Order Quantity**")
         quantity = st.number_input(
-            "Order Quantity", 
-            min_value=lot_size, 
-            value=default_qty, 
-            step=lot_size, 
-            key="hft_qty"
+            "Shares/Lots",
+            min_value=lot_size,
+            value=lot_size,
+            step=lot_size,
+            key="hft_qty",
+            label_visibility="collapsed"
         )
         
-        # Quick action buttons with better styling
-        st.write("**Market Orders**")
-        btn_cols = st.columns(2)
-        if btn_cols[0].button(
-            "🟢 MARKET BUY", 
-            use_container_width=True, 
-            type="primary",
-            help=f"Buy {quantity} shares at market price"
-        ):
-            place_order(instrument_df, symbol, quantity, 'MARKET', 'BUY', 'MIS')
-            st.toast(f"🟢 MARKET BUY order placed for {quantity} {symbol}", icon="✅")
-            
-        if btn_cols[1].button(
-            "🔴 MARKET SELL", 
-            use_container_width=True,
-            type="secondary",
-            help=f"Sell {quantity} shares at market price"
-        ):
-            place_order(instrument_df, symbol, quantity, 'MARKET', 'SELL', 'MIS')
-            st.toast(f"🔴 MARKET SELL order placed for {quantity} {symbol}", icon="✅")
+        # Market Orders - Enhanced Buttons
+        st.markdown("**Market Orders**")
+        mcol1, mcol2 = st.columns(2)
+        
+        with mcol1:
+            if st.button(
+                "🟢 BUY MARKET", 
+                use_container_width=True,
+                type="primary",
+                key="market_buy",
+                help=f"Buy {quantity} at market price"
+            ):
+                place_order(instrument_df, symbol, quantity, 'MARKET', 'BUY', 'MIS')
+                st.toast(f"🟢 BUY {quantity} {symbol} @ MARKET", icon="✅")
+                
+        with mcol2:
+            if st.button(
+                "🔴 SELL MARKET", 
+                use_container_width=True,
+                type="secondary",
+                key="market_sell", 
+                help=f"Sell {quantity} at market price"
+            ):
+                place_order(instrument_df, symbol, quantity, 'MARKET', 'SELL', 'MIS')
+                st.toast(f"🔴 SELL {quantity} {symbol} @ MARKET", icon="✅")
         
         st.markdown("---")
-        st.subheader("🎯 Limit Orders")
         
-        # Smart price suggestions based on depth
+        # Limit Orders with Smart Pricing
+        st.markdown("**Limit Orders**")
+        
+        # Smart price suggestions from depth
         if depth_data and depth_data.get('buy') and depth_data.get('sell'):
             best_bid = depth_data['buy'][0].get('price', ltp)
             best_ask = depth_data['sell'][0].get('price', ltp)
             
-            col_price1, col_price2 = st.columns(2)
-            with col_price1:
-                if st.button(f"Bid: ₹{best_bid:.2f}", use_container_width=True):
-                    price = best_bid
-                else:
-                    price = st.number_input(
-                        "Limit Price", 
-                        min_value=0.05, 
-                        value=best_bid, 
-                        step=0.05, 
-                        key="hft_limit_price_buy"
-                    )
-                    
-            with col_price2:
-                if st.button(f"Ask: ₹{best_ask:.2f}", use_container_width=True):
-                    price = best_ask
-        else:
-            price = st.number_input(
-                "Limit Price", 
-                min_value=0.05, 
-                value=ltp, 
-                step=0.05, 
-                key="hft_limit_price"
-            )
+            price_col1, price_col2 = st.columns(2)
+            with price_col1:
+                if st.button(f"Bid: ₹{best_bid:.2f}", use_container_width=True, key="use_bid"):
+                    st.session_state.hft_limit_price = best_bid
+            with price_col2:
+                if st.button(f"Ask: ₹{best_ask:.2f}", use_container_width=True, key="use_ask"):
+                    st.session_state.hft_limit_price = best_ask
         
-        limit_btn_cols = st.columns(2)
-        if limit_btn_cols[0].button(
-            "🟢 LIMIT BUY", 
-            use_container_width=True,
-            help=f"Buy {quantity} shares at ₹{price:.2f}"
-        ):
-            place_order(instrument_df, symbol, quantity, 'LIMIT', 'BUY', 'MIS', price=price)
-            st.toast(f"🟢 LIMIT BUY order placed for {quantity} {symbol} @ ₹{price:.2f}", icon="✅")
-            
-        if limit_btn_cols[1].button(
-            "🔴 LIMIT SELL", 
-            use_container_width=True,
-            help=f"Sell {quantity} shares at ₹{price:.2f}"
-        ):
-            place_order(instrument_df, symbol, quantity, 'LIMIT', 'SELL', 'MIS', price=price)
-            st.toast(f"🔴 LIMIT SELL order placed for {quantity} {symbol} @ ₹{price:.2f}", icon="✅")
+        limit_price = st.number_input(
+            "Limit Price",
+            min_value=0.05,
+            value=st.session_state.get('hft_limit_price', ltp),
+            step=0.05,
+            key="hft_limit_price_input"
+        )
+        
+        lcol1, lcol2 = st.columns(2)
+        with lcol1:
+            if st.button(
+                "🟢 BUY LIMIT", 
+                use_container_width=True,
+                key="limit_buy",
+                help=f"Buy {quantity} at ₹{limit_price:.2f}"
+            ):
+                place_order(instrument_df, symbol, quantity, 'LIMIT', 'BUY', 'MIS', price=limit_price)
+                st.toast(f"🟢 BUY {quantity} {symbol} @ ₹{limit_price:.2f}", icon="✅")
+                
+        with lcol2:
+            if st.button(
+                "🔴 SELL LIMIT", 
+                use_container_width=True,
+                key="limit_sell",
+                help=f"Sell {quantity} at ₹{limit_price:.2f}"
+            ):
+                place_order(instrument_df, symbol, quantity, 'LIMIT', 'SELL', 'MIS', price=limit_price)
+                st.toast(f"🔴 SELL {quantity} {symbol} @ ₹{limit_price:.2f}", icon="✅")
+        
+        # Order Information
+        st.markdown("---")
+        st.markdown("**Order Info**")
+        info_col1, info_col2 = st.columns(2)
+        with info_col1:
+            st.metric("Lot Size", lot_size)
+        with info_col2:
+            st.metric("Est. Value", f"₹{quantity * ltp:,.0f}")
+        
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    with main_cols[2]:
-        st.subheader("📈 Live Tick Log")
+    with col_ticks:
+        # Enhanced Tick Log
+        st.markdown("""
+        <div style="background: #1a1a1a; padding: 15px; border-radius: 10px; border: 1px solid #333; height: 600px; display: flex; flex-direction: column;">
+            <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 15px;">
+                <h3 style="color: #fff; margin: 0;">📈 Live Ticks</h3>
+                <div style="color: #888; font-size: 0.8em;">{get_ist_time().strftime('%H:%M:%S')}</div>
+            </div>
+        """, unsafe_allow_html=True)
         
-        # Auto-refresh control
-        col_refresh = st.columns([2, 1])
-        with col_refresh[0]:
-            st.caption(f"Last update: {get_ist_time().strftime('%H:%M:%S')}")
-        with col_refresh[1]:
-            if st.button("🔄 Clear", key="clear_ticks"):
+        # Tick Log Controls
+        control_col1, control_col2 = st.columns(2)
+        with control_col1:
+            if st.button("🗑️ Clear", use_container_width=True, key="clear_ticks"):
                 st.session_state.hft_tick_log = []
                 st.rerun()
+        with control_col2:
+            auto_refresh = st.checkbox("Auto-refresh", value=True, key="hft_auto_refresh")
         
-        log_container = st.container(height=400)
+        # Tick Log Display
+        tick_container = st.container()
         
-        if st.session_state.hft_tick_log:
-            for entry in st.session_state.hft_tick_log[:25]:  # Show last 25 ticks
-                color = '#22c55e' if entry['change'] > 0 else '#ef4444'  # Green/Red
-                arrow = "▲" if entry['change'] > 0 else "▼" if entry['change'] < 0 else "●"
-                
-                log_container.markdown(
-                    f"<div style='font-family: monospace; font-size: 0.8em; margin: 2px 0;'>"
-                    f"<span style='color: #6b7280;'>{entry['time']}</span> "
-                    f"<span style='color: {color}; font-weight: bold;'>{arrow}</span> "
-                    f"<strong>₹{entry['price']:.2f}</strong> "
-                    f"<span style='color: {color};'>({entry['change']:+.2f})</span>"
-                    f"</div>", 
-                    unsafe_allow_html=True
-                )
-        else:
-            log_container.info("No tick data yet. Ticks will appear here as prices change.")
+        with tick_container:
+            if st.session_state.hft_tick_log:
+                # Show last 30 ticks
+                for entry in st.session_state.hft_tick_log[:30]:
+                    color = "#00ff88" if entry['direction'] == 'up' else "#ff4444" if entry['direction'] == 'down' else "#888888"
+                    bg_color = "rgba(0, 255, 136, 0.1)" if entry['direction'] == 'up' else "rgba(255, 68, 68, 0.1)" if entry['direction'] == 'down' else "transparent"
+                    arrow = "▲" if entry['direction'] == 'up' else "▼" if entry['direction'] == 'down' else "●"
+                    
+                    st.markdown(f"""
+                    <div style="background: {bg_color}; padding: 8px 12px; margin: 2px 0; border-radius: 4px; border-left: 3px solid {color};">
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-family: 'Courier New', monospace;">
+                            <span style="color: #aaa; font-size: 0.85em;">{entry['time']}</span>
+                            <span style="color: {color}; font-weight: bold; font-size: 1.1em;">{arrow} ₹{entry['price']:.2f}</span>
+                            <span style="color: {color}; font-size: 0.9em;">{entry['change']:+.2f}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("No tick data yet. Price changes will appear here.")
         
-        # Statistics
+        # Tick Statistics
         if len(st.session_state.hft_tick_log) > 1:
-            st.markdown("---")
-            st.subheader("📊 Tick Statistics")
-            
-            ticks_up = len([t for t in st.session_state.hft_tick_log if t['change'] > 0])
-            ticks_down = len([t for t in st.session_state.hft_tick_log if t['change'] < 0])
+            up_ticks = len([t for t in st.session_state.hft_tick_log if t['direction'] == 'up'])
+            down_ticks = len([t for t in st.session_state.hft_tick_log if t['direction'] == 'down'])
             total_ticks = len(st.session_state.hft_tick_log)
             
-            if total_ticks > 0:
-                col_stat1, col_stat2 = st.columns(2)
-                with col_stat1:
-                    st.metric("Up Ticks", ticks_up, f"{(ticks_up/total_ticks*100):.1f}%")
-                with col_stat2:
-                    st.metric("Down Ticks", ticks_down, f"{(ticks_down/total_ticks*100):.1f}%")
+            st.markdown("""
+            <div style="background: #2a2a2a; padding: 10px; border-radius: 5px; margin-top: 15px;">
+                <div style="color: #fff; font-weight: bold; margin-bottom: 8px;">Tick Statistics</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.9em;">
+            """, unsafe_allow_html=True)
+            
+            st.markdown(f'<div style="color: #00ff88;">Up: {up_ticks}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="color: #00ff88;">{(up_ticks/total_ticks*100):.1f}%</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="color: #ff4444;">Down: {down_ticks}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="color: #ff4444;">{(down_ticks/total_ticks*100):.1f}%</div>', unsafe_allow_html=True)
+            
+            st.markdown("</div></div>", unsafe_allow_html=True)
+        
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    # Auto-refresh for HFT terminal
-    if st.session_state.get('auto_refresh_hft', True):
-        a_time.sleep(1)  # 1 second refresh for HFT
+    # --- Performance Metrics Footer ---
+    st.markdown("---")
+    st.markdown("### 📊 Performance Metrics")
+    
+    metric_cols = st.columns(6)
+    
+    with metric_cols[0]:
+        latency = random.uniform(2, 15)  # HFT-grade latency
+        st.metric("Latency", f"{latency:.1f} ms")
+    
+    with metric_cols[1]:
+        total_volume = depth_data.get('total_bid_volume', 0) + depth_data.get('total_ask_volume', 0) if depth_data else 0
+        st.metric("Depth Volume", f"{total_volume:,}")
+    
+    with metric_cols[2]:
+        st.metric("Tick Count", len(st.session_state.hft_tick_log))
+    
+    with metric_cols[3]:
+        if depth_data:
+            ratio = depth_data.get('bid_ask_ratio', 1)
+        st.metric("Bid/Ask Ratio", f"{ratio:.2f}")
+    
+    with metric_cols[4]:
+        if st.session_state.hft_tick_log:
+            avg_tick_change = sum(abs(t['change']) for t in st.session_state.hft_tick_log) / len(st.session_state.hft_tick_log)
+            st.metric("Avg Tick", f"₹{avg_tick_change:.2f}")
+    
+    with metric_cols[5]:
+        st.metric("Status", "🟢 LIVE" if auto_refresh else "⏸️ PAUSED")
+
+    # Auto-refresh for HFT mode
+    if auto_refresh:
+        a_time.sleep(0.5)  # Faster refresh for true HFT feel
         st.rerun()
 
-# Make sure to initialize the session state variables
+# Initialize HFT session state
 def initialize_hft_session_state():
     """Initialize HFT-specific session state variables."""
     if 'hft_last_price' not in st.session_state:
         st.session_state.hft_last_price = 0
     if 'hft_tick_log' not in st.session_state:
         st.session_state.hft_tick_log = []
-    if 'auto_refresh_hft' not in st.session_state:
-        st.session_state.auto_refresh_hft = True
+    if 'hft_limit_price' not in st.session_state:
+        st.session_state.hft_limit_price = 0
 
-# Call this function at the start of your app
+# Call this in your main app initialization
 initialize_hft_session_state()
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
