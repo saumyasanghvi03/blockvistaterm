@@ -8391,7 +8391,7 @@ def display_iceberg_results_enhanced(detection_result, market_data, show_details
         with col_vol3:
             cumulative_ratio = volume_analysis.get('cumulative_volume_ratio', 0)
             st.metric("Cumulative Ratio", f"{cumulative_ratio:.1%}")
-            
+        
             expected_pct = volume_analysis.get('cumulative_expected_percentage', 0)
             st.metric("Expected %", f"{expected_pct:.1%}")
         
