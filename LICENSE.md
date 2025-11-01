@@ -3,10 +3,10 @@ COMMERCIAL LICENSE AGREEMENT
 BlockVista-Terminal Software License
 Company: IDC Fintech Solutions
 Copyright (c) 2025 IDC Fintech Solutions. All Rights Reserved.
-Maintained and Developed by: Saumya Sanghvi and Kanishk Mohan
+Maintained and Developed by: Saumya Sanghvi
 ===============================================================================
 1. COPYRIGHT AND OWNERSHIP
-This software and all associated documentation files, source code, object code, algorithms, methodologies, and related intellectual property (collectively, the "Software") are the exclusive property of IDC Fintech Solutions (the "Company"). The Software is maintained and developed by Saumya Sanghvi and Kanishk Mohan on behalf of IDC Fintech Solutions. All rights, title, and interest in and to the Software, including all copyrights, patents, trade secrets, trademarks, and other intellectual property rights, are owned by and reserved to IDC Fintech Solutions.
+This software and all associated documentation files, source code, object code, algorithms, methodologies, and related intellectual property (collectively, the "Software") are the exclusive property of IDC Fintech Solutions (the "Company"). The Software is maintained and developed by Saumya Sanghvi on behalf of IDC Fintech Solutions. All rights, title, and interest in and to the Software, including all copyrights, patents, trade secrets, trademarks, and other intellectual property rights, are owned by and reserved to IDC Fintech Solutions.
 
 2. COMMERCIAL USE RESTRICTIONS
 The Software is licensed, not sold. This license grants no rights to use the Software for any commercial purpose whatsoever without obtaining explicit written authorization from the Company. Commercial use includes, but is not limited to:
@@ -50,7 +50,6 @@ The Company welcomes inquiries regarding commercial licensing, partnerships, and
 
 For licensing inquiries, partnership opportunities, or to request permission for commercial use, please contact:
   Saumya Sanghvi: saumyasanghvi03@gmail.com
-  Kanishk Mohan
 
 All commercial license agreements will be negotiated on a case-by-case basis and will require a formal written agreement signed by authorized representatives of IDC Fintech Solutions.
 
