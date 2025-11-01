@@ -11955,7 +11955,6 @@ def page_ai_discovery():
         
         confidence_threshold = st.slider("Confidence Threshold", 50, 95, 75)
         min_volume = st.number_input("Minimum Volume", 1000, 1000000, 10000)
-        time_frame = st.selectbox("Time Frame", ["1D", "1W", "1M", "3M"])
         
         st.markdown("---")
         st.subheader("📊 Market Context")
@@ -12030,40 +12029,78 @@ def get_instrument_token(symbol, instrument_df, exchange):
     except Exception as e:
         return None
 
-def get_historical_data_within_limits(token, interval, days=365):
-    """Get historical data within Kite API limits (365 days max for hourly)."""
+def get_historical_data_chunked(instrument_token, interval, days=5):
+    """
+    Enhanced historical data function that automatically chunks large requests.
+    Uses only last 5 market days by default.
+    """
     try:
-        # Ensure we don't exceed API limits
-        if interval == 'hour' and days > 200:
-            days = 200
-        elif interval == 'day' and days > 365:
-            days = 365
+        kite = st.session_state.get('kite')  # Adjust based on your kite session storage
+        if not kite:
+            return pd.DataFrame()
+        
+        # Calculate date range - only last 5 market days
+        to_date = datetime.now().date()
+        from_date = to_date - timedelta(days=days + 10)  # Add buffer for weekends/holidays
+        
+        # Convert to datetime objects
+        from_datetime = datetime.combine(from_date, datetime.min.time())
+        to_datetime = datetime.combine(to_date, datetime.max.time())
+        
+        # Define interval limits
+        interval_limits = {
+            'minute': 60, '3minute': 100, '5minute': 100, '10minute': 100,
+            '15minute': 200, '30minute': 200, '60minute': 400, 'hour': 400, 'day': 2000
+        }
+        
+        max_days = interval_limits.get(interval, 400)
+        total_days = (to_datetime - from_datetime).days
+        
+        # If within limits, fetch directly
+        if total_days <= max_days:
+            data = kite.historical_data(instrument_token, from_date=from_datetime, to_date=to_datetime, interval=interval)
+            df = pd.DataFrame(data)
+        else:
+            # Fetch in chunks
+            all_data = []
+            current_from = from_datetime
+            delta = timedelta(days=max_days)
             
-        # Use the existing function but with safe limits
-        data = get_historical_data(token, interval, period=f'{days}d')
-        return data
+            while current_from < to_datetime:
+                current_to = min(current_from + delta, to_datetime)
+                
+                chunk = kite.historical_data(
+                    instrument_token,
+                    from_date=current_from,
+                    to_date=current_to,
+                    interval=interval
+                )
+                all_data.extend(chunk)
+                current_from = current_to + timedelta(days=1)
+            
+            df = pd.DataFrame(all_data)
+        
+        # Filter to only last 5 market days
+        if not df.empty and 'date' in df.columns:
+            df['date'] = pd.to_datetime(df['date'])
+            last_5_days = df['date'].max() - timedelta(days=7)  # 7 calendar days to ensure 5 market days
+            df = df[df['date'] >= last_5_days]
+        
+        return df
+        
     except Exception as e:
-        if "interval exceeds max limit" in str(e):
-            # Auto-adjust to maximum allowed days
-            if interval == 'hour':
-                return get_historical_data(token, interval, period='365d')
-            elif interval == 'day':
-                return get_historical_data(token, interval, period='365d')
         return pd.DataFrame()
 
-def get_hourly_data_with_fallback(token, symbol, days=60):
-    """Get hourly data with fallback to daily data if unavailable, respecting 400-day limit."""
+def get_hourly_data_with_fallback(token, symbol, days=5):
+    """Get hourly data with fallback to daily data if unavailable, using only last 5 market days."""
     try:
-        # Ensure we don't exceed the 400-day limit for hourly data
-        days = min(days, 365)
-        
-        # Try to get hourly data
-        hourly_data = get_historical_data_within_limits(token, 'hour', days)
-        if not hourly_data.empty and len(hourly_data) > 10:
+        # Try to get hourly data for last 5 market days
+        hourly_data = get_historical_data_chunked(token, 'hour', days)
+        if not hourly_data.empty and len(hourly_data) > 5:
             return hourly_data
         
-        # Fallback: use daily data
-        daily_data = get_historical_data_within_limits(token, 'day', min(days*3, 365))
+        # Fallback: use daily data for last 5 market days
+        daily_data = get_historical_data_chunked(token, 'day', days)
         if not daily_data.empty:
             return daily_data
             
@@ -12073,10 +12110,10 @@ def get_hourly_data_with_fallback(token, symbol, days=60):
     return pd.DataFrame()
 
 def enhanced_pattern_recognition(active_list, instrument_df):
-    """Advanced pattern recognition with ML-based technical analysis using multi-timeframe data."""
+    """Advanced pattern recognition using only last 5 market days."""
     patterns = []
     
-    for item in active_list[:10]:  # Limit for performance
+    for item in active_list[:10]:
         try:
             symbol = item['symbol']
             exchange = item['exchange']
@@ -12085,17 +12122,17 @@ def enhanced_pattern_recognition(active_list, instrument_df):
             if not token:
                 continue
                 
-            # Get multi-timeframe data within API limits
-            daily_data = get_historical_data_within_limits(token, 'day', 400)  # Last 400 days
-            hourly_data = get_hourly_data_with_fallback(token, symbol, 60)  # Last 60 days hourly
+            # Get data for last 5 market days only
+            daily_data = get_historical_data_chunked(token, 'day', 5)
+            hourly_data = get_hourly_data_with_fallback(token, symbol, 5)
             
-            if daily_data.empty:
+            if daily_data.empty or len(daily_data) < 3:
                 continue
             
             # Enhanced analysis with multi-timeframe data
             pattern_analysis = analyze_advanced_patterns_with_hourly(daily_data, hourly_data, symbol)
             
-            if pattern_analysis["confidence"] > 40:  # Lower threshold for more results
+            if pattern_analysis["confidence"] > 40:
                 patterns.append(pattern_analysis)
                 
         except Exception as e:
@@ -12108,11 +12145,11 @@ def enhanced_pattern_recognition(active_list, instrument_df):
     }
 
 def analyze_advanced_patterns_with_hourly(daily_data, hourly_data, symbol):
-    """Enhanced pattern analysis using both daily and hourly data."""
+    """Enhanced pattern analysis using both daily and hourly data from last 5 days."""
     
     try:
-        # Calculate multiple indicators for both timeframes
-        daily_data = calculate_advanced_indicators(daily_data)
+        # Calculate indicators for 5-day analysis
+        daily_data = calculate_5day_indicators(daily_data)
         daily_latest = daily_data.iloc[-1]
         
         patterns_detected = []
@@ -12120,46 +12157,46 @@ def analyze_advanced_patterns_with_hourly(daily_data, hourly_data, symbol):
         signal_strength = "Neutral"
         timeframe_alignment = 0
         
-        # DAILY ANALYSIS
-        # Trend analysis
-        if len(daily_data) > 200:
-            if (daily_latest.get('EMA_20', 0) > daily_latest.get('EMA_50', 0) and
-                daily_latest.get('EMA_50', 0) > daily_latest.get('EMA_200', 0)):
-                patterns_detected.append("Strong Daily Uptrend")
-                confidence += 20
+        # 5-DAY TREND ANALYSIS
+        if len(daily_data) >= 3:
+            # Use shorter EMAs for 5-day analysis
+            if (daily_latest.get('EMA_5', 0) > daily_latest.get('EMA_3', 0) and
+                daily_latest.get('close', 0) > daily_latest.get('EMA_5', 0)):
+                patterns_detected.append("5-Day Uptrend")
+                confidence += 25
                 signal_strength = "Bullish"
                 timeframe_alignment += 1
         
-        # Momentum confirmation
-        daily_rsi = daily_latest.get('RSI_14', 50)
-        if 40 < daily_rsi < 70:
-            if daily_rsi > 55:
-                patterns_detected.append("Daily Positive Momentum")
-                confidence += 10
-            elif daily_rsi < 45:
-                patterns_detected.append("Daily Negative Momentum") 
-                confidence += 10
+        # MOMENTUM ANALYSIS (5-day)
+        daily_rsi = daily_latest.get('RSI_5', 50)
+        if 30 < daily_rsi < 80:
+            if daily_rsi > 60:
+                patterns_detected.append("Short-term Bullish Momentum")
+                confidence += 15
+            elif daily_rsi < 40:
+                patterns_detected.append("Short-term Bearish Momentum") 
+                confidence += 15
                 signal_strength = "Bearish"
         
-        # HOURLY ANALYSIS
-        if not hourly_data.empty and len(hourly_data) > 20:
-            hourly_data = calculate_advanced_indicators(hourly_data)
+        # HOURLY ANALYSIS (last 5 days)
+        if not hourly_data.empty and len(hourly_data) > 10:
+            hourly_data = calculate_5day_indicators(hourly_data)
             hourly_latest = hourly_data.iloc[-1]
             
             # Hourly trend analysis
-            hourly_ema_20 = hourly_latest.get('EMA_20', 0)
-            hourly_ema_50 = hourly_latest.get('EMA_50', 0)
+            hourly_ema_5 = hourly_latest.get('EMA_5', 0)
+            hourly_ema_3 = hourly_latest.get('EMA_3', 0)
             
-            if hourly_ema_20 > hourly_ema_50:
+            if hourly_ema_5 > hourly_ema_3:
                 patterns_detected.append("Hourly Uptrend")
-                confidence += 15
+                confidence += 20
                 timeframe_alignment += 1
             else:
                 patterns_detected.append("Hourly Consolidation")
                 confidence += 5
             
             # Hourly momentum
-            hourly_rsi = hourly_latest.get('RSI_14', 50)
+            hourly_rsi = hourly_latest.get('RSI_5', 50)
             if 30 < hourly_rsi < 80:
                 if hourly_rsi > 60:
                     patterns_detected.append("Hourly Bullish Momentum")
@@ -12171,31 +12208,39 @@ def analyze_advanced_patterns_with_hourly(daily_data, hourly_data, symbol):
         # MULTI-TIMEFRAME ALIGNMENT BONUS
         if timeframe_alignment >= 2:
             patterns_detected.append("Multi-Timeframe Alignment")
-            confidence += 20
+            confidence += 15
         
-        # Volume analysis (daily)
-        volume_avg = 1
-        if len(daily_data) > 20:
-            volume_avg = daily_data['volume'].tail(20).mean()
-            if volume_avg > 0 and (daily_latest.get('volume', 0) > volume_avg * 1.2 and
-                daily_latest.get('close', 0) > daily_latest.get('open', 0)):
-                patterns_detected.append("Daily Volume Breakout")
-                confidence += 15
+        # VOLUME ANALYSIS (5-day)
+        if len(daily_data) >= 3:
+            volume_avg = daily_data['volume'].mean()
+            current_volume = daily_latest.get('volume', 0)
+            if volume_avg > 0 and current_volume > volume_avg * 1.5:
+                patterns_detected.append("Volume Surge")
+                confidence += 20
+                if daily_latest.get('close', 0) > daily_latest.get('open', 0):
+                    patterns_detected.append("Volume Breakout")
+                    confidence += 10
         
-        # Support/Resistance breaks
-        if len(daily_data) > 20:
-            resistance = daily_data['high'].tail(20).max()
-            support = daily_data['low'].tail(20).min()
+        # 5-DAY SUPPORT/RESISTANCE
+        if len(daily_data) >= 3:
+            resistance = daily_data['high'].max()
+            support = daily_data['low'].min()
             current_price = daily_latest.get('close', 0)
             
-            if current_price >= resistance * 0.99:
-                patterns_detected.append("Daily Resistance Break")
-                confidence += 20
-                signal_strength = "Bullish"
-            elif current_price <= support * 1.01:
-                patterns_detected.append("Daily Support Break")
-                confidence += 20
-                signal_strength = "Bearish"
+            if current_price >= resistance * 0.995:  # Within 0.5% of resistance
+                patterns_detected.append("Approaching Resistance")
+                confidence += 15
+            elif current_price <= support * 1.005:  # Within 0.5% of support
+                patterns_detected.append("Approaching Support")
+                confidence += 15
+            
+            # Breakout detection
+            if len(daily_data) >= 5:
+                prev_high = daily_data['high'].iloc[-2]
+                if current_price > prev_high * 1.01:  # 1% above previous high
+                    patterns_detected.append("Breakout")
+                    confidence += 20
+                    signal_strength = "Bullish"
         
         return {
             "symbol": symbol,
@@ -12204,7 +12249,7 @@ def analyze_advanced_patterns_with_hourly(daily_data, hourly_data, symbol):
             "signal_strength": signal_strength,
             "current_price": daily_latest.get('close', 0),
             "daily_rsi": daily_rsi,
-            "hourly_rsi": hourly_latest.get('RSI_14', 50) if not hourly_data.empty and len(hourly_data) > 0 else None,
+            "hourly_rsi": hourly_latest.get('RSI_5', 50) if not hourly_data.empty and len(hourly_data) > 0 else None,
             "volume_ratio": daily_latest.get('volume', 0) / volume_avg if volume_avg > 0 else 1,
             "timeframe_alignment": timeframe_alignment,
             "has_hourly_data": not hourly_data.empty
@@ -12224,8 +12269,35 @@ def analyze_advanced_patterns_with_hourly(daily_data, hourly_data, symbol):
             "has_hourly_data": False
         }
 
+def calculate_5day_indicators(data):
+    """Calculate technical indicators optimized for 5-day analysis."""
+    try:
+        if data.empty or len(data) < 3:
+            return data
+            
+        # Shorter EMAs for 5-day analysis
+        data['EMA_3'] = data['close'].ewm(span=3).mean()
+        data['EMA_5'] = data['close'].ewm(span=5).mean()
+        
+        # 5-period RSI
+        data['price_change'] = data['close'].diff()
+        data['gain'] = data['price_change'].apply(lambda x: x if x > 0 else 0)
+        data['loss'] = data['price_change'].apply(lambda x: -x if x < 0 else 0)
+        
+        if len(data) >= 5:
+            data['avg_gain'] = data['gain'].rolling(window=5).mean()
+            data['avg_loss'] = data['loss'].rolling(window=5).mean()
+            data['RS'] = data['avg_gain'] / data['avg_loss']
+            data['RSI_5'] = 100 - (100 / (1 + data['RS']))
+        else:
+            data['RSI_5'] = 50
+            
+        return data
+    except Exception as e:
+        return data
+
 def predictive_signals_analysis(active_list, instrument_df):
-    """Predictive analysis using ML-inspired signals with hourly data."""
+    """Predictive analysis using last 5 market days."""
     signals = []
     
     for item in active_list[:8]:
@@ -12237,15 +12309,14 @@ def predictive_signals_analysis(active_list, instrument_df):
             if not token:
                 continue
                 
-            # Get multi-timeframe data within API limits
-            daily_data = get_historical_data_within_limits(token, 'day', 400)
-            hourly_data = get_hourly_data_with_fallback(token, symbol, 60)
+            # Get 5-day data only
+            daily_data = get_historical_data_chunked(token, 'day', 5)
+            hourly_data = get_hourly_data_with_fallback(token, symbol, 5)
             
-            if daily_data.empty or len(daily_data) < 50:
+            if daily_data.empty or len(daily_data) < 3:
                 continue
             
-            # Enhanced predictive signal generation with hourly data
-            signal = generate_predictive_signal_with_hourly(daily_data, hourly_data, symbol)
+            signal = generate_predictive_signal_5day(daily_data, hourly_data, symbol)
             
             if signal["probability"] > 40:
                 signals.append(signal)
@@ -12258,68 +12329,60 @@ def predictive_signals_analysis(active_list, instrument_df):
         "analysis_type": "Predictive ML Signals"
     }
 
-def generate_predictive_signal_with_hourly(daily_data, hourly_data, symbol):
-    """Enhanced predictive trading signals using multi-timeframe data."""
+def generate_predictive_signal_5day(daily_data, hourly_data, symbol):
+    """Predictive trading signals using 5-day data."""
     
     try:
-        # Feature engineering for both timeframes
-        daily_data = calculate_advanced_indicators(daily_data)
+        daily_data = calculate_5day_indicators(daily_data)
         daily_latest = daily_data.iloc[-1]
         
-        # ML-inspired scoring
         score = 0
         features = []
         timeframe_score = 0
         
-        # DAILY FEATURES
-        # Trend features
-        if daily_latest.get('EMA_20', 0) > daily_latest.get('EMA_50', 0):
-            score += 20
-            features.append("Daily EMA Bullish")
+        # 5-DAY TREND FEATURES
+        if daily_latest.get('EMA_5', 0) > daily_latest.get('EMA_3', 0):
+            score += 25
+            features.append("5-Day Uptrend")
             timeframe_score += 1
         
-        # Momentum features
-        daily_rsi = daily_latest.get('RSI_14', 50)
-        if 30 < daily_rsi < 70:
-            if daily_latest.get('MACD', 0) > daily_latest.get('MACD_Signal', 0):
-                score += 15
-                features.append("Daily MACD Bullish")
+        # MOMENTUM FEATURES
+        daily_rsi = daily_latest.get('RSI_5', 50)
+        if 35 < daily_rsi < 75:
+            if daily_rsi > 55:
+                score += 20
+                features.append("Bullish Momentum")
+            elif daily_rsi < 45:
+                score += 20
+                features.append("Bearish Momentum")
         
         # HOURLY FEATURES
-        if not hourly_data.empty and len(hourly_data) > 10:
-            hourly_data = calculate_advanced_indicators(hourly_data)
+        if not hourly_data.empty and len(hourly_data) > 5:
+            hourly_data = calculate_5day_indicators(hourly_data)
             hourly_latest = hourly_data.iloc[-1]
             
-            # Hourly trend
-            if hourly_latest.get('EMA_20', 0) > hourly_latest.get('EMA_50', 0):
-                score += 15
-                features.append("Hourly EMA Bullish")
+            if hourly_latest.get('EMA_5', 0) > hourly_latest.get('EMA_3', 0):
+                score += 20
+                features.append("Hourly Uptrend")
                 timeframe_score += 1
-            
-            # Hourly momentum
-            hourly_rsi = hourly_latest.get('RSI_14', 50)
-            if 35 < hourly_rsi < 75:
-                if hourly_rsi > 55:
-                    score += 10
-                    features.append("Hourly Momentum Positive")
         
-        # MULTI-TIMEFRAME ALIGNMENT BONUS
+        # MULTI-TIMEFRAME ALIGNMENT
         if timeframe_score >= 2:
             score += 20
             features.append("Multi-Timeframe Alignment")
         
-        # Volume features (daily)
-        if len(daily_data) > 20:
-            volume_avg = daily_data['volume'].tail(20).mean()
-            if volume_avg > 0 and daily_latest.get('volume', 0) > volume_avg * 1.1:
-                score += 10
-                features.append("Daily Volume Surge")
+        # VOLUME FEATURES
+        if len(daily_data) >= 3:
+            volume_avg = daily_data['volume'].mean()
+            if volume_avg > 0 and daily_latest.get('volume', 0) > volume_avg * 1.3:
+                score += 15
+                features.append("Volume Spike")
         
-        # Price action features
-        if (daily_latest.get('close', 0) > daily_latest.get('EMA_20', 0) and 
-            daily_latest.get('close', 0) > daily_data['close'].tail(20).mean()):
-            score += 10
-            features.append("Daily Price Strength")
+        # PRICE ACTION FEATURES
+        if (daily_latest.get('close', 0) > daily_latest.get('EMA_5', 0) and 
+            daily_latest.get('close', 0) > daily_data['close'].mean()):
+            score += 15
+            features.append("Price Strength")
         
         probability = min(95, score)
         
@@ -12338,10 +12401,8 @@ def generate_predictive_signal_with_hourly(daily_data, hourly_data, symbol):
             "features": features,
             "current_price": daily_latest.get('close', 0),
             "daily_rsi": daily_rsi,
-            "hourly_rsi": hourly_latest.get('RSI_14', 50) if not hourly_data.empty and len(hourly_data) > 0 else None,
             "volume_ratio": daily_latest.get('volume', 0) / volume_avg if volume_avg > 0 else 1,
-            "timeframe_alignment": timeframe_score,
-            "has_hourly_data": not hourly_data.empty
+            "timeframe_alignment": timeframe_score
         }
     except Exception as e:
         return {
@@ -12351,14 +12412,12 @@ def generate_predictive_signal_with_hourly(daily_data, hourly_data, symbol):
             "features": ["Analysis Error"],
             "current_price": 0,
             "daily_rsi": 50,
-            "hourly_rsi": None,
             "volume_ratio": 1,
-            "timeframe_alignment": 0,
-            "has_hourly_data": False
+            "timeframe_alignment": 0
         }
 
 def risk_adjusted_opportunities(active_list, instrument_df):
-    """Find risk-adjusted trading opportunities."""
+    """Find risk-adjusted trading opportunities using 5-day data."""
     opportunities = []
     
     for item in active_list[:8]:
@@ -12370,11 +12429,11 @@ def risk_adjusted_opportunities(active_list, instrument_df):
             if not token:
                 continue
                 
-            data = get_historical_data_within_limits(token, 'day', 400)
-            if data.empty:
+            data = get_historical_data_chunked(token, 'day', 5)
+            if data.empty or len(data) < 3:
                 continue
             
-            opportunity = analyze_risk_adjusted_opportunity(data, symbol)
+            opportunity = analyze_risk_adjusted_opportunity_5day(data, symbol)
             
             if opportunity["risk_reward_ratio"] > 1.2:
                 opportunities.append(opportunity)
@@ -12387,30 +12446,24 @@ def risk_adjusted_opportunities(active_list, instrument_df):
         "analysis_type": "Risk-Adjusted Opportunities"
     }
 
-def analyze_risk_adjusted_opportunity(data, symbol):
-    """Analyze risk-reward ratio for trading opportunities."""
+def analyze_risk_adjusted_opportunity_5day(data, symbol):
+    """Analyze risk-reward ratio using 5-day data."""
     try:
-        data = calculate_advanced_indicators(data)
+        data = calculate_5day_indicators(data)
         latest = data.iloc[-1]
         
-        # Calculate support and resistance
-        support = data['low'].tail(20).min()
-        resistance = data['high'].tail(20).max()
+        # Calculate 5-day support and resistance
+        support = data['low'].min()
+        resistance = data['high'].max()
         current_price = latest.get('close', 0)
         
-        # Risk-reward calculation
-        if current_price > data['close'].tail(20).mean():
-            # Bullish scenario
-            potential_upside = resistance - current_price
-            potential_downside = current_price - support
-        else:
-            # Bearish scenario
-            potential_upside = current_price - support
-            potential_downside = resistance - current_price
+        # Risk-reward calculation for 5-day range
+        potential_upside = resistance - current_price
+        potential_downside = current_price - support
         
         risk_reward_ratio = potential_upside / potential_downside if potential_downside > 0 else 1
         
-        # Volatility assessment
+        # 5-day volatility
         volatility = data['close'].pct_change().std() * 100
         
         return {
@@ -12419,8 +12472,8 @@ def analyze_risk_adjusted_opportunity(data, symbol):
             "support": support,
             "resistance": resistance,
             "risk_reward_ratio": round(risk_reward_ratio, 2),
-            "volatility": round(volatility, 2),
-            "rsi": round(latest.get('RSI_14', 50), 1)
+            "volatility": round(volatility, 2) if not np.isnan(volatility) else 0,
+            "rsi": round(latest.get('RSI_5', 50), 1)
         }
     except Exception as e:
         return {
@@ -12434,7 +12487,7 @@ def analyze_risk_adjusted_opportunity(data, symbol):
         }
 
 def technical_setups_analysis(active_list, instrument_df):
-    """Analyze technical setups for trading."""
+    """Analyze technical setups using 5-day data."""
     setups = []
     
     for item in active_list[:10]:
@@ -12446,11 +12499,11 @@ def technical_setups_analysis(active_list, instrument_df):
             if not token:
                 continue
                 
-            data = get_historical_data_within_limits(token, 'day', 400)
-            if data.empty:
+            data = get_historical_data_chunked(token, 'day', 5)
+            if data.empty or len(data) < 3:
                 continue
             
-            setup = analyze_technical_setup(data, symbol)
+            setup = analyze_technical_setup_5day(data, symbol)
             
             if setup["setup_quality"] > 40:
                 setups.append(setup)
@@ -12463,39 +12516,39 @@ def technical_setups_analysis(active_list, instrument_df):
         "analysis_type": "Technical Setups"
     }
 
-def analyze_technical_setup(data, symbol):
-    """Analyze technical trading setups."""
+def analyze_technical_setup_5day(data, symbol):
+    """Analyze technical trading setups using 5-day data."""
     try:
-        data = calculate_advanced_indicators(data)
+        data = calculate_5day_indicators(data)
         latest = data.iloc[-1]
         
         setup_quality = 0
         setup_type = "Neutral"
         characteristics = []
         
-        # Trend characteristics
-        if latest.get('EMA_20', 0) > latest.get('EMA_50', 0):
-            setup_quality += 25
-            characteristics.append("Uptrend")
+        # 5-DAY TREND CHARACTERISTICS
+        if latest.get('EMA_5', 0) > latest.get('EMA_3', 0):
+            setup_quality += 30
+            characteristics.append("5-Day Uptrend")
             setup_type = "Bullish"
         
-        # Momentum characteristics
-        rsi = latest.get('RSI_14', 50)
-        if 40 < rsi < 65:
-            setup_quality += 20
+        # MOMENTUM CHARACTERISTICS
+        rsi = latest.get('RSI_5', 50)
+        if 40 < rsi < 70:
+            setup_quality += 25
             characteristics.append("Healthy Momentum")
         
-        # Volume characteristics
-        if len(data) > 20:
-            volume_avg = data['volume'].tail(20).mean()
+        # VOLUME CHARACTERISTICS
+        if len(data) >= 3:
+            volume_avg = data['volume'].mean()
             if volume_avg > 0 and latest.get('volume', 0) > volume_avg:
-                setup_quality += 15
+                setup_quality += 20
                 characteristics.append("Above Average Volume")
         
-        # Pattern characteristics
-        if (latest.get('close', 0) > latest.get('EMA_20', 0) and
-            latest.get('close', 0) > data['close'].tail(10).mean()):
-            setup_quality += 20
+        # PRICE ACTION CHARACTERISTICS
+        if (latest.get('close', 0) > latest.get('EMA_5', 0) and
+            latest.get('close', 0) > data['close'].mean()):
+            setup_quality += 25
             characteristics.append("Price Strength")
         
         return {
@@ -12517,10 +12570,10 @@ def analyze_technical_setup(data, symbol):
         }
 
 def display_enhanced_discovery_results(results, discovery_mode, confidence_threshold):
-    """Display enhanced discovery results with hourly data insights."""
+    """Display enhanced discovery results with 5-day analysis insights."""
     
     if discovery_mode == "Pattern Recognition":
-        st.subheader("🎯 High-Confidence Patterns")
+        st.subheader("🎯 High-Confidence Patterns (5-Day Analysis)")
         
         filtered_patterns = [p for p in results["patterns"] if p["confidence"] >= confidence_threshold]
         
@@ -12557,15 +12610,10 @@ def display_enhanced_discovery_results(results, discovery_mode, confidence_thres
                     if st.button("Analyze", key=f"analyze_{pattern['symbol']}"):
                         st.session_state[f"detailed_{pattern['symbol']}"] = True
                 
-                # Detailed analysis on click
-                if st.session_state.get(f"detailed_{pattern['symbol']}", False):
-                    with st.expander(f"Detailed Analysis - {pattern['symbol']}", expanded=True):
-                        display_symbol_technical_analysis(pattern)
-                
                 st.markdown("---")
     
     elif discovery_mode == "Predictive Signals":
-        st.subheader("🎯 Predictive Signals")
+        st.subheader("🎯 Predictive Signals (5-Day Analysis)")
         
         filtered_signals = [s for s in results["signals"] if s["probability"] >= confidence_threshold]
         
@@ -12604,7 +12652,7 @@ def display_enhanced_discovery_results(results, discovery_mode, confidence_thres
                 st.markdown("---")
     
     elif discovery_mode == "Technical Setups":
-        st.subheader("🎯 Technical Setups")
+        st.subheader("🎯 Technical Setups (5-Day Analysis)")
         
         filtered_setups = [s for s in results["setups"] if s["setup_quality"] >= confidence_threshold]
         
@@ -12640,7 +12688,7 @@ def display_enhanced_discovery_results(results, discovery_mode, confidence_thres
                 st.markdown("---")
     
     elif discovery_mode == "Risk-Adjusted Opportunities":
-        st.subheader("🎯 Risk-Adjusted Opportunities")
+        st.subheader("🎯 Risk-Adjusted Opportunities (5-Day Analysis)")
         
         filtered_opportunities = [o for o in results["opportunities"] if o["risk_reward_ratio"] >= (confidence_threshold / 50)]
         
@@ -12667,8 +12715,9 @@ def display_enhanced_discovery_results(results, discovery_mode, confidence_thres
                 
                 st.markdown("---")
 
+# Keep the existing display_symbol_technical_analysis and execute_ai_trade functions
 def display_symbol_technical_analysis(pattern_data):
-    """Enhanced technical analysis display with hourly insights."""
+    """Enhanced technical analysis display with 5-day insights."""
     st.write(f"**Detailed Technical Analysis for {pattern_data['symbol']}**")
     
     col1, col2 = st.columns(2)
@@ -12687,19 +12736,14 @@ def display_symbol_technical_analysis(pattern_data):
             st.metric("Timeframe Alignment", f"{pattern_data['timeframe_alignment']}/2")
         st.metric("Patterns Found", len(pattern_data['patterns']))
     
-    # Multi-timeframe insights
-    if pattern_data.get('has_hourly_data'):
-        st.success("✅ Multi-timeframe analysis available (Daily + Hourly)")
-    
-    if pattern_data.get('timeframe_alignment', 0) >= 2:
-        st.info("🎯 Multiple timeframes are aligned - stronger signal")
+    st.info("📊 Analysis based on last 5 market days")
     
     # Pattern details
     st.write("**Detected Patterns:**")
     for pattern in pattern_data['patterns']:
         if "Hourly" in pattern:
             st.write(f"• 🕒 {pattern}")
-        elif "Daily" in pattern:
+        elif "5-Day" in pattern or "Short-term" in pattern:
             st.write(f"• 📅 {pattern}")
         else:
             st.write(f"• {pattern}")
@@ -12741,35 +12785,6 @@ def execute_ai_trade(signal):
         quantity = 1  # Default quantity
         place_order(instrument_df, signal['symbol'], quantity, 'MARKET', signal['signal'], 'MIS')
         st.success(f"{signal['signal']} order placed for {signal['symbol']}!")
-
-def calculate_advanced_indicators(data):
-    """Calculate advanced technical indicators."""
-    try:
-        if data.empty:
-            return data
-            
-        # Simple RSI calculation
-        data['price_change'] = data['close'].diff()
-        data['gain'] = data['price_change'].apply(lambda x: x if x > 0 else 0)
-        data['loss'] = data['price_change'].apply(lambda x: -x if x < 0 else 0)
-        
-        # Simple moving averages
-        data['EMA_20'] = data['close'].ewm(span=20).mean()
-        data['EMA_50'] = data['close'].ewm(span=50).mean()
-        data['EMA_200'] = data['close'].ewm(span=200).mean()
-        
-        # Simple RSI (14 period)
-        if len(data) > 14:
-            data['avg_gain'] = data['gain'].rolling(window=14).mean()
-            data['avg_loss'] = data['loss'].rolling(window=14).mean()
-            data['RS'] = data['avg_gain'] / data['avg_loss']
-            data['RSI_14'] = 100 - (100 / (1 + data['RS']))
-        else:
-            data['RSI_14'] = 50
-            
-        return data
-    except Exception as e:
-        return data
 
 def page_greeks_calculator():
     """Calculates Greeks for any option contract."""
