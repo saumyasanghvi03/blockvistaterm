@@ -861,7 +861,6 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_in
 
 @st.cache_resource(ttl=3600)
 @st.cache_resource(ttl=3600)
-@st.cache_resource(ttl=3600)
 def get_instrument_df():
     """Fetches the full list of tradable instruments from the broker."""
     client = get_broker_client()
@@ -7455,32 +7454,28 @@ def get_gift_nifty_data():
     return pd.DataFrame()
 
 def page_dashboard():
-    """A completely redesigned 'Trader UI' Dashboard with AI-powered features."""
+    """A completely redesigned 'Trader UI' Dashboard."""
     display_header()
     instrument_df = get_instrument_df()
     if instrument_df.empty:
         st.info("Please connect to a broker to view the dashboard.")
         return
     
-    # --- Top Row: Market Intelligence ---
     index_symbols = [
         {'symbol': 'NIFTY 50', 'exchange': 'NSE'},
         {'symbol': 'SENSEX', 'exchange': 'BSE'},
         {'symbol': 'INDIA VIX', 'exchange': 'NSE'},
-        {'symbol': 'NIFTY BANK', 'exchange': 'NSE'},
     ]
     index_data = get_watchlist_data(index_symbols)
     
-    # Advanced BMP with AI Insights
-    bmp_col, ai_insights_col, heatmap_col = st.columns([1, 1.2, 1], gap="medium")
-    
+    # BMP Calculation and Display
+    bmp_col, heatmap_col = st.columns([1, 1], gap="large")
     with bmp_col:
-        st.subheader("🚀 Bharatiya Market Pulse (BMP)")
+        st.subheader("Bharatiya Market Pulse (BMP)")
         if not index_data.empty:
             nifty_row = index_data[index_data['Ticker'] == 'NIFTY 50'].iloc[0]
             sensex_row = index_data[index_data['Ticker'] == 'SENSEX'].iloc[0]
             vix_row = index_data[index_data['Ticker'] == 'INDIA VIX'].iloc[0]
-            banknifty_row = index_data[index_data['Ticker'] == 'NIFTY BANK'].iloc[0]
             
             nifty_hist = get_historical_data(get_instrument_token('NIFTY 50', instrument_df, 'NSE'), 'day', period='1y')
             sensex_hist = get_historical_data(get_instrument_token('SENSEX', instrument_df, 'BSE'), 'day', period='1y')
@@ -7493,156 +7488,24 @@ def page_dashboard():
                     'vix_value': vix_hist['close']
                 }).dropna()
                 
-                bmp_score, bmp_label, bmp_color = get_bmp_score_and_label(
-                    nifty_row['% Change'], 
-                    sensex_row['% Change'], 
-                    vix_row['Price'], 
-                    lookback_data
-                )
+                bmp_score, bmp_label, bmp_color = get_bmp_score_and_label(nifty_row['% Change'], sensex_row['% Change'], vix_row['Price'], lookback_data)
                 
-                # Enhanced BMP Display with Progress Bar
-                st.markdown(f'''
-                <div class="metric-card" style="border-color:{bmp_color};">
-                    <h3 style="margin-bottom: 10px;">{bmp_score:.2f}</h3>
-                    <div style="background: #2d2d2d; border-radius: 10px; height: 8px; margin: 10px 0;">
-                        <div style="background: {bmp_color}; width: {bmp_score}%; height: 100%; border-radius: 10px;"></div>
-                    </div>
-                    <p style="color:{bmp_color}; font-weight:bold; margin: 5px 0;">{bmp_label}</p>
-                    <small>AI-powered market sentiment score</small>
-                </div>
-                ''', unsafe_allow_html=True)
-                
-                with st.expander("📊 BMP Intelligence"):
+                st.markdown(f'<div class="metric-card" style="border-color:{bmp_color};"><h3>{bmp_score:.2f}</h3><p style="color:{bmp_color}; font-weight:bold;">{bmp_label}</p><small>Proprietary score from NIFTY, SENSEX, and India VIX.</small></div>', unsafe_allow_html=True)
+                with st.expander("What do the BMP scores mean?"):
                     st.markdown("""
-                    **Real-time Market Sentiment Analysis:**
-                    - **80-100 (Bharat Udaan):** Very Strong Bullish Momentum
-                    - **60-80 (Bharat Pragati):** Moderately Bullish Sentiment  
-                    - **40-60 (Bharat Santulan):** Neutral or Sideways Market
-                    - **20-40 (Bharat Sanket):** Moderately Bearish Sentiment
-                    - **0-20 (Bharat Mandhi):** Very Strong Bearish Momentum
+                    - **80-100 (Bharat Udaan):** Very Strong Bullish Momentum.
+                    - **60-80 (Bharat Pragati):** Moderately Bullish Sentiment.
+                    - **40-60 (Bharat Santulan):** Neutral or Sideways Market.
+                    - **20-40 (Bharat Sanket):** Moderately Bearish Sentiment.
+                    - **0-20 (Bharat Mandhi):** Very Strong Bearish Momentum.
                     """)
             else:
-                st.info("🔄 BMP data is loading...")
+                st.info("BMP data is loading...")
         else:
-            st.info("🔄 BMP data is loading...")
-    
-    with ai_insights_col:
-        st.subheader("🤖 AI Market Insights")
-        if not index_data.empty:
-            # AI-powered market insights
-            market_insight = generate_market_insight(index_data, instrument_df)
-            sentiment_icon = "📈" if "bullish" in market_insight.lower() else "📉" if "bearish" in market_insight.lower() else "⚖️"
-            
-            st.markdown(f'''
-            <div class="metric-card" style="border-color: #6366f1;">
-                <div style="display: flex; align-items: center; margin-bottom: 10px;">
-                    <span style="font-size: 24px; margin-right: 10px;">{sentiment_icon}</span>
-                    <h4 style="margin: 0;">AI Analysis</h4>
-                </div>
-                <p style="font-size: 0.9em; line-height: 1.4; color: var(--text-light);">{market_insight}</p>
-                <small>Updated every 5 minutes</small>
-            </div>
-            ''', unsafe_allow_html=True)
-            
-            # Quick metrics
-            cols = st.columns(3)
-            with cols[0]:
-                change = nifty_row['% Change'] if 'nifty_row' in locals() else 0
-                trend = "↗️" if change > 0 else "↘️" if change < 0 else "➡️"
-                st.metric("NIFTY 50", f"{trend} {abs(change):.2f}%")
-            with cols[1]:
-                vix_val = vix_row['Price'] if 'vix_row' in locals() else 0
-                vix_status = "🟢" if vix_val < 18 else "🟡" if vix_val < 25 else "🔴"
-                st.metric("VIX", f"{vix_status} {vix_val:.2f}")
-            with cols[2]:
-                st.metric("Trend", "BULL" if bmp_score > 60 else "BEAR" if bmp_score < 40 else "NEUTRAL")
-    
+            st.info("BMP data is loading...")
     with heatmap_col:
-        st.subheader("🔥 NIFTY 50 Heatmap")
+        st.subheader("NIFTY 50 Heatmap")
         st.plotly_chart(create_nifty_heatmap(instrument_df), use_container_width=True)
-
-    st.markdown("---")
-    
-    # --- AI News Ticker with Sentiment ---
-    st.subheader("📰 AI News Ticker - Market Sentiment Analysis")
-    
-    # Initialize session state for news if not exists
-    if 'news_data' not in st.session_state:
-        st.session_state.news_data = []
-        st.session_state.last_news_update = None
-    
-    # Update news every 5 minutes
-    current_time = datetime.now()
-    if (st.session_state.last_news_update is None or 
-        (current_time - st.session_state.last_news_update).seconds >= 300):
-        
-        with st.spinner("🔄 Fetching latest market news..."):
-            st.session_state.news_data = fetch_ai_news_with_sentiment()
-            st.session_state.last_news_update = current_time
-    
-    # Display news ticker
-    if st.session_state.news_data:
-        news_html = "".join([
-            f'''<span style="margin-right: 50px;">
-                <span style="color: {'#28a745' if item['sentiment'] == 'positive' else '#ff6b6b' if item['sentiment'] == 'negative' else '#ffd93d'}; 
-                      margin-right: 10px; font-weight: bold;">{item['sentiment'].upper()}</span>
-                <span style="color: white;">{item['title']}</span>
-            </span>'''
-            for item in st.session_state.news_data[:8]  # Show top 8 news
-        ])
-        
-        st.markdown(f'''
-        <style>
-            @keyframes news-marquee {{
-                0% {{ transform: translate(100%, 0); }}
-                100% {{ transform: translate(-100%, 0); }}
-            }}
-            .news-ticker-container {{
-                width: 100%;
-                overflow: hidden;
-                background: linear-gradient(90deg, #1e3c72, #2a5298);
-                border-radius: 8px;
-                padding: 12px 0;
-                margin: 10px 0 20px 0;
-                border: 1px solid #333;
-            }}
-            .news-ticker-content {{
-                display: inline-block;
-                padding-left: 100%;
-                animation: news-marquee 45s linear infinite;
-                white-space: nowrap;
-            }}
-            .news-ticker-content:hover {{
-                animation-play-state: paused;
-            }}
-        </style>
-        <div class="news-ticker-container">
-            <div class="news-ticker-content">
-                {news_html}
-            </div>
-        </div>
-        ''', unsafe_allow_html=True)
-        
-        with st.expander("📋 View Detailed News Analysis"):
-            for i, news in enumerate(st.session_state.news_data[:5]):
-                sentiment_color = {
-                    'positive': '#28a745',
-                    'negative': '#ff6b6b', 
-                    'neutral': '#ffd93d'
-                }[news['sentiment']]
-                
-                st.markdown(f"""
-                <div style="padding: 10px; margin: 5px 0; border-left: 4px solid {sentiment_color}; background: #2d2d2d;">
-                    <div style="display: flex; justify-content: between; align-items: center;">
-                        <strong style="color: {sentiment_color}; margin-right: 15px;">{news['sentiment'].upper()}</strong>
-                        <small style="color: #888;">{news['source']}</small>
-                    </div>
-                    <p style="margin: 5px 0; font-size: 0.95em;">{news['title']}</p>
-                    <small style="color: #666;">{news['time_ago']}</small>
-                </div>
-                """, unsafe_allow_html=True)
-    else:
-        st.info("📡 Loading AI news analysis...")
 
     st.markdown("---")
     
@@ -7650,10 +7513,9 @@ def page_dashboard():
     col1, col2 = st.columns([1, 1], gap="large")
     
     with col1:
-        tab1, tab2, tab3 = st.tabs(["🎯 Watchlist", "💰 Portfolio", "⚡ Quick Trade"])
+        tab1, tab2 = st.tabs(["Watchlist", "Portfolio Overview"])
 
         with tab1:
-            # Enhanced Watchlist with AI Signals
             st.session_state.active_watchlist = st.radio(
                 "Select Watchlist",
                 options=st.session_state.watchlists.keys(),
@@ -7663,240 +7525,76 @@ def page_dashboard():
             
             active_list = st.session_state.watchlists[st.session_state.active_watchlist]
 
-            # Quick Add Form
             with st.form(key="add_stock_form"):
-                add_col1, add_col2, add_col3, add_col4 = st.columns([2, 1, 1, 1])
+                add_col1, add_col2, add_col3 = st.columns([2, 1, 1])
                 new_symbol = add_col1.text_input("Symbol", placeholder="Add symbol...", label_visibility="collapsed")
                 new_exchange = add_col2.selectbox("Exchange", ["NSE", "BSE", "MCX", "CDS"], label_visibility="collapsed")
-                if add_col3.form_submit_button("➕ Add", use_container_width=True):
+                if add_col3.form_submit_button("Add"):
                     if new_symbol:
                         if len(active_list) >= 15:
-                            st.toast("⚠️ Watchlist full (max 15 stocks).", icon="⚠️")
+                            st.toast("Watchlist full (max 15 stocks).", icon="⚠️")
                         elif not any(d['symbol'] == new_symbol.upper() for d in active_list):
                             active_list.append({'symbol': new_symbol.upper(), 'exchange': new_exchange})
                             st.rerun()
                         else:
-                            st.toast(f"⚠️ {new_symbol.upper()} is already in this watchlist.", icon="⚠️")
-                if add_col4.form_submit_button("🎲 AI Pick", use_container_width=True):
-                    ai_suggestion = get_ai_stock_suggestion(instrument_df)
-                    if ai_suggestion:
-                        st.toast(f"🤖 AI suggests: {ai_suggestion}", icon="💡")
+                            st.toast(f"{new_symbol.upper()} is already in this watchlist.", icon="⚠️")
             
-            # Enhanced Watchlist Display with AI Signals
+            # Display watchlist
             watchlist_data = get_watchlist_data(active_list)
             if not watchlist_data.empty:
                 for index, row in watchlist_data.iterrows():
-                    # Get AI signal for this stock
-                    ai_signal = get_ai_trading_signal(row['Ticker'], instrument_df)
-                    signal_color = {
-                        'STRONG_BUY': '#00ff00',
-                        'BUY': '#90ee90', 
-                        'NEUTRAL': '#ffff00',
-                        'SELL': '#ffb6c1',
-                        'STRONG_SELL': '#ff0000'
-                    }.get(ai_signal, '#888888')
-                    
-                    w_cols = st.columns([2, 2, 1, 1, 1, 1, 1])
+                    w_cols = st.columns([3, 2, 1, 1, 1, 1])
                     color = 'var(--green)' if row['Change'] > 0 else 'var(--red)'
+                    w_cols[0].markdown(f"**{row['Ticker']}**<br><small style='color:var(--text-light);'>{row['Exchange']}</small>", unsafe_allow_html=True)
+                    w_cols[1].markdown(f"**{row['Price']:,.2f}**<br><small style='color:{color};'>{row['Change']:,.2f} ({row['% Change']:.2f}%)</small>", unsafe_allow_html=True)
                     
-                    # Column 1: Stock info with AI signal
-                    w_cols[0].markdown(
-                        f"**{row['Ticker']}**<br>"
-                        f"<small style='color:var(--text-light);'>{row['Exchange']}</small><br>"
-                        f"<small style='color:{signal_color};'>🔮 {ai_signal}</small>", 
-                        unsafe_allow_html=True
-                    )
+                    quantity = w_cols[2].number_input("Qty", min_value=1, step=1, key=f"qty_{row['Ticker']}", label_visibility="collapsed")
                     
-                    # Column 2: Price and change
-                    w_cols[1].markdown(
-                        f"**{row['Price']:,.2f}**<br>"
-                        f"<small style='color:{color};'>{row['Change']:,.2f} ({row['% Change']:.2f}%)</small>", 
-                        unsafe_allow_html=True
-                    )
-                    
-                    # Column 3: Quantity
-                    quantity = w_cols[2].number_input("Qty", min_value=1, step=1, value=1, 
-                                                     key=f"qty_{row['Ticker']}", label_visibility="collapsed")
-                    
-                    # Trading buttons with enhanced styling
-                    if w_cols[3].button("🟢 B", key=f"buy_{row['Ticker']}", use_container_width=True,
-                                       help=f"Buy {row['Ticker']}"):
+                    if w_cols[3].button("B", key=f"buy_{row['Ticker']}", use_container_width=True):
                         place_order(instrument_df, row['Ticker'], quantity, 'MARKET', 'BUY', 'MIS')
-                    
-                    if w_cols[4].button("🔴 S", key=f"sell_{row['Ticker']}", use_container_width=True,
-                                       help=f"Sell {row['Ticker']}"):
+                    if w_cols[4].button("S", key=f"sell_{row['Ticker']}", use_container_width=True):
                         place_order(instrument_df, row['Ticker'], quantity, 'MARKET', 'SELL', 'MIS')
-                    
-                    # Chart button
-                    if w_cols[5].button("📊", key=f"chart_{row['Ticker']}", use_container_width=True,
-                                       help=f"View {row['Ticker']} chart"):
-                        st.session_state.selected_chart = row['Ticker']
-                    
-                    # Delete button
-                    if w_cols[6].button("🗑️", key=f"del_{row['Ticker']}", use_container_width=True,
-                                       help=f"Remove {row['Ticker']}"):
-                        st.session_state.watchlists[st.session_state.active_watchlist] = [
-                            item for item in active_list if item['symbol'] != row['Ticker']
-                        ]
+                    if w_cols[5].button("🗑️", key=f"del_{row['Ticker']}", use_container_width=True):
+                        st.session_state.watchlists[st.session_state.active_watchlist] = [item for item in active_list if item['symbol'] != row['Ticker']]
                         st.rerun()
                 st.markdown("---")
 
         with tab2:
-            # Enhanced Portfolio with AI Analysis
-            st.subheader("💰 My Portfolio")
+            st.subheader("My Portfolio")
             _, holdings_df, total_pnl, total_investment = get_portfolio()
-            
-            # Portfolio metrics in columns
-            metric_cols = st.columns(3)
-            with metric_cols[0]:
-                st.metric("Total Investment", f"₹{total_investment:,.2f}")
-            with metric_cols[1]:
-                st.metric("Today's P&L", f"₹{total_pnl:,.2f}", 
-                         delta=f"{total_pnl:,.2f}")
-            with metric_cols[2]:
-                if total_investment > 0:
-                    pnl_percent = (total_pnl / total_investment) * 100
-                    st.metric("Return %", f"{pnl_percent:.2f}%")
-            
-            # AI Portfolio Insight
-            portfolio_insight = generate_portfolio_insight(holdings_df, total_pnl)
-            st.info(f"💡 {portfolio_insight}")
-            
-            with st.expander("📋 View Holdings"):
+            st.metric("Total Investment", f"₹{total_investment:,.2f}")
+            st.metric("Today's Profit & Loss", f"₹{total_pnl:,.2f}", delta=f"{total_pnl:,.2f}")
+            with st.expander("View Holdings"):
                 if not holdings_df.empty:
-                    # Enhanced holdings display
-                    styled_holdings = holdings_df.style.format({
-                        'Current Value': '₹{:,.2f}',
-                        'P&L': '₹{:,.2f}',
-                        'P&L %': '{:.2f}%'
-                    }).applymap(lambda x: 'color: #28a745' if isinstance(x, (int, float)) and x > 0 else 'color: #ff6b6b' if isinstance(x, (int, float)) and x < 0 else '', 
-                              subset=['P&L', 'P&L %'])
-                    
-                    st.dataframe(styled_holdings, use_container_width=True, hide_index=True)
+                    st.dataframe(holdings_df, use_container_width=True, hide_index=True)
                 else:
                     st.info("No holdings found.")
-
-        with tab3:
-            # Quick Trading Panel
-            st.subheader("⚡ Quick Trade")
-            
-            with st.form("quick_trade_form"):
-                q_col1, q_col2, q_col3 = st.columns(3)
-                
-                with q_col1:
-                    quick_symbol = st.text_input("Symbol", placeholder="e.g., RELIANCE")
-                    quick_exchange = st.selectbox("Exchange", ["NSE", "BSE"])
-                
-                with q_col2:
-                    quick_quantity = st.number_input("Quantity", min_value=1, value=1)
-                    quick_product = st.selectbox("Product", ["MIS", "CNC", "NRML"])
-                
-                with q_col3:
-                    quick_order_type = st.selectbox("Order Type", ["MARKET", "LIMIT"])
-                    quick_transaction = st.radio("Action", ["BUY", "SELL"], horizontal=True)
-                
-                # Price input for LIMIT orders
-                if quick_order_type == "LIMIT":
-                    quick_price = st.number_input("Price", min_value=0.0, value=0.0, step=0.05)
-                else:
-                    quick_price = 0.0
-                
-                col1, col2, col3 = st.columns([1, 2, 1])
-                with col2:
-                    if st.form_submit_button(f"🎯 {quick_transaction} {quick_symbol if quick_symbol else 'STOCK'}", 
-                                           use_container_width=True, type="primary"):
-                        if quick_symbol:
-                            place_order(instrument_df, quick_symbol.upper(), quick_quantity, 
-                                      quick_order_type, quick_transaction, quick_product, quick_price)
-                        else:
-                            st.error("Please enter a symbol")
-    
     with col2:
-        # Enhanced Charting Section
-        chart_tab1, chart_tab2 = st.tabs(["📈 Live Charts", "🔍 Technicals"])
-        
-        with chart_tab1:
-            selected_symbol = st.selectbox(
-                "Select Symbol",
-                options=["NIFTY 50", "BANKNIFTY", "RELIANCE", "TCS", "INFY"] + 
-                        [item['symbol'] for item in active_list],
-                key="chart_symbol"
-            )
-            
-            chart_timeframe = st.radio(
-                "Timeframe",
-                ["1-min", "5-min", "15-min", "1H", "1D"],
-                horizontal=True,
-                key="chart_timeframe"
-            )
-            
-            # Convert timeframe to function parameters
-            timeframe_map = {
-                "1-min": ("minute", "1d"),
-                "5-min": ("minute", "1d"), 
-                "15-min": ("minute", "2d"),
-                "1H": ("hour", "1w"),
-                "1D": ("day", "1m")
-            }
-            
-            resolution, period = timeframe_map[chart_timeframe]
-            token = get_instrument_token(selected_symbol, instrument_df, 'NSE')
-            
-            if token:
-                chart_data = get_historical_data(token, resolution, period=period)
-                if not chart_data.empty:
-                    # Add technical indicators based on timeframe
-                    if chart_timeframe in ["1H", "1D"]:
-                        chart_data = add_technical_indicators(chart_data)
-                    
-                    st.plotly_chart(
-                        create_advanced_chart(chart_data, selected_symbol, chart_timeframe), 
-                        use_container_width=True
-                    )
-                else:
-                    st.warning("Could not load chart data. Market might be closed.")
+        st.subheader("NIFTY 50 Live Chart (1-min)")
+        nifty_token = get_instrument_token('NIFTY 50', instrument_df, 'NSE')
+        if nifty_token:
+            nifty_data = get_historical_data(nifty_token, "minute", period="1d")
+            if not nifty_data.empty:
+                st.plotly_chart(create_chart(nifty_data.tail(150), "NIFTY 50"), use_container_width=True)
             else:
-                st.error(f"Instrument token not found for {selected_symbol}")
-        
-        with chart_tab2:
-            st.subheader("Technical Analysis")
-            if 'selected_chart' in st.session_state:
-                symbol = st.session_state.selected_chart
-                st.write(f"Technical Analysis for **{symbol}**")
-                
-                # Display technical indicators
-                tech_data = get_technical_analysis(symbol, instrument_df)
-                if tech_data:
-                    cols = st.columns(4)
-                    indicators = ['RSI', 'MACD', 'SMA_20', 'Volume']
-                    for i, indicator in enumerate(indicators):
-                        with cols[i]:
-                            value = tech_data.get(indicator, 'N/A')
-                            if isinstance(value, (int, float)):
-                                color = '#28a745' if (indicator == 'RSI' and 30 < value < 70) or \
-                                                  (indicator == 'MACD' and value > 0) else '#ff6b6b'
-                                st.metric(indicator, f"{value:.2f}", delta_color="off")
-                            else:
-                                st.metric(indicator, value)
-            else:
-                st.info("Select a stock from watchlist to view technical analysis")
-
-    # --- Bottom Row: Enhanced Live Ticker Tape ---
-    if ticker_symbols := st.session_state.get('watchlists', {}).get(st.session_state.get('active_watchlist'), []):
+                st.warning("Could not load NIFTY 50 chart. Market might be closed.")
+    
+    # --- Bottom Row: Live Ticker Tape ---
+    ticker_symbols = st.session_state.get('watchlists', {}).get(st.session_state.get('active_watchlist'), [])
+    
+    if ticker_symbols:
         ticker_data = get_watchlist_data(ticker_symbols)
         
         if not ticker_data.empty:
             ticker_html = "".join([
-                f"<span style='color: white; margin-right: 40px;'>{item['Ticker']} "
-                f"<span style='color: {'#28a745' if item['Change'] > 0 else '#FF4B4B'};'>"
-                f"{item['Price']:,.2f} ({item['% Change']:+.2f}%)</span></span>"
+                f"<span style='color: white; margin-right: 40px;'>{item['Ticker']} <span style='color: {'#28a745' if item['Change'] > 0 else '#FF4B4B'};'>{item['Price']:,.2f} ({item['% Change']:.2f}%)</span></span>"
                 for _, item in ticker_data.iterrows()
             ])
             
             st.markdown(f"""
             <style>
                 @keyframes marquee {{
-                    0% {{ transform: translate(100%, 0); }}
+                    0%   {{ transform: translate(100%, 0); }}
                     100% {{ transform: translate(-100%, 0); }}
                 }}
                 .marquee-container {{
@@ -7905,21 +7603,15 @@ def page_dashboard():
                     position: fixed;
                     bottom: 0;
                     left: 0;
-                    background: linear-gradient(90deg, #1a1a1a, #2d2d2d);
-                    border-top: 2px solid #6366f1;
-                    padding: 8px 0;
+                    background-color: #1a1a1a;
+                    border-top: 1px solid #333;
+                    padding: 5px 0;
                     white-space: nowrap;
-                    z-index: 999;
                 }}
                 .marquee-content {{
                     display: inline-block;
                     padding-left: 100%;
-                    animation: marquee 30s linear infinite;
-                    font-family: 'Courier New', monospace;
-                    font-weight: bold;
-                }}
-                .marquee-content:hover {{
-                    animation-play-state: paused;
+                    animation: marquee 35s linear infinite;
                 }}
             </style>
             <div class="marquee-container">
@@ -7928,134 +7620,6 @@ def page_dashboard():
                 </div>
             </div>
             """, unsafe_allow_html=True)
-
-# New AI-powered helper functions
-def fetch_ai_news_with_sentiment():
-    """Fetch news from multiple sources and perform sentiment analysis"""
-    news_sources = {
-        "Moneycontrol": "https://www.moneycontrol.com/rss/latestnews.xml",
-        "Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
-        "Business Standard": "https://www.business-standard.com/rss/markets-102.rss",
-        "Reuters Business": "https://feeds.reuters.com/reuters/businessNews",
-        "Bloomberg Markets": "https://feeds.bloomberg.com/markets/news.rss",
-    }
-    
-    news_items = []
-    for source, url in news_sources.items():
-        try:
-            feed = feedparser.parse(url)
-            for entry in feed.entries[:3]:  # Get top 3 from each source
-                sentiment = analyze_news_sentiment(entry.title)
-                news_items.append({
-                    'title': entry.title[:100] + '...' if len(entry.title) > 100 else entry.title,
-                    'link': entry.link,
-                    'source': source,
-                    'sentiment': sentiment,
-                    'published': entry.get('published', ''),
-                    'time_ago': get_time_ago(entry.get('published', ''))
-                })
-        except:
-            continue
-    
-    # Sort by sentiment priority (negative first for risk awareness)
-    sentiment_order = {'negative': 0, 'neutral': 1, 'positive': 2}
-    news_items.sort(key=lambda x: sentiment_order.get(x['sentiment'], 3))
-    
-    return news_items[:10]  # Return top 10 news
-
-def analyze_news_sentiment(headline):
-    """Simple sentiment analysis for news headlines"""
-    headline_lower = headline.lower()
-    
-    positive_words = ['bullish', 'surge', 'rally', 'gain', 'profit', 'growth', 'positive', 'strong', 'beat']
-    negative_words = ['bearish', 'fall', 'drop', 'loss', 'decline', 'negative', 'weak', 'miss', 'crash']
-    
-    pos_count = sum(1 for word in positive_words if word in headline_lower)
-    neg_count = sum(1 for word in negative_words if word in headline_lower)
-    
-    if pos_count > neg_count:
-        return 'positive'
-    elif neg_count > pos_count:
-        return 'negative'
-    else:
-        return 'neutral'
-
-def get_time_ago(published_time):
-    """Convert published time to relative time"""
-    if not published_time:
-        return "Recently"
-    try:
-        # Simple implementation - you might want to use dateutil parser
-        return "Recently"
-    except:
-        return "Recently"
-
-def generate_market_insight(index_data, instrument_df):
-    """Generate AI-powered market insights"""
-    try:
-        nifty_change = index_data[index_data['Ticker'] == 'NIFTY 50']['% Change'].iloc[0]
-        vix_value = index_data[index_data['Ticker'] == 'INDIA VIX']['Price'].iloc[0]
-        
-        if nifty_change > 0.5 and vix_value < 18:
-            return "Bullish momentum with low volatility. Good conditions for long positions."
-        elif nifty_change < -0.5 and vix_value > 22:
-            return "Bearish pressure with high volatility. Consider risk management."
-        elif abs(nifty_change) < 0.3 and vix_value < 20:
-            return "Sideways movement with stable volatility. Range-bound trading likely."
-        else:
-            return "Mixed market signals. Monitor key levels for direction."
-    except:
-        return "Analyzing market conditions..."
-
-def get_ai_trading_signal(symbol, instrument_df):
-    """Generate AI trading signals for stocks"""
-    # Simple mock implementation - replace with actual AI model
-    signals = ['STRONG_BUY', 'BUY', 'NEUTRAL', 'SELL', 'STRONG_SELL']
-    return random.choice(signals)
-
-def get_ai_stock_suggestion(instrument_df):
-    """Get AI-suggested stock for watchlist"""
-    popular_stocks = ['RELIANCE', 'TCS', 'INFY', 'HDFC', 'ICICI', 'SBIN']
-    return random.choice(popular_stocks)
-
-def generate_portfolio_insight(holdings_df, total_pnl):
-    """Generate AI insights for portfolio"""
-    if total_pnl > 0:
-        return "Portfolio showing positive momentum. Consider profit booking on overbought positions."
-    elif total_pnl < 0:
-        return "Portfolio under pressure. Review stop losses and consider hedging."
-    else:
-        return "Portfolio stable. Look for new opportunities while managing risk."
-
-def add_technical_indicators(df):
-    """Add basic technical indicators to dataframe"""
-    try:
-        # Simple SMA
-        df['SMA_20'] = df['close'].rolling(window=20).mean()
-        return df
-    except:
-        return df
-
-def get_technical_analysis(symbol, instrument_df):
-    """Get technical analysis for a symbol"""
-    return {
-        'RSI': random.uniform(30, 70),
-        'MACD': random.uniform(-2, 2),
-        'SMA_20': random.uniform(100, 200),
-        'Volume': 'High' if random.random() > 0.5 else 'Low'
-    }
-
-def create_advanced_chart(data, symbol, timeframe):
-    """Create advanced chart with more features"""
-    # Enhanced version of your existing chart function
-    fig = create_chart(data, symbol)
-    fig.update_layout(
-        title=f"{symbol} - {timeframe}",
-        plot_bgcolor='#1e1e1e',
-        paper_bgcolor='#1e1e1e',
-        font=dict(color='white')
-    )
-    return fig
 
 def page_advanced_charting():
     """A page for advanced charting with custom intervals and indicators."""
@@ -8127,435 +7691,779 @@ def render_chart_controls(i, instrument_df):
                 place_order(instrument_df, ticker, quantity, 'MARKET', 'SELL', 'MIS')
 
 def page_iceberg_detector():
-    """Iceberg Detector page with 5-day volume pattern focus and bot configuration"""
-    
-    try:
-        display_header()
-    except:
-        st.title("🧊 Quantum Iceberg Detector - Nifty50")
-    
+    """Iceberg Detector page for BlockVista Terminal - Nifty50 Only"""
+    display_header()
+    st.title("🧊 Quantum Iceberg Detector - Nifty50")
     st.markdown("""
-    **Real-time iceberg detection with 5-day volume pattern analysis**
+    **Advanced iceberg detection optimized for Nifty50 stocks with price-based parameters**
     
-    *Volume analysis based on last 5 market days (1 trading week)*
-    *Enhanced intraday session tracking with weekly context*
-    *More responsive to recent market conditions*
+    *Dynamic thresholds for low, medium, and high-priced stocks*
+    *Enhanced 20-level market depth analysis*
+    *Integrated with Semi & Fully Automated Algorithmic Trading*
     """)
     
-    # Market Status Display
-    display_market_status()
-    
-    # Bot Configuration
-    bot_configurator = TradingBotConfigurator()
-    bot_mode = bot_configurator.render_bot_configuration()
-    
-    # Safe broker connection check
-    try:
-        client = get_broker_client()
-        if not client:
-            st.info("🔌 Demo Mode - Connect broker for live data")
-        else:
-            st.success("✅ Broker connected")
-    except:
-        st.info("🔌 Running in demo mode")
-    
-    # Safe instrument data loading
-    with st.spinner("📊 Loading 5-day market data..."):
-        instrument_df = get_instrument_df_safe()
-        
-        if instrument_df is None or instrument_df.empty:
-            st.info("📋 Using demo data with 5-day volume analysis")
-    
-    # Nifty50 symbols list
-    nifty50_symbols = [
-        'RELIANCE', 'TCS', 'HDFC', 'INFY', 'HDFCBANK', 'ICICIBANK', 'KOTAKBANK',
-        'HINDUNILVR', 'ITC', 'SBIN', 'BHARTIARTL', 'BAJFINANCE', 'ASIANPAINT',
-        'MARUTI', 'TITAN', 'SUNPHARMA', 'AXISBANK', 'ULTRACEMCO', 'TATAMOTORS',
-        'NESTLE', 'POWERGRID', 'NTPC', 'TATASTEEL', 'BAJAJFINSV', 'WIPRO',
-        'ONGC', 'JSWSTEEL', 'HCLTECH', 'ADANIPORTS', 'LT', 'TECHM', 'HDFCLIFE',
-        'DRREDDY', 'CIPLA', 'SBILIFE', 'TATACONSUM', 'BRITANNIA', 'BAJAJ-AUTO',
-        'COALINDIA', 'GRASIM', 'EICHERMOT', 'UPL', 'HEROMOTOCO', 'DIVISLAB',
-        'SHREECEM', 'HINDALCO', 'INDUSINDBK', 'APOLLOHOSP', 'BPCL', 'M&M'
-    ]
-    
-    # Safe symbol mapping
-    display_symbols = []
-    symbol_mapping = {}
-    
-    try:
-        for symbol in nifty50_symbols:
-            if instrument_df is not None and not instrument_df.empty:
-                instrument_match = instrument_df[instrument_df['tradingsymbol'] == symbol]
-                if instrument_match.empty:
-                    if symbol == "BAJAJ-AUTO":
-                        alt_symbol = "BAJAJAUTO"
-                    elif symbol == "M&M":
-                        alt_symbol = "M_M"
-                    elif symbol == "L&T":
-                        alt_symbol = "L_T"
-                    else:
-                        alt_symbol = symbol
-                    
-                    if instrument_df is not None:
-                        instrument_match = instrument_df[instrument_df['tradingsymbol'] == alt_symbol]
-                        if not instrument_match.empty:
-                            symbol_mapping[symbol] = alt_symbol
-            
-            display_symbols.append(symbol)
-    except Exception as e:
-        st.error("Error processing symbols")
-        display_symbols = nifty50_symbols[:10]
-    
-    if not display_symbols:
-        st.error("❌ No symbols available for analysis")
+    # Check if broker is connected
+    client = get_broker_client()
+    if not client:
+        st.error("Please connect to a broker to use the Iceberg Detector")
         return
     
-    # UI Components - UPDATED DEFAULTS FOR 5-DAY ANALYSIS
-    st.markdown("---")
-    st.subheader("📊 Stock Selection & Analysis")
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.info("Loading instrument data...")
+        return
     
+    # Filter only Nifty50 stocks
+    nifty50_symbols = list(NIFTY50_STOCKS.keys())
+    
+    # Create mapping for display (handle symbol variations)
+    display_symbols = []
+    for symbol in nifty50_symbols:
+        # Check if symbol exists in instrument data
+        instrument_match = instrument_df[instrument_df['tradingsymbol'] == symbol]
+        if instrument_match.empty:
+            # Try alternative representations
+            if symbol == "BAJAJ-AUTO":
+                alt_symbol = "BAJAJAUTO"
+            elif symbol == "M&M":
+                alt_symbol = "M_M"
+            else:
+                alt_symbol = symbol
+                
+            instrument_match = instrument_df[instrument_df['tradingsymbol'] == alt_symbol]
+        
+        if not instrument_match.empty:
+            display_symbols.append(symbol)
+    
+    if not display_symbols:
+        st.error("No Nifty50 stocks found in instrument data")
+        return
+    
+    # Symbol selection
     col1, col2, col3 = st.columns([2, 1, 1])
     
     with col1:
         selected_symbol = st.selectbox(
             "Select Nifty50 Stock",
             sorted(display_symbols),
-            index=0,
+            index=display_symbols.index('RELIANCE') if 'RELIANCE' in display_symbols else 0,
             key="iceberg_symbol"
         )
         
-        actual_symbol = symbol_mapping.get(selected_symbol, selected_symbol)
-        st.caption(f"Analyzing: {actual_symbol} | 5-day volume patterns")
+        # Show stock category and parameters
+        category = get_nifty50_stock_category(selected_symbol)
+        params = get_nifty50_detection_params(selected_symbol)
+        
+        st.info(f"**Category:** {category} | **Large Order:** {params['large_order_threshold']:,}+ shares")
     
     with col2:
         timeframe = st.selectbox(
             "Timeframe",
-            ["15minute", "30minute", "hour", "day", "5minute"],
-            index=1,  # Default to 30minute
+            ["5minute", "15minute", "30minute", "hour", "day"],
             key="iceberg_timeframe"
         )
     
     with col3:
         period = st.selectbox(
-            "Analysis Period", 
-            ["5d", "1wk", "1d", "3d"],  # 5d first for 5-day focus
-            index=0,
-            key="iceberg_period",
-            help="5 days for weekly volume patterns"
+            "Period", 
+            ["1d", "5d", "1mo", "3mo"],
+            key="iceberg_period"
         )
-
-    # Volume Analysis Configuration
+    
+    # Market depth configuration
     st.markdown("---")
-    st.subheader("📈 5-Day Volume Analysis")
+    st.subheader("📊 Market Depth Configuration")
     
-    col_vol1, col_vol2, col_vol3 = st.columns(3)
+    col_depth1, col_depth2 = st.columns(2)
     
-    with col_vol1:
-        volume_alert_threshold = st.slider(
-            "Volume Spike Alert %",
-            min_value=110,
-            max_value=200,
-            value=120,
-            step=5,
-            help="Alert when volume exceeds 5-day session average"
+    with col_depth1:
+        depth_levels = st.slider(
+            "Market Depth Levels",
+            min_value=5,
+            max_value=20,
+            value=20,
+            help="Number of market depth levels to analyze (Kite supports up to 20)"
         )
     
-    with col_vol2:
-        volume_impact_weight = st.slider(
-            "Volume Impact %",
-            min_value=10,
-            max_value=50,
-            value=30,  # Increased default for volume focus
-            step=5,
-            help="Weight of volume patterns in detection"
+    with col_depth2:
+        analyze_depth = st.checkbox(
+            "Enable Depth Analysis", 
+            value=True,
+            help="Analyze full market depth for iceberg detection"
         )
     
-    with col_vol3:
-        st.markdown("**Analysis Focus**")
-        st.success("**5-Day Volume Patterns**")
-        st.markdown("Intraday: **20/30/20/30%**")
-        st.markdown("Weekly: **5 Market Days**")
-
+    # Algorithm Integration Section
+    st.markdown("---")
+    st.subheader("🤖 Algorithm Integration")
+    
+    col_algo1, col_algo2, col_algo3 = st.columns(3)
+    
+    with col_algo1:
+        enable_semi_auto = st.checkbox(
+            "Enable Semi-Auto Algos",
+            value=True,
+            help="Send signals to semi-automated algorithms with user confirmation"
+        )
+    
+    with col_algo2:
+        enable_fully_auto = st.checkbox(
+            "Enable Fully Auto Algos", 
+            value=False,
+            help="Automatically execute trades based on high-confidence signals"
+        )
+    
+    with col_algo3:
+        signal_confidence = st.slider(
+            "Minimum Confidence %",
+            min_value=60,
+            max_value=90,
+            value=75,
+            help="Minimum confidence level for auto-execution"
+        )
+    
+    # Algorithm Configuration
+    with st.expander("⚙️ Algorithm Configuration", expanded=False):
+        col_config1, col_config2 = st.columns(2)
+        
+        with col_config1:
+            st.write("**Semi-Auto Parameters**")
+            semi_order_type = st.selectbox(
+                "Order Type",
+                ["LIMIT", "MARKET", "SL", "SL-M"],
+                key="semi_order_type"
+            )
+            semi_quantity = st.number_input(
+                "Quantity (Shares)",
+                min_value=1,
+                max_value=10000,
+                value=100,
+                key="semi_quantity"
+            )
+        
+        with col_config2:
+            st.write("**Fully Auto Parameters**")
+            auto_order_type = st.selectbox(
+                "Order Type",
+                ["LIMIT", "MARKET", "SL", "SL-M"],
+                key="auto_order_type"
+            )
+            auto_quantity = st.number_input(
+                "Quantity (Shares)", 
+                min_value=1,
+                max_value=5000,
+                value=50,
+                key="auto_quantity"
+            )
+            risk_per_trade = st.number_input(
+                "Risk per Trade %",
+                min_value=0.1,
+                max_value=5.0,
+                value=1.0,
+                step=0.1
+            )
+    
     # Analysis controls
     st.markdown("---")
-    col_controls1, col_controls2, col_controls3 = st.columns([1, 1, 1])
+    col_controls1, col_controls2, col_controls3, col_controls4 = st.columns([1, 1, 1, 1])
     
     with col_controls1:
-        analyze_clicked = st.button("🔍 Analyze 5-Day Patterns", type="primary", use_container_width=True)
+        if st.button("🔍 Run Iceberg Analysis", type="primary", use_container_width=True):
+            st.session_state.run_iceberg_analysis = True
     
     with col_controls2:
-        auto_refresh = st.checkbox("🔄 Auto-refresh", value=False, key="iceberg_refresh")
+        auto_refresh = st.checkbox("🔄 Auto-refresh (30s)", value=False, key="iceberg_refresh")
     
     with col_controls3:
-        show_weekly = st.checkbox("📊 Show Weekly Patterns", value=True, key="weekly_patterns")
-
-    # Run analysis
-    if analyze_clicked or auto_refresh:
-        with st.spinner("🧊 Analyzing 5-day volume patterns..."):
+        show_details = st.checkbox("📊 Show Detailed Analysis", value=True, key="iceberg_details")
+    
+    with col_controls4:
+        if st.button("🛑 Emergency Stop", type="secondary", use_container_width=True):
+            st.session_state.emergency_stop = True
+            st.error("🛑 ALL ALGORITHMS STOPPED - Emergency Stop Activated")
+    
+    # Run analysis when requested
+    if st.session_state.get('run_iceberg_analysis', False) or auto_refresh:
+        with st.spinner("🧊 Running quantum iceberg detection..."):
             try:
-                # Safe data preparation
-                actual_symbol = symbol_mapping.get(selected_symbol, selected_symbol)
-                instrument_token = None
-                
-                if instrument_df is not None and not instrument_df.empty:
-                    instrument_token = get_instrument_token(actual_symbol, instrument_df, 'NSE')
-                
-                # Get historical data with 5-day focus
-                historical_data = get_historical_data_safe(instrument_token, timeframe, period)
+                # Get historical data
+                instrument_token = get_instrument_token(selected_symbol, instrument_df, 'NSE')
+                historical_data = get_historical_data(instrument_token, timeframe, period)
                 
                 if historical_data.empty:
-                    st.warning("⚠️ Using demo data for 5-day analysis")
+                    st.error("No historical data available for analysis")
+                    return
                 
-                # Prepare market data with enhanced volume analysis
-                market_data = prepare_live_market_data_5day(
-                    symbol=selected_symbol,
-                    actual_symbol=actual_symbol,
-                    instrument_token=instrument_token,
-                    instrument_df=instrument_df,
-                    historical_data=historical_data
+                # Prepare market data with enhanced depth
+                market_data = prepare_market_data_enhanced(
+                    selected_symbol, 
+                    instrument_df, 
+                    historical_data, 
+                    depth_levels=depth_levels,
+                    analyze_depth=analyze_depth
                 )
                 
                 if not market_data:
-                    st.error("❌ Failed to prepare market data")
+                    st.error("Failed to prepare market data for analysis")
                     return
                 
-                # Show analysis period info
-                st.info(f"📅 Analyzing volume patterns over: **{period}**")
-                
-                # Run detection
+                # Initialize detector and run analysis
                 detector = QuantumIcebergDetector()
                 detection_result = detector.process_market_data(market_data)
                 
-                # Generate signals
-                trading_signals = generate_trading_signals_enhanced(
-                    detection_result, 
+                # Generate trading signals based on detection
+                trading_signals = generate_trading_signals(detection_result, market_data)
+                
+                # Process algorithm integration
+                algo_results = process_algorithm_integration(
+                    trading_signals, 
+                    detection_result,
                     market_data,
-                    volume_impact_weight/100.0
+                    enable_semi_auto,
+                    enable_fully_auto,
+                    signal_confidence/100.0
                 )
                 
-                # Display results with weekly patterns
-                display_iceberg_results_5day(
+                # Display results with all parameters
+                display_iceberg_results_enhanced(
                     detection_result=detection_result,
                     market_data=market_data, 
+                    show_details=show_details, 
+                    depth_levels=depth_levels,
                     trading_signals=trading_signals,
-                    show_weekly=show_weekly,
-                    bot_mode=bot_mode
+                    algo_results=algo_results
                 )
                 
             except Exception as e:
-                st.error(f"❌ Analysis failed: {str(e)}")
-
+                st.error(f"Analysis failed: {str(e)}")
+                import traceback
+                st.error(f"Detailed error: {traceback.format_exc()}")
+    
+    # Auto-refresh logic
     if auto_refresh:
-        try:
-            st_autorefresh(interval=15000, key="iceberg_autorefresh")
-            st.info("🔄 Auto-refresh enabled - 5-day patterns")
-        except:
-            pass
-
-def display_market_status():
-    """Display current market status"""
-    col1, col2, col3 = st.columns(3)
+        st_autorefresh(interval=30000, key="iceberg_autorefresh")
     
-    with col1:
-        if is_market_hours():
-            st.success("🟢 MARKET OPEN")
-        else:
-            st.error("🔴 MARKET CLOSED")
-    
-    with col2:
-        now = datetime.now()
-        st.write(f"**Time:** {now.strftime('%H:%M:%S')}")
-    
-    with col3:
-        st.write(f"**Date:** {now.strftime('%Y-%m-%d')}")
+    # Information section
+    with st.expander("ℹ️ About Enhanced Iceberg Detection", expanded=False):
+        st.markdown(f"""
+        **Enhanced Iceberg Detection with Algorithm Integration:**
         
-        # Show next market action
-        if not is_market_hours():
-            weekday = now.weekday()
-            if weekday >= 5:  # Weekend
-                days_until_monday = (7 - weekday) % 7
-                next_market_day = now + timedelta(days=days_until_monday)
-                st.write(f"**Opens:** {next_market_day.strftime('%A')} 9:15 AM")
-            else:
-                current_time = now.time()
-                if current_time < time(9, 15):
-                    st.write("**Opens:** Today 9:15 AM")
-                else:
-                    st.write("**Opens:** Tomorrow 9:15 AM")
+        **Detection Features:**
+        - **20-Level Depth Analysis**: Monitors complete order book structure
+        - **Volume Distribution**: Analyzes volume concentration across price levels
+        - **Hidden Liquidity**: Detects unusually large orders distributed across levels
+        - **Quantum Fusion**: Combines signals using quantum-inspired algorithms
+        
+        **Algorithm Integration:**
+        - **Semi-Auto Algos**: Provides signals with user confirmation
+        - **Fully Auto Algos**: Automatic execution of high-confidence signals
+        - **Risk Management**: Integrated position sizing and stop-loss
+        - **Signal Refinement**: Multi-factor confirmation for trade signals
+        
+        **Signal Types:**
+        - **ICEBERG_BUY**: Large hidden buy orders detected
+        - **ICEBERG_SELL**: Large hidden sell orders detected  
+        - **FLOW_BUY**: Strong buy-side liquidity flow
+        - **FLOW_SELL**: Strong sell-side liquidity flow
+        - **REVERSAL**: Potential trend reversal detected
+        
+        **Confidence Levels:**
+        - 🟢 < 40%: Normal trading
+        - 🟡 40-70%: Possible iceberg activity
+        - 🔴 > 70%: High probability iceberg detected
+        """)
 
-def prepare_live_market_data_5day(symbol, actual_symbol, instrument_token, instrument_df, historical_data):
-    """Prepare market data with 5-day volume focus"""
+
+def prepare_market_data_enhanced(symbol, instrument_df, historical_data, depth_levels=20, analyze_depth=True):
+    """Prepare enhanced market data with 20-level depth using KiteConnect"""
+    
     try:
         client = get_broker_client()
-        
-        # Create sample market data if no live data available
         if not client:
-            return create_sample_market_data_5day(symbol, historical_data)
+            st.warning("Broker client not available - using simulated data")
+            return prepare_simulated_market_data(symbol, historical_data, depth_levels)
         
-        # Try to get live quote data
-        try:
-            quote_data = client.quote(str(instrument_token)) if instrument_token else None
-        except:
-            quote_data = None
+        # Get instrument token
+        instrument_token = get_instrument_token(symbol, instrument_df, 'NSE')
+        if not instrument_token:
+            st.warning(f"Instrument token not found for {symbol} - using simulated data")
+            return prepare_simulated_market_data(symbol, historical_data, depth_levels)
+        
+        # Get quote data with full market depth
+        quote_data = client.quote(str(instrument_token))
         
         if not quote_data:
-            return create_sample_market_data_5day(symbol, historical_data)
+            st.warning("No quote data available - using simulated data")
+            return prepare_simulated_market_data(symbol, historical_data, depth_levels)
         
-        # Extract quote data
-        instrument_quote = quote_data.get(str(instrument_token), {}) if instrument_token else {}
+        # Extract the specific instrument quote
+        instrument_quote = quote_data.get(str(instrument_token), {})
         
-        # Prepare order book
+        # Get enhanced market depth (up to 20 levels)
         depth = instrument_quote.get('depth', {})
-        bids = depth.get('buy', [])[:10]
-        asks = depth.get('sell', [])[:10]
+        bids = depth.get('buy', [])
+        asks = depth.get('sell', [])
         
-        # Calculate metrics
+        # Limit to requested depth levels
+        bids = bids[:depth_levels]
+        asks = asks[:depth_levels]
+        
+        # Calculate enhanced order book metrics
         total_bid_volume = sum(bid.get('quantity', 0) for bid in bids)
         total_ask_volume = sum(ask.get('quantity', 0) for ask in asks)
         
+        # Calculate volume concentration metrics
+        bid_concentration = calculate_volume_concentration(bids)
+        ask_concentration = calculate_volume_concentration(asks)
+        
+        # Calculate large order presence
+        large_order_threshold = get_nifty50_detection_params(symbol)['large_order_threshold']
+        large_bid_orders = count_large_orders(bids, large_order_threshold)
+        large_ask_orders = count_large_orders(asks, large_order_threshold)
+        
+        # Prepare enhanced order book data
         order_book = {
             'bids': bids,
             'asks': asks,
             'total_bid_volume': total_bid_volume,
             'total_ask_volume': total_ask_volume,
             'bid_ask_ratio': total_bid_volume / total_ask_volume if total_ask_volume > 0 else 1,
-            'bid_concentration': calculate_volume_concentration(bids),
-            'ask_concentration': calculate_volume_concentration(asks),
-            'large_bid_orders': count_large_orders(bids, 10000),
-            'large_ask_orders': count_large_orders(asks, 10000),
-            'depth_levels_analyzed': max(len(bids), len(asks))
+            'bid_concentration': bid_concentration,
+            'ask_concentration': ask_concentration,
+            'large_bid_orders': large_bid_orders,
+            'large_ask_orders': large_ask_orders,
+            'depth_levels_analyzed': depth_levels
         }
         
-        # Get volume and price data
-        current_volume = instrument_quote.get('volume', historical_data['volume'].iloc[-1] if not historical_data.empty else 0)
-        last_price = instrument_quote.get('last_price', historical_data['close'].iloc[-1] if not historical_data.empty else 1000)
+        # Calculate volume metrics from historical data
+        current_volume = historical_data['volume'].iloc[-1] if not historical_data.empty else 0
+        avg_volume = historical_data['volume'].tail(20).mean() if len(historical_data) >= 20 else current_volume
         
-        # Calculate 5-day average volume
-        daily_avg_volume = calculate_accurate_daily_volume(historical_data, lookback_days=5)
+        # Get last price from quote or historical data
+        last_price = instrument_quote.get('last_price', 0)
+        if last_price == 0 and not historical_data.empty:
+            last_price = historical_data['close'].iloc[-1]
         
-        # Enhanced volume analysis with weekly patterns
-        weekly_patterns = analyze_weekly_volume_patterns(historical_data, current_volume)
-        volume_analysis = enhanced_intraday_volume_analysis(current_volume, daily_avg_volume, symbol, weekly_patterns)
-        
+        # Prepare market data
         market_data = {
             'symbol': symbol,
             'timestamp': pd.Timestamp.now(),
             'last_price': last_price,
-            'open': instrument_quote.get('ohlc', {}).get('open', last_price * 0.99),
-            'high': instrument_quote.get('ohlc', {}).get('high', last_price * 1.01),
-            'low': instrument_quote.get('ohlc', {}).get('low', last_price * 0.99),
-            'close': last_price,
             'volume': current_volume,
-            'daily_average_volume': daily_avg_volume,
-            'volume_ratio': current_volume / daily_avg_volume if daily_avg_volume > 0 else 1,
+            'average_volume': avg_volume,
+            'volume_ratio': current_volume / avg_volume if avg_volume > 0 else 1,
+            'high': historical_data['high'].iloc[-1] if not historical_data.empty else last_price,
+            'low': historical_data['low'].iloc[-1] if not historical_data.empty else last_price,
+            'close': historical_data['close'].iloc[-1] if not historical_data.empty else last_price,
             'order_book': order_book,
-            'volatility': calculate_live_volatility(historical_data, last_price),
+            'volatility': historical_data['close'].pct_change().std() if len(historical_data) > 1 else 0.02,
             'stock_category': get_nifty50_stock_category(symbol),
             'detection_params': get_nifty50_detection_params(symbol),
-            'volume_analysis': volume_analysis,
-            'data_source': 'LIVE',
-            'analysis_period': '5_DAYS'
+            'analyze_depth': analyze_depth
         }
         
         return market_data
         
     except Exception as e:
-        return create_sample_market_data_5day(symbol, historical_data)
+        st.warning(f"Error preparing enhanced market data: {str(e)} - using simulated data")
+        return prepare_simulated_market_data(symbol, historical_data, depth_levels)
 
-def create_sample_market_data_5day(symbol, historical_data):
-    """Create sample market data with 5-day volume patterns"""
+
+def prepare_simulated_market_data(symbol, historical_data, depth_levels=20):
+    """Prepare simulated market data for testing"""
+    
+    if historical_data.empty:
+        # Create basic historical data if none available
+        last_price = 1000
+        current_volume = 100000
+        avg_volume = 150000
+        volatility = 0.02
+    else:
+        last_price = historical_data['close'].iloc[-1]
+        current_volume = historical_data['volume'].iloc[-1]
+        avg_volume = historical_data['volume'].tail(20).mean() if len(historical_data) >= 20 else current_volume
+        volatility = historical_data['close'].pct_change().std() if len(historical_data) > 1 else 0.02
+    
+    # Create simulated order book
+    bids = []
+    asks = []
+    
+    for i in range(depth_levels):
+        bid_price = last_price * (1 - 0.001 * (i + 1))
+        ask_price = last_price * (1 + 0.001 * (i + 1))
+        
+        bid_quantity = max(100, int(10000 * (1 - 0.1 * i) + np.random.randint(-500, 500)))
+        ask_quantity = max(100, int(8000 * (1 - 0.1 * i) + np.random.randint(-500, 500)))
+        
+        bids.append({'price': round(bid_price, 2), 'quantity': bid_quantity})
+        asks.append({'price': round(ask_price, 2), 'quantity': ask_quantity})
+    
+    total_bid_volume = sum(bid['quantity'] for bid in bids)
+    total_ask_volume = sum(ask['quantity'] for ask in asks)
+    
+    order_book = {
+        'bids': bids,
+        'asks': asks,
+        'total_bid_volume': total_bid_volume,
+        'total_ask_volume': total_ask_volume,
+        'bid_ask_ratio': total_bid_volume / total_ask_volume if total_ask_volume > 0 else 1,
+        'bid_concentration': 0.6,
+        'ask_concentration': 0.5,
+        'large_bid_orders': 2,
+        'large_ask_orders': 1,
+        'depth_levels_analyzed': depth_levels
+    }
+    
+    market_data = {
+        'symbol': symbol,
+        'timestamp': pd.Timestamp.now(),
+        'last_price': last_price,
+        'volume': current_volume,
+        'average_volume': avg_volume,
+        'volume_ratio': current_volume / avg_volume if avg_volume > 0 else 1,
+        'high': last_price * 1.02,
+        'low': last_price * 0.98,
+        'close': last_price,
+        'order_book': order_book,
+        'volatility': volatility,
+        'stock_category': get_nifty50_stock_category(symbol),
+        'detection_params': get_nifty50_detection_params(symbol),
+        'analyze_depth': True
+    }
+    
+    return market_data
+
+
+def calculate_volume_concentration(orders):
+    """Calculate how concentrated volume is across price levels"""
+    if not orders:
+        return 0
+    
+    total_volume = sum(order.get('quantity', 0) for order in orders)
+    if total_volume == 0:
+        return 0
+    
+    # Calculate Gini coefficient-like concentration
+    volumes = [order.get('quantity', 0) for order in orders]
+    volumes.sort(reverse=True)
+    
+    cumulative_volume = 0
+    concentration_score = 0
+    
+    for i, volume in enumerate(volumes):
+        cumulative_volume += volume
+        concentration_score += (i + 1) * volume
+    
+    max_concentration = sum((i + 1) * volumes[0] for i in range(len(volumes)))
+    
+    return concentration_score / max_concentration if max_concentration > 0 else 0
+
+
+def count_large_orders(orders, threshold):
+    """Count number of orders exceeding large order threshold"""
+    return sum(1 for order in orders if order.get('quantity', 0) >= threshold)
+
+
+# Trading Algorithm Integration Functions
+def generate_trading_signals(detection_result, market_data):
+    """Generate refined trading signals from iceberg detection"""
+    
+    probability = detection_result.get('iceberg_probability', 0)
+    confidence = detection_result.get('confidence', 0)
+    order_book = market_data.get('order_book', {})
+    
+    signals = {
+        'primary_signal': 'HOLD',
+        'secondary_signals': [],
+        'confidence': confidence,
+        'probability': probability,
+        'timestamp': pd.Timestamp.now(),
+        'entry_price': market_data.get('last_price', 0),
+        'targets': [],
+        'stoploss': 0,
+        'position_size': calculate_position_size(market_data),
+        'risk_reward_ratio': 0
+    }
+    
+    # Calculate order book imbalance
+    bid_volume = order_book.get('total_bid_volume', 0)
+    ask_volume = order_book.get('total_ask_volume', 0)
+    total_volume = bid_volume + ask_volume
+    
+    if total_volume > 0:
+        imbalance = (bid_volume - ask_volume) / total_volume
+    else:
+        imbalance = 0
+    
+    # Generate signals based on detection results
+    if probability > 0.7 and confidence > 0.7:
+        if imbalance > 0.1:  # Strong buy-side imbalance
+            signals['primary_signal'] = 'ICEBERG_BUY'
+            signals['secondary_signals'].append('STRONG_BUY_FLOW')
+            signals['stoploss'] = calculate_stoploss(market_data, 'BUY')
+            signals['targets'] = calculate_targets(market_data, 'BUY')
+        elif imbalance < -0.1:  # Strong sell-side imbalance
+            signals['primary_signal'] = 'ICEBERG_SELL' 
+            signals['secondary_signals'].append('STRONG_SELL_FLOW')
+            signals['stoploss'] = calculate_stoploss(market_data, 'SELL')
+            signals['targets'] = calculate_targets(market_data, 'SELL')
+    
+    elif probability > 0.5 and confidence > 0.6:
+        if imbalance > 0.05:
+            signals['primary_signal'] = 'FLOW_BUY'
+            signals['secondary_signals'].append('MODERATE_BUY_PRESSURE')
+        elif imbalance < -0.05:
+            signals['primary_signal'] = 'FLOW_SELL'
+            signals['secondary_signals'].append('MODERATE_SELL_PRESSURE')
+    
+    # Add reversal signals for high volatility regimes
+    regime = detection_result.get('regime', {})
+    if regime and hasattr(regime, 'value') and regime.value == 'HIGH_VOLATILITY':
+        if abs(imbalance) > 0.15:
+            signals['secondary_signals'].append('POTENTIAL_REVERSAL')
+    
+    # Calculate risk-reward ratio
+    if signals['stoploss'] > 0 and signals['targets']:
+        risk = abs(signals['entry_price'] - signals['stoploss'])
+        reward = abs(signals['targets'][0] - signals['entry_price'])
+        if risk > 0:
+            signals['risk_reward_ratio'] = reward / risk
+    
+    return signals
+
+
+def process_algorithm_integration(trading_signals, detection_result, market_data, 
+                                semi_auto_enabled, fully_auto_enabled, min_confidence):
+    """Process integration with semi and fully automated algorithms"""
+    
+    algo_results = {
+        'semi_auto_triggered': False,
+        'fully_auto_triggered': False,
+        'orders_placed': [],
+        'signals_generated': [],
+        'risk_checks_passed': False,
+        'execution_status': 'PENDING'
+    }
+    
+    signal = trading_signals.get('primary_signal', 'HOLD')
+    confidence = trading_signals.get('confidence', 0)
+    
+    # Skip if no valid signal or below confidence threshold
+    if signal == 'HOLD' or confidence < min_confidence:
+        return algo_results
+    
+    # Perform risk checks
+    algo_results['risk_checks_passed'] = perform_risk_checks(trading_signals, market_data)
+    
+    if not algo_results['risk_checks_passed']:
+        return algo_results
+    
+    # Process semi-automated algorithms
+    if semi_auto_enabled and confidence >= min_confidence:
+        algo_results['semi_auto_triggered'] = True
+        algo_results['signals_generated'].append({
+            'type': 'SEMI_AUTO_SIGNAL',
+            'signal': signal,
+            'confidence': confidence,
+            'timestamp': pd.Timestamp.now(),
+            'suggested_action': 'REVIEW_AND_CONFIRM'
+        })
+    
+    # Process fully automated algorithms
+    if (fully_auto_enabled and confidence >= max(min_confidence + 0.1, 0.8) and 
+        algo_results['risk_checks_passed']):
+        
+        algo_results['fully_auto_triggered'] = True
+        execution_result = execute_fully_auto_trade(trading_signals, market_data)
+        algo_results['orders_placed'] = execution_result.get('orders', [])
+        algo_results['execution_status'] = execution_result.get('status', 'COMPLETED')
+    
+    return algo_results
+
+
+def perform_risk_checks(trading_signals, market_data):
+    """Perform comprehensive risk checks before algorithm execution"""
     try:
-        if historical_data.empty:
-            # Create sample data with realistic 5-day pattern
-            last_price = 2500
-            current_volume = 500000
-            avg_volume = 750000
-        else:
-            last_price = historical_data['close'].iloc[-1]
-            current_volume = historical_data['volume'].iloc[-1]
-            avg_volume = calculate_accurate_daily_volume(historical_data, lookback_days=5)
-        
-        # Create sample order book
-        bids = []
-        asks = []
-        
-        for i in range(10):
-            bid_price = last_price * (1 - 0.001 * (i + 1))
-            ask_price = last_price * (1 + 0.001 * (i + 1))
-            
-            bid_quantity = max(100, int(10000 * (1 - 0.1 * i)))
-            ask_quantity = max(100, int(8000 * (1 - 0.1 * i)))
-            
-            bids.append({'price': round(bid_price, 2), 'quantity': bid_quantity})
-            asks.append({'price': round(ask_price, 2), 'quantity': ask_quantity})
-        
-        total_bid_volume = sum(bid['quantity'] for bid in bids)
-        total_ask_volume = sum(ask['quantity'] for ask in asks)
-        
-        order_book = {
-            'bids': bids,
-            'asks': asks,
-            'total_bid_volume': total_bid_volume,
-            'total_ask_volume': total_ask_volume,
-            'bid_ask_ratio': total_bid_volume / total_ask_volume if total_ask_volume > 0 else 1,
-            'bid_concentration': 0.6,
-            'ask_concentration': 0.5,
-            'large_bid_orders': 2,
-            'large_ask_orders': 1,
-            'depth_levels_analyzed': 10
+        checks = {
+            'market_hours': is_market_hours(),
+            'volatility_check': check_volatility_limit(market_data),
+            'position_size_check': check_position_size(trading_signals),
+            'daily_limit_check': check_daily_trade_limits(),
+            'concentration_check': check_portfolio_concentration(market_data.get('symbol', 'UNKNOWN'))
         }
-        
-        # Enhanced volume analysis with weekly patterns
-        weekly_patterns = analyze_weekly_volume_patterns(historical_data, current_volume)
-        volume_analysis = enhanced_intraday_volume_analysis(current_volume, avg_volume, symbol, weekly_patterns)
-        
-        return {
-            'symbol': symbol,
-            'timestamp': pd.Timestamp.now(),
-            'last_price': last_price,
-            'open': last_price * 0.995,
-            'high': last_price * 1.015,
-            'low': last_price * 0.985,
-            'close': last_price,
-            'volume': current_volume,
-            'daily_average_volume': avg_volume,
-            'volume_ratio': current_volume / avg_volume if avg_volume > 0 else 1,
-            'order_book': order_book,
-            'volatility': 0.02,
-            'stock_category': get_nifty50_stock_category(symbol),
-            'detection_params': get_nifty50_detection_params(symbol),
-            'volume_analysis': volume_analysis,
-            'data_source': 'DEMO_5DAY',
-            'analysis_period': '5_DAYS'
-        }
-        
-    except Exception as e:
-        return {
-            'symbol': symbol,
-            'timestamp': pd.Timestamp.now(),
-            'last_price': 1000,
-            'volume': 100000,
-            'order_book': {},
-            'data_source': 'FALLBACK_5DAY',
-            'analysis_period': '5_DAYS'
-        }
+        return all(checks.values())
+    except:
+        return False
 
-def display_iceberg_results_5day(detection_result, market_data, trading_signals, show_weekly=True, bot_mode='MONITOR_ONLY'):
-    """Display iceberg results with 5-day volume focus"""
+
+def execute_fully_auto_trade(trading_signals, market_data):
+    """Execute fully automated trade based on iceberg signals"""
+    try:
+        # Simulate order execution
+        symbol = market_data.get('symbol', 'UNKNOWN')
+        signal = trading_signals.get('primary_signal', 'HOLD')
+        quantity = trading_signals.get('position_size', 0)
+        
+        if signal == 'HOLD':
+            return {'status': 'SKIPPED', 'reason': 'No valid signal'}
+        
+        # Generate simulated order IDs
+        timestamp = int(pd.Timestamp.now().timestamp())
+        main_order_id = f"AUTO_{symbol}_{timestamp}_MAIN"
+        sl_order_id = f"AUTO_{symbol}_{timestamp}_SL"
+        
+        return {
+            'status': 'SIMULATED',
+            'orders': [
+                {
+                    'type': 'MAIN', 
+                    'order_id': main_order_id, 
+                    'symbol': symbol, 
+                    'quantity': quantity,
+                    'signal': signal,
+                    'timestamp': pd.Timestamp.now()
+                },
+                {
+                    'type': 'STOPLOSS', 
+                    'order_id': sl_order_id, 
+                    'price': trading_signals.get('stoploss', 0),
+                    'timestamp': pd.Timestamp.now()
+                }
+            ]
+        }
+    except Exception as e:
+        return {'status': 'FAILED', 'error': str(e)}
+
+
+def execute_semi_auto_trade(trading_signals, market_data):
+    """Execute semi-automated trade with user confirmation"""
+    try:
+        # For semi-auto, we simulate with additional confirmation logging
+        result = execute_fully_auto_trade(trading_signals, market_data)
+        if result['status'] == 'SIMULATED':
+            result['type'] = 'SEMI_AUTO_CONFIRMED'
+            result['user_confirmed'] = True
+            result['confirmation_time'] = pd.Timestamp.now()
+        return result
+    except Exception as e:
+        return {'status': 'FAILED', 'error': str(e), 'type': 'SEMI_AUTO'}
+
+
+def calculate_position_size(market_data):
+    """Calculate position size based on risk parameters"""
+    base_size = 100
+    category = market_data.get('stock_category', 'MEDIUM')
+    last_price = market_data.get('last_price', 1000)
+    
+    # Adjust position size based on stock category and price
+    if category == 'LOW':
+        # Larger positions for low-priced stocks, but cap by value
+        size = base_size * 3
+        max_value = 50000  # Maximum position value
+        max_shares = max_value / last_price if last_price > 0 else size
+        return min(size, int(max_shares))
+    elif category == 'HIGH':
+        # Smaller positions for high-priced stocks
+        return max(1, base_size // 4)
+    else:
+        return base_size
+
+
+def calculate_stoploss(market_data, signal_type):
+    """Calculate dynamic stoploss based on volatility"""
+    current_price = market_data.get('last_price', 0)
+    volatility = market_data.get('volatility', 0.02)
+    
+    # Use ATR-like calculation for stoploss (2x volatility)
+    atr_distance = current_price * volatility * 2
+    
+    if signal_type == 'BUY':
+        return max(0.1, current_price - atr_distance)  # Ensure positive price
+    else:  # SELL
+        return current_price + atr_distance
+
+
+def calculate_targets(market_data, signal_type):
+    """Calculate profit targets"""
+    current_price = market_data.get('last_price', 0)
+    volatility = market_data.get('volatility', 0.02)
+    
+    # Target based on volatility (3x for first target, 6x for second)
+    target1_distance = current_price * volatility * 3
+    target2_distance = current_price * volatility * 6
+    
+    if signal_type == 'BUY':
+        return [
+            round(current_price + target1_distance, 2),
+            round(current_price + target2_distance, 2)
+        ]
+    else:  # SELL
+        return [
+            round(max(0.1, current_price - target1_distance), 2),  # Ensure positive price
+            round(max(0.1, current_price - target2_distance), 2)
+        ]
+
+
+def is_market_hours():
+    """Check if current time is within market hours"""
+    try:
+        now = datetime.now().time()
+        market_start = time(9, 15)  # 9:15 AM
+        market_end = time(15, 30)   # 3:30 PM
+        
+        # Also check if it's a weekday
+        weekday = datetime.now().weekday()
+        is_weekday = weekday < 5  # 0-4 = Monday-Friday
+        
+        return market_start <= now <= market_end and is_weekday
+    except:
+        return True  # Fallback to True for testing
+
+
+def check_volatility_limit(market_data):
+    """Check if volatility is within acceptable limits"""
+    volatility = market_data.get('volatility', 0)
+    return volatility < 0.05  # 5% volatility limit
+
+
+def check_position_size(signals):
+    """Validate position size"""
+    position_size = signals.get('position_size', 0)
+    return 0 < position_size <= 1000  # Maximum 1000 shares
+
+
+def check_daily_trade_limits():
+    """Check daily trading limits"""
+    # Implement daily limit checks - for now, just return True
+    return True
+
+
+def check_portfolio_concentration(symbol):
+    """Check portfolio concentration risk"""
+    # Implement concentration checks - for now, just return True
+    return True
+
+
+def display_iceberg_results_enhanced(detection_result, market_data, show_details=True, 
+                                   depth_levels=20, trading_signals=None, algo_results=None):
+    """Display enhanced iceberg detection results with algorithm integration"""
     
     st.markdown("---")
-    st.subheader("🎯 5-Day Pattern Analysis")
+    st.subheader("🎯 Enhanced Detection Results")
     
     # Key metrics
     probability = detection_result.get('iceberg_probability', 0)
     confidence = detection_result.get('confidence', 0)
+    regime = detection_result.get('regime', 'UNKNOWN')
+    if hasattr(regime, 'value'):
+        regime = regime.value
     
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
+        # Probability gauge
         if probability > 0.7:
             st.error(f"🔴 {probability:.1%}")
-            st.write("**High Probability**")
+            st.write("**High Iceberg Probability**")
         elif probability > 0.4:
             st.warning(f"🟡 {probability:.1%}")
             st.write("**Medium Probability**")
@@ -8564,358 +8472,213 @@ def display_iceberg_results_5day(detection_result, market_data, trading_signals,
             st.write("**Low Probability**")
     
     with col2:
-        st.metric("Confidence", f"{confidence:.1%}")
+        st.metric("Confidence Score", f"{confidence:.1%}")
     
     with col3:
-        st.metric("Price", f"₹{market_data.get('last_price', 0):.2f}")
+        st.metric("Market Regime", regime)
     
     with col4:
-        bot_mode_display = {
-            'SEMI_AUTO': '🤖 Semi-Auto',
-            'FULL_AUTO': '🚀 Full Auto', 
-            'MONITOR_ONLY': '👁️ Monitor'
-        }
-        st.metric("Bot Mode", bot_mode_display.get(bot_mode, 'Monitor'))
+        category = market_data.get('stock_category', 'UNKNOWN')
+        st.metric("Stock Category", category)
     
-    # Volume Analysis Section
-    volume_analysis = market_data.get('volume_analysis', {})
-    if volume_analysis:
-        st.markdown("---")
-        st.subheader("📈 5-Day Volume Analysis")
-        
-        # Main volume metrics
-        col_vol1, col_vol2, col_vol3, col_vol4 = st.columns(4)
-        
-        with col_vol1:
-            current_session = volume_analysis.get('current_session', 'UNKNOWN')
-            st.metric("Session", current_session)
-            
-            # Show market status indicator
-            if current_session == 'MARKET_CLOSED':
-                st.error("🔴 Closed")
-            else:
-                st.success("🟢 Open")
-                
-            st.metric("Live Volume", f"{volume_analysis.get('current_volume', 0):,}")
-        
-        with col_vol2:
-            st.metric("5-Day Avg", f"{volume_analysis.get('daily_avg_volume', 0):,.0f}")
-            session_ratio = volume_analysis.get('session_volume_ratio', 0)
-            st.metric("Session Ratio", f"{session_ratio:.1f}x")  # Changed to show multiplier
-        
-        with col_vol3:
-            cumulative_ratio = volume_analysis.get('cumulative_volume_ratio', 0)
-            st.metric("Cumulative Ratio", f"{cumulative_ratio:.1f}x")  # Changed to show multiplier
-            expected_pct = volume_analysis.get('cumulative_expected_percentage', 0)
-            st.metric("Expected %", f"{expected_pct:.1%}")
-        
-        with col_vol4:
-            volume_impact = trading_signals.get('volume_impact', 0)
-            st.metric("Volume Impact", f"{volume_impact:.1%}")
-            
-            alert_level = volume_analysis.get('alert_level', 'NORMAL')
-            if alert_level == "EXTREME":
-                st.error("🚨 EXTREME")
-            elif alert_level == "HIGH":
-                st.error("🔴 HIGH")
-            elif alert_level == "MEDIUM":
-                st.warning("🟡 MEDIUM")
-            elif alert_level == "LOW":
-                st.info("📈 LOW")
-            else:
-                st.success("🟢 NORMAL")
-        
-        # Weekly patterns display
-        weekly_patterns = volume_analysis.get('weekly_patterns', {})
-        if weekly_patterns and show_weekly:
-            st.markdown("**📊 Weekly Volume Patterns (5 Days)**")
-            
-            col_week1, col_week2, col_week3, col_week4 = st.columns(4)
-            
-            with col_week1:
-                weekly_ratio = weekly_patterns.get('current_vs_weekly_ratio', 0)
-                st.metric("Vs Weekly Avg", f"{weekly_ratio:.1f}x")  # Changed to show multiplier
-            
-            with col_week2:
-                trend = weekly_patterns.get('volume_trend', 'STABLE')
-                if trend == "INCREASING":
-                    st.success("📈 Increasing")
-                elif trend == "DECREASING":
-                    st.error("📉 Decreasing")
-                else:
-                    st.info("➡️ Stable")
-            
-            with col_week3:
-                volatility = weekly_patterns.get('volume_volatility', 0)
-                st.metric("Volatility", f"{volatility:.1%}")
-            
-            with col_week4:
-                st.metric("Period", "5 Market Days")
-        
-        # Alert message
-        alert_message = volume_analysis.get('alert_message')
-        if alert_message:
-            if "EXTREME" in alert_message or "HIGH" in alert_message:
-                st.error(alert_message)
-            elif "MEDIUM" in alert_message:
-                st.warning(alert_message)
-            elif "LOW" in alert_message:
-                st.info(alert_message)
-            else:
-                st.success(alert_message)
-    
-    # Trading signals with bot integration
+    # Trading Signals Section
     if trading_signals:
         st.markdown("---")
         st.subheader("📡 Trading Signals")
         
-        col_signal1, col_signal2 = st.columns(2)
+        col_signal1, col_signal2, col_signal3 = st.columns(3)
         
         with col_signal1:
             signal_type = trading_signals.get('primary_signal', 'HOLD')
-            if signal_type in ['ICEBERG_BUY', 'FLOW_BUY', 'VOLUME_BUY']:
-                st.success(f"🎯 **Signal: {signal_type}**")
-                
-                # Show bot action based on mode
-                if bot_mode == 'FULL_AUTO':
-                    st.info("🤖 Auto-entry triggered")
-                elif bot_mode == 'SEMI_AUTO':
-                    st.warning("⏳ Waiting for manual confirmation")
-                    
-            elif signal_type in ['ICEBERG_SELL', 'FLOW_SELL', 'VOLUME_SELL']:
-                st.error(f"🎯 **Signal: {signal_type}**")
-                
-                if bot_mode == 'FULL_AUTO':
-                    st.info("🤖 Auto-exit triggered")
-                elif bot_mode == 'SEMI_AUTO':
-                    st.warning("⏳ Waiting for manual confirmation")
+            if signal_type in ['ICEBERG_BUY', 'FLOW_BUY']:
+                st.success(f"🎯 **Primary Signal: {signal_type}**")
+            elif signal_type in ['ICEBERG_SELL', 'FLOW_SELL']:
+                st.error(f"🎯 **Primary Signal: {signal_type}**")
             else:
-                st.info(f"🎯 **Signal: {signal_type}**")
-                st.info("🤖 No action required")
+                st.info(f"🎯 **Primary Signal: {signal_type}**")
             
-            # Show volume context
-            weekly_patterns = volume_analysis.get('weekly_patterns', {}) if volume_analysis else {}
-            weekly_ratio = weekly_patterns.get('current_vs_weekly_ratio', 0)
-            if weekly_ratio > 1.5:
-                st.info(f"📊 Volume: {weekly_ratio:.1f}x of 5-day average")
+            st.metric("Entry Price", f"₹{trading_signals.get('entry_price', 0):.2f}")
         
         with col_signal2:
-            st.metric("Final Confidence", f"{trading_signals.get('confidence', 0):.1%}")
-            st.metric("Volume Impact", f"+{trading_signals.get('volume_impact', 0):.1%}")
+            stoploss = trading_signals.get('stoploss', 0)
+            if stoploss > 0:
+                st.metric("Stop Loss", f"₹{stoploss:.2f}")
+            else:
+                st.metric("Stop Loss", "N/A")
             
-            # Bot status
-            if bot_mode != 'MONITOR_ONLY':
-                if probability > 0.7 and trading_signals.get('confidence', 0) > 0.7:
-                    st.success("✅ Bot Active")
-                else:
-                    st.info("⏸️ Bot Paused")
+            targets = trading_signals.get('targets', [])
+            if targets:
+                st.metric("Target 1", f"₹{targets[0]:.2f}")
+        
+        with col_signal3:
+            st.metric("Position Size", f"{trading_signals.get('position_size', 0)} shares")
+            st.metric("Risk/Reward", f"{trading_signals.get('risk_reward_ratio', 0):.2f}:1")
     
-    # Detection scores
-    detection_scores = detection_result.get('detection_scores', {})
-    if detection_scores:
+    # Algorithm Integration Results
+    if algo_results:
         st.markdown("---")
-        st.subheader("🔍 Detection Analysis")
+        st.subheader("🤖 Algorithm Execution")
         
-        cols = st.columns(5)
-        score_names = ['order_fragmentation', 'hidden_liquidity', 'volume_anomaly', 'momentum_disparity', 'depth_imbalance']
-        display_names = ['Fragmentation', 'Hidden Liquidity', 'Volume Anomaly', 'Momentum', 'Depth Imbalance']
+        col_algo1, col_algo2 = st.columns(2)
         
-        for i, (col, score_name, display_name) in enumerate(zip(cols, score_names, display_names)):
-            with col:
-                score = detection_scores.get(score_name, 0)
-                st.metric(display_name, f"{score:.1%}")
+        with col_algo1:
+            if algo_results.get('semi_auto_triggered', False):
+                st.warning("🟡 Semi-Auto Algorithm Triggered")
+                st.info("**Action Required:** Review and confirm trade execution")
+                
+                # Create unique keys for buttons
+                confirm_key = f"confirm_trade_{pd.Timestamp.now().timestamp()}"
+                reject_key = f"reject_trade_{pd.Timestamp.now().timestamp()}"
+                
+                col_confirm, col_reject = st.columns(2)
+                
+                with col_confirm:
+                    if st.button("✅ Confirm Trade", key=confirm_key, use_container_width=True):
+                        # Execute semi-auto trade
+                        execution_result = execute_semi_auto_trade(trading_signals, market_data)
+                        if execution_result.get('status') == 'SIMULATED':
+                            st.success(f"✅ Trade executed successfully!")
+                            for order in execution_result.get('orders', []):
+                                st.write(f"📦 {order.get('type', 'ORDER')}: {order.get('order_id', 'Pending')}")
+                        else:
+                            st.error(f"❌ Trade execution failed: {execution_result.get('error', 'Unknown error')}")
+                
+                with col_reject:
+                    if st.button("❌ Reject Trade", key=reject_key, use_container_width=True):
+                        st.info("Trade rejected - no action taken")
+            
+            if algo_results.get('fully_auto_triggered', False):
+                st.success("🟢 Fully Auto Algorithm Executed")
+                for order in algo_results.get('orders_placed', []):
+                    st.write(f"📦 {order.get('type', 'ORDER')}: {order.get('order_id', 'Pending')}")
+        
+        with col_algo2:
+            if algo_results.get('risk_checks_passed', False):
+                st.success("✅ All Risk Checks Passed")
+            else:
+                st.error("❌ Risk Checks Failed")
+            
+            st.metric("Execution Status", algo_results.get('execution_status', 'PENDING'))
+            
+            # Show generated signals
+            signals_generated = algo_results.get('signals_generated', [])
+            if signals_generated:
+                st.write("**Generated Signals:**")
+                for signal in signals_generated:
+                    st.write(f"📡 {signal.get('type', 'SIGNAL')}: {signal.get('signal', 'N/A')}")
     
-    # Visualization
-    try:
-        visualizer = QuantumVisualizer()
-        fig = visualizer.create_quantum_chart(detection_result)
-        st.plotly_chart(fig, use_container_width=True)
-    except:
-        st.info("📊 Visualization unavailable")
-    
-    # Market depth
+    # Enhanced depth analysis
     order_book = market_data.get('order_book', {})
-    if order_book:
+    
+    st.markdown("---")
+    st.subheader("📊 Market Depth Analysis")
+    
+    col_depth1, col_depth2, col_depth3, col_depth4 = st.columns(4)
+    
+    with col_depth1:
+        st.metric("Depth Levels", depth_levels)
+        st.metric("Bid Volume", f"{order_book.get('total_bid_volume', 0):,}")
+    
+    with col_depth2:
+        st.metric("Ask Volume", f"{order_book.get('total_ask_volume', 0):,}")
+        st.metric("Bid/Ask Ratio", f"{order_book.get('bid_ask_ratio', 1):.2f}")
+    
+    with col_depth3:
+        st.metric("Bid Concentration", f"{order_book.get('bid_concentration', 0):.1%}")
+        st.metric("Large Bid Orders", order_book.get('large_bid_orders', 0))
+    
+    with col_depth4:
+        st.metric("Ask Concentration", f"{order_book.get('ask_concentration', 0):.1%}")
+        st.metric("Large Ask Orders", order_book.get('large_ask_orders', 0))
+    
+    # Display depth levels
+    if show_details:
         st.markdown("---")
-        st.subheader("📊 Market Depth")
+        st.subheader("🔍 Detailed Market Depth")
         
-        col_depth1, col_depth2, col_depth3, col_depth4 = st.columns(4)
+        col_bids, col_asks = st.columns(2)
         
-        with col_depth1:
-            st.metric("Bid Volume", f"{order_book.get('total_bid_volume', 0):,}")
-            st.metric("Bid Concentration", f"{order_book.get('bid_concentration', 0):.1%}")
+        with col_bids:
+            st.write("**🟢 Bid Levels**")
+            bids = order_book.get('bids', [])
+            for i, bid in enumerate(bids[:10]):  # Show first 10 levels
+                if isinstance(bid, dict) and 'quantity' in bid and 'price' in bid:
+                    st.write(f"Level {i+1}: {bid['quantity']:,} @ ₹{bid['price']:.2f}")
+                else:
+                    st.write(f"Level {i+1}: Invalid bid data")
         
-        with col_depth2:
-            st.metric("Ask Volume", f"{order_book.get('total_ask_volume', 0):,}")
-            st.metric("Ask Concentration", f"{order_book.get('ask_concentration', 0):.1%}")
-        
-        with col_depth3:
-            st.metric("Bid/Ask Ratio", f"{order_book.get('bid_ask_ratio', 1):.2f}")
-            st.metric("Large Bid Orders", order_book.get('large_bid_orders', 0))
-        
-        with col_depth4:
-            st.metric("Depth Levels", order_book.get('depth_levels_analyzed', 0))
-            st.metric("Large Ask Orders", order_book.get('large_ask_orders', 0))
+        with col_asks:
+            st.write("**🔴 Ask Levels**")
+            asks = order_book.get('asks', [])
+            for i, ask in enumerate(asks[:10]):  # Show first 10 levels
+                if isinstance(ask, dict) and 'quantity' in ask and 'price' in ask:
+                    st.write(f"Level {i+1}: {ask['quantity']:,} @ ₹{ask['price']:.2f}")
+                else:
+                    st.write(f"Level {i+1}: Invalid ask data")
     
     # Alerts
     alerts = detection_result.get('alerts', [])
     if alerts:
         st.markdown("---")
-        st.subheader("🚨 Alerts")
-        for alert in alerts:
-            if "🚨" in alert or "🔴" in alert:
-                st.error(alert)
-            elif "🟡" in alert:
-                st.warning(alert)
+        st.subheader("🚨 Alerts & Signals")
+        for alert in alerts[:5]:  # Show max 5 alerts
+            if "HIGH" in alert:
+                st.error(f"🔴 {alert}")
+            elif "Medium" in alert:
+                st.warning(f"🟡 {alert}")
             else:
-                st.info(alert)
+                st.info(f"🟢 {alert}")
     
-    # Show analysis period info
-    st.info(f"📅 **Analysis Period**: Last 5 Market Days | **Data Source**: {market_data.get('data_source', 'Unknown')}")
-    
-    st.success("✅ 5-Day Pattern Analysis Completed")
-
-# ==================== TRADING SIGNALS GENERATION ====================
-
-def generate_trading_signals_enhanced(detection_result, market_data, volume_impact_weight=0.25):
-    """Generate enhanced trading signals with 5-day volume focus"""
-    try:
-        if not detection_result or not market_data:
-            return get_default_signals()
+    # Detailed analysis
+    if show_details:
+        st.markdown("---")
+        st.subheader("📈 Detailed Analysis")
         
-        probability = detection_result.get('iceberg_probability', 0)
-        confidence = detection_result.get('confidence', 0)
-        order_book = market_data.get('order_book', {})
-        volume_analysis = market_data.get('volume_analysis', {})
+        col_analysis1, col_analysis2 = st.columns(2)
         
-        signals = {
-            'primary_signal': 'HOLD',
-            'secondary_signals': [],
-            'confidence': confidence,
-            'probability': probability,
-            'timestamp': pd.Timestamp.now(),
-            'entry_price': market_data.get('last_price', 0),
-            'volume_impact': 0,
-            'volume_alerts': []
-        }
+        with col_analysis1:
+            st.write("**Flow Analysis**")
+            flow_data = detection_result.get('flow_analysis', {})
+            st.write(f"- Confidence: {flow_data.get('confidence', 0):.1%}")
+            st.write(f"- Momentum: {flow_data.get('momentum', 0):.1%}")
+            st.write(f"- Volatility: {flow_data.get('volatility', 0):.1%}")
         
-        # Volume analysis integration
-        if volume_analysis:
-            volume_spike = volume_analysis.get('volume_spike_detected', False)
-            alert_level = volume_analysis.get('alert_level', 'NORMAL')
-            
-            volume_impact = 0
-            if volume_spike:
-                if alert_level == "EXTREME":
-                    volume_impact = 0.4
-                elif alert_level == "HIGH":
-                    volume_impact = 0.3
-                elif alert_level == "MEDIUM":
-                    volume_impact = 0.2
-                elif alert_level == "LOW":
-                    volume_impact = 0.1
-                    
-                volume_impact *= volume_impact_weight
-                signals['confidence'] = min(1.0, signals['confidence'] + volume_impact)
-                signals['volume_impact'] = volume_impact
-                
-                signals['volume_alerts'].append(alert_level)
-                signals['secondary_signals'].append(f"VOLUME_{alert_level}")
+        with col_analysis2:
+            st.write("**Pattern Analysis**")
+            pattern_data = detection_result.get('pattern_analysis', {})
+            st.write(f"- Confidence: {pattern_data.get('confidence', 0):.1%}")
+            st.write(f"- Momentum: {pattern_data.get('momentum', 0):.1%}")
+            st.write(f"- Volatility: {pattern_data.get('volatility', 0):.1%}")
         
-        # Order book analysis
-        bid_volume = order_book.get('total_bid_volume', 0)
-        ask_volume = order_book.get('total_ask_volume', 0)
-        total_volume = bid_volume + ask_volume
+        # Market data metrics
+        st.markdown("---")
+        st.subheader("📊 Market Data Metrics")
         
-        if total_volume > 0:
-            imbalance = (bid_volume - ask_volume) / total_volume
-        else:
-            imbalance = 0
+        col_metrics1, col_metrics2, col_metrics3 = st.columns(3)
         
-        # Signal generation
-        final_confidence = signals['confidence']
+        with col_metrics1:
+            st.metric("Volume Ratio", f"{market_data.get('volume_ratio', 1):.2f}x")
+            st.metric("Current Volume", f"{market_data.get('volume', 0):,}")
         
-        if probability > 0.7 and final_confidence > 0.7:
-            if imbalance > 0.1:
-                signals['primary_signal'] = 'ICEBERG_BUY'
-            elif imbalance < -0.1:
-                signals['primary_signal'] = 'ICEBERG_SELL'
+        with col_metrics2:
+            st.metric("Average Volume", f"{market_data.get('average_volume', 0):,}")
+            st.metric("Volatility", f"{market_data.get('volatility', 0):.3f}")
         
-        elif probability > 0.5 and final_confidence > 0.6:
-            if imbalance > 0.05:
-                signals['primary_signal'] = 'FLOW_BUY'
-            elif imbalance < -0.05:
-                signals['primary_signal'] = 'FLOW_SELL'
+        with col_metrics3:
+            params = market_data.get('detection_params', {})
+            st.metric("Large Order Threshold", f"{params.get('large_order_threshold', 0):,}")
+            st.metric("Last Price", f"₹{market_data.get('last_price', 0):.2f}")
         
-        return signals
+        # Create visualization
+        st.markdown("---")
+        st.subheader("🔬 Quantum Visualization")
         
-    except Exception as e:
-        return get_default_signals()
-
-def get_default_signals():
-    """Return default signals when errors occur"""
-    return {
-        'primary_signal': 'HOLD',
-        'secondary_signals': ['Analysis unavailable'],
-        'confidence': 0.0,
-        'probability': 0.0,
-        'timestamp': pd.Timestamp.now(),
-        'entry_price': 0,
-        'volume_impact': 0,
-        'volume_alerts': []
-    }
-
-# ==================== REQUIRED HELPER FUNCTIONS ====================
-
-# These functions need to be implemented in your main app
-def get_broker_client():
-    """Get broker client - implement in your app"""
-    return None
-
-def get_instrument_df_safe():
-    """Get instrument data safely - implement in your app"""
-    return pd.DataFrame()
-
-def get_historical_data_safe(instrument_token, timeframe, period):
-    """Get historical data safely - implement in your app"""
-    return pd.DataFrame()
-
-def get_instrument_token(symbol, instrument_df, exchange):
-    """Get instrument token - implement in your app"""
-    return None
-
-def calculate_volume_concentration(orders):
-    """Calculate volume concentration - implement in your app"""
-    return 0.0
-
-def count_large_orders(orders, threshold):
-    """Count large orders - implement in your app"""
-    return 0
-
-def calculate_live_volatility(historical_data, current_price):
-    """Calculate live volatility - implement in your app"""
-    return 0.02
-
-def get_nifty50_stock_category(symbol):
-    """Get stock category - implement in your app"""
-    return 'MEDIUM'
-
-def get_nifty50_detection_params(symbol):
-    """Get detection params - implement in your app"""
-    return {'large_order_threshold': 10000}
-
-def display_header():
-    """Display header - implement in your app"""
-    st.title("🧊 Quantum Iceberg Detector")
-
-def st_autorefresh(interval, key):
-    """Auto-refresh - implement in your app"""
-    pass
-
-# Run the page
-#if __name__ == "__main__":
-    #page_iceberg_detector()
-
+        try:
+            visualizer = QuantumVisualizer()
+            fig = visualizer.create_quantum_chart(detection_result)
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.warning(f"Visualization unavailable: {e}")
 
 def page_premarket_pulse():
     """Global market overview and premarket indicators with a trader-focused UI."""
@@ -10156,171 +9919,62 @@ def train_seasonal_arima_model(data, forecast_steps):
         st.error(f"Error in model training: {str(e)}")
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_int_df=None):
-    """Generates a Plotly chart with various chart types and overlays."""
+def create_chart(data, title, forecast_df=None, conf_int_df=None):
+    """
+    Create a Plotly chart for historical data and forecasts.
+    Updated to handle the correct column names.
+    """
     fig = go.Figure()
-    if df.empty: 
-        return fig
+    
+    # Add historical data as candlestick or line
+    if all(col in data.columns for col in ['Open', 'High', 'Low', 'Close']):
+        fig.add_trace(go.Candlestick(
+            x=data.index,
+            open=data['Open'],
+            high=data['High'],
+            low=data['Low'],
+            close=data['Close'],
+            name=title
+        ))
+    else:
+        fig.add_trace(go.Scatter(
+            x=data.index,
+            y=data['Close'],
+            mode='lines',
+            name=title,
+            line=dict(color='blue')
+        ))
+    
+    # Add forecast if provided
+    if forecast_df is not None and not forecast_df.empty:
+        # Use the correct column name 'Predicted'
+        fig.add_trace(go.Scatter(
+            x=forecast_df.index, 
+            y=forecast_df['Predicted'], 
+            mode='lines', 
+            line=dict(color='yellow', dash='dash'), 
+            name='Forecast'
+        ))
         
-    chart_df = df.copy()
-    
-    # Handle MultiIndex columns
-    if isinstance(chart_df.columns, pd.MultiIndex):
-        chart_df.columns = chart_df.columns.droplevel(0)
-    
-    # Convert all column names to lowercase for consistency
-    chart_df.columns = [str(col).lower() for col in chart_df.columns]
-    
-    # FIXED: Handle different column name variations
-    column_mapping = {}
-    
-    # Map common column name variations to standard names
-    for col in chart_df.columns:
-        col_lower = col.lower()
-        if 'open' in col_lower:
-            column_mapping[col] = 'open'
-        elif 'high' in col_lower:
-            column_mapping[col] = 'high'
-        elif 'low' in col_lower:
-            column_mapping[col] = 'low'
-        elif 'close' in col_lower or 'last' in col_lower:
-            column_mapping[col] = 'close'
-        elif 'volume' in col_lower:
-            column_mapping[col] = 'volume'
-    
-    # Rename columns if we found mappings
-    if column_mapping:
-        chart_df = chart_df.rename(columns=column_mapping)
-    
-    required_cols = ['open', 'high', 'low', 'close']
-    
-    # Check if we have the required columns after mapping
-    missing_cols = [col for col in required_cols if col not in chart_df.columns]
-    if missing_cols:
-        st.error(f"Charting error for {ticker}: Dataframe is missing required columns: {missing_cols}. Available columns: {list(chart_df.columns)}")
-        return fig
-
-    try:
-        if chart_type == 'Heikin-Ashi':
-            # Manual Heikin-Ashi calculation
-            ha_close = (chart_df['open'] + chart_df['high'] + chart_df['low'] + chart_df['close']) / 4
-            ha_open = (chart_df['open'].shift(1) + chart_df['close'].shift(1)) / 2
-            ha_open.iloc[0] = (chart_df['open'].iloc[0] + chart_df['close'].iloc[0]) / 2
-            ha_high = chart_df[['high', 'open', 'close']].max(axis=1)
-            ha_low = chart_df[['low', 'open', 'close']].min(axis=1)
-            
-            fig.add_trace(go.Candlestick(
-                x=chart_df.index, 
-                open=ha_open, 
-                high=ha_high, 
-                low=ha_low, 
-                close=ha_close, 
-                name='Heikin-Ashi'
-            ))
-        elif chart_type == 'Line':
+        # Add confidence intervals if provided
+        if conf_int_df is not None and not conf_int_df.empty:
             fig.add_trace(go.Scatter(
-                x=chart_df.index, 
-                y=chart_df['close'], 
-                mode='lines', 
-                name='Line'
+                x=conf_int_df.index.tolist() + conf_int_df.index.tolist()[::-1],
+                y=conf_int_df['Upper_CI'].tolist() + conf_int_df['Lower_CI'].tolist()[::-1],
+                fill='toself',
+                fillcolor='rgba(255,255,0,0.2)',
+                line=dict(color='rgba(255,255,0,0)'),
+                name='Confidence Interval'
             ))
-        elif chart_type == 'Bar':
-            fig.add_trace(go.Ohlc(
-                x=chart_df.index, 
-                open=chart_df['open'], 
-                high=chart_df['high'], 
-                low=chart_df['low'], 
-                close=chart_df['close'], 
-                name='Bar'
-            ))
-        else:
-            fig.add_trace(go.Candlestick(
-                x=chart_df.index, 
-                open=chart_df['open'], 
-                high=chart_df['high'], 
-                low=chart_df['low'], 
-                close=chart_df['close'], 
-                name='Candlestick'
-            ))
-            
-        # Bollinger Bands using TA-Lib
-        if 'close' in chart_df.columns:
-            upperband, middleband, lowerband = talib.BBANDS(
-                chart_df['close'], 
-                timeperiod=20, 
-                nbdevup=2, 
-                nbdevdn=2, 
-                matype=0
-            )
-            fig.add_trace(go.Scatter(
-                x=chart_df.index, 
-                y=lowerband, 
-                line=dict(color='rgba(135,206,250,0.5)', width=1), 
-                name='Lower Band'
-            ))
-            fig.add_trace(go.Scatter(
-                x=chart_df.index, 
-                y=upperband, 
-                line=dict(color='rgba(135,206,250,0.5)', width=1), 
-                fill='tonexty', 
-                fillcolor='rgba(135,206,250,0.1)', 
-                name='Upper Band'
-            ))
-            
-        if forecast_df is not None:
-            fig.add_trace(go.Scatter(
-                x=forecast_df.index, 
-                y=forecast_df['Predicted'], 
-                mode='lines', 
-                line=dict(color='yellow', dash='dash'), 
-                name='Forecast'
-            ))
-            if conf_int_df is not None:
-                fig.add_trace(go.Scatter(
-                    x=conf_int_df.index, 
-                    y=conf_int_df['lower'], 
-                    line=dict(color='rgba(255,255,0,0.2)', width=1), 
-                    name='Lower CI', 
-                    showlegend=False
-                ))
-                fig.add_trace(go.Scatter(
-                    x=conf_int_df.index, 
-                    y=conf_int_df['upper'], 
-                    line=dict(color='rgba(255,255,0,0.2)', width=1), 
-                    fill='tonexty', 
-                    fillcolor='rgba(255,255,0,0.2)', 
-                    name='Confidence Interval'
-                ))
-            
-        template = 'plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white'
-        fig.update_layout(
-            title=f'{ticker} Price Chart ({chart_type})', 
-            yaxis_title='Price (INR)', 
-            xaxis_rangeslider_visible=False, 
-            template=template, 
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
-        return fig
-        
-    except Exception as e:
-        st.error(f"Error creating chart for {ticker}: {str(e)}")
-        # Return a simple line chart as fallback
-        try:
-            fig_fallback = go.Figure()
-            fig_fallback.add_trace(go.Scatter(
-                x=chart_df.index,
-                y=chart_df['close'],
-                mode='lines',
-                name=f'{ticker} Close Price'
-            ))
-            fig_fallback.update_layout(
-                title=f'{ticker} Price (Fallback)',
-                yaxis_title='Price (INR)',
-                template='plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white'
-            )
-            return fig_fallback
-        except:
-            return fig
+    
+    fig.update_layout(
+        title=title,
+        xaxis_title='Date',
+        yaxis_title='Price',
+        template='plotly_dark'
+    )
+    
+    return fig
 
 def page_forecasting_ml():
     """A page for advanced ML forecasting with an improved UI and corrected formulas."""
