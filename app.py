@@ -1,6 +1,9 @@
 # ================ 0. REQUIRED LIBRARIES ================
 
 import streamlit as st
+if "theme" not in st.session_state:
+    # You can set default to "Light" or detect via st.get_option if you prefer.
+    st.session_state.theme = "Light"
 import pandas as pd
 import talib # Replace pandas_ta with talib
 import plotly.graph_objects as go
