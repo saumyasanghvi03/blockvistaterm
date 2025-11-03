@@ -51,6 +51,11 @@ import json
 
 def apply_custom_styling():
     """Applies a comprehensive CSS stylesheet for professional theming."""
+    # Safely read theme into a local variable once. This avoids any AttributeError
+    # caused by reading st.session_state.theme inside f-strings or later code.
+    theme = st.session_state.get("theme", "Light")
+    theme_class = f"{theme.lower()}-theme"
+
     theme_css = """
     <style>
         :root {
@@ -199,14 +204,16 @@ def apply_custom_styling():
     </style>
     """
     st.markdown(theme_css, unsafe_allow_html=True)
-    
-    # Use get() method with default value to avoid KeyError
-    theme = st.session_state.get('theme', 'Dark')
-    
+
+    # Inject a tiny JS snippet that toggles the correct body class, using the already-read `theme_class`.
+    # IMPORTANT: use the local variable `theme_class` instead of accessing st.session_state inside the f-string,
+    # which avoids AttributeError when session_state is uninitialized.
     js_theme = f"""
     <script>
-        document.body.classList.remove('light-theme', 'dark-theme');
-        document.body.classList.add('{theme.lower()}-theme');
+        (function() {{
+            document.body.classList.remove('light-theme', 'dark-theme');
+            document.body.classList.add('{theme_class}');
+        }})();
     </script>
     """
     st.components.v1.html(js_theme, height=0)
