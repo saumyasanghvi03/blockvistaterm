@@ -7756,119 +7756,6 @@ NIFTY50_STOCKS = {
 def page_iceberg_detector():
     """Iceberg Detector page with 5-day volume pattern focus and bot configuration"""
     
-    # Define TradingBotConfigurator class INSIDE the function to avoid scope issues
-    class TradingBotConfigurator:
-        """Trading Bot Configuration Component"""
-        
-        def __init__(self):
-            self.available_modes = {
-                'MONITOR_ONLY': '👁️ Monitor Only (No Trades)',
-                'SEMI_AUTO': '🤖 Semi-Auto (Confirm Signals)', 
-                'FULL_AUTO': '🚀 Full Auto (Execute Trades)'
-            }
-        
-        def render_bot_configuration(self):
-            """Render bot configuration UI"""
-            st.markdown("---")
-            st.subheader("🤖 Trading Bot Configuration")
-            
-            col1, col2 = st.columns([2, 1])
-            
-            with col1:
-                bot_mode = st.selectbox(
-                    "Trading Mode",
-                    options=list(self.available_modes.keys()),
-                    format_func=lambda x: self.available_modes[x],
-                    index=0,
-                    key="iceberg_bot_mode"
-                )
-                
-                # Show mode description
-                mode_descriptions = {
-                    'MONITOR_ONLY': 'Only detect and display signals',
-                    'SEMI_AUTO': 'Show signals and wait for confirmation',
-                    'FULL_AUTO': 'Automatically execute detected signals'
-                }
-                st.caption(f"**Mode**: {mode_descriptions.get(bot_mode, 'Unknown')}")
-            
-            with col2:
-                st.markdown("**Bot Status**")
-                if bot_mode == 'MONITOR_ONLY':
-                    st.info("🔍 Monitoring")
-                elif bot_mode == 'SEMI_AUTO':
-                    st.warning("⏳ Semi-Auto")
-                else:
-                    st.success("🚀 Full Auto")
-            
-            # Additional bot settings based on mode
-            if bot_mode != 'MONITOR_ONLY':
-                st.markdown("**Trading Settings**")
-                
-                col_set1, col_set2 = st.columns(2)
-                
-                with col_set1:
-                    max_position_size = st.number_input(
-                        "Max Position Size (₹)",
-                        min_value=1000,
-                        max_value=1000000,
-                        value=50000,
-                        step=5000,
-                        help="Maximum amount per trade",
-                        key="iceberg_position_size"
-                    )
-                
-                with col_set2:
-                    risk_per_trade = st.slider(
-                        "Risk per Trade %",
-                        min_value=0.1,
-                        max_value=5.0,
-                        value=1.0,
-                        step=0.1,
-                        help="Maximum risk per trade as percentage of capital",
-                        key="iceberg_risk"
-                    )
-                
-                # Trading filters
-                st.markdown("**Trading Filters**")
-                filter_col1, filter_col2, filter_col3 = st.columns(3)
-                
-                with filter_col1:
-                    min_confidence = st.slider(
-                        "Min Confidence %",
-                        min_value=50,
-                        max_value=95,
-                        value=70,
-                        step=5,
-                        help="Minimum confidence level for trades",
-                        key="iceberg_min_confidence"
-                    )
-                
-                with filter_col2:
-                    min_volume_ratio = st.slider(
-                        "Min Volume Ratio",
-                        min_value=1.0,
-                        max_value=3.0,
-                        value=1.5,
-                        step=0.1,
-                        help="Minimum volume ratio for signal validation",
-                        key="iceberg_volume_ratio"
-                    )
-                
-                with filter_col3:
-                    max_slippage = st.slider(
-                        "Max Slippage %",
-                        min_value=0.1,
-                        max_value=2.0,
-                        value=0.5,
-                        step=0.1,
-                        help="Maximum allowed slippage",
-                        key="iceberg_slippage"
-                    )
-            
-            return bot_mode
-
-    # ==================== MAIN PAGE CONTENT ====================
-    
     try:
         display_header()
     except:
@@ -7885,7 +7772,7 @@ def page_iceberg_detector():
     # Market Status Display
     display_market_status()
     
-    # Bot Configuration - Now isolated to this function
+    # Bot Configuration
     bot_configurator = TradingBotConfigurator()
     bot_mode = bot_configurator.render_bot_configuration()
     
@@ -8091,8 +7978,6 @@ def page_iceberg_detector():
             st.info("🔄 Auto-refresh enabled - 5-day patterns")
         except:
             pass
-
-# ==================== HELPER FUNCTIONS ====================
 
 def display_market_status():
     """Display current market status"""
@@ -8606,6 +8491,58 @@ def get_default_signals():
         'volume_impact': 0,
         'volume_alerts': []
     }
+
+# ==================== REQUIRED HELPER FUNCTIONS ====================
+
+# These functions need to be implemented in your main app
+def get_broker_client():
+    """Get broker client - implement in your app"""
+    return None
+
+def get_instrument_df_safe():
+    """Get instrument data safely - implement in your app"""
+    return pd.DataFrame()
+
+def get_historical_data_safe(instrument_token, timeframe, period):
+    """Get historical data safely - implement in your app"""
+    return pd.DataFrame()
+
+def get_instrument_token(symbol, instrument_df, exchange):
+    """Get instrument token - implement in your app"""
+    return None
+
+def calculate_volume_concentration(orders):
+    """Calculate volume concentration - implement in your app"""
+    return 0.0
+
+def count_large_orders(orders, threshold):
+    """Count large orders - implement in your app"""
+    return 0
+
+def calculate_live_volatility(historical_data, current_price):
+    """Calculate live volatility - implement in your app"""
+    return 0.02
+
+def get_nifty50_stock_category(symbol):
+    """Get stock category - implement in your app"""
+    return 'MEDIUM'
+
+def get_nifty50_detection_params(symbol):
+    """Get detection params - implement in your app"""
+    return {'large_order_threshold': 10000}
+
+def display_header():
+    """Display header - implement in your app"""
+    st.title("🧊 Quantum Iceberg Detector")
+
+def st_autorefresh(interval, key):
+    """Auto-refresh - implement in your app"""
+    pass
+
+# Run the page
+#if __name__ == "__main__":
+    #page_iceberg_detector()
+
 
 
 
