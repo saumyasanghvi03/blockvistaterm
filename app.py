@@ -16159,6 +16159,23 @@ except Exception:
 
 def _launch_main_app():
     try:
+        # Ensure session-state initialization happens before main_app runs
+        if "initialize_session_state" in globals() and callable(globals()["initialize_session_state"]):
+            try:
+                globals()["initialize_session_state"]()
+            except Exception:
+                # If initialization fails, still show the traceback in UI
+                tb = traceback.format_exc()
+                print(tb, file=sys.stderr)
+                with st.expander("Session init error — click to expand", expanded=True):
+                    st.code(tb)
+                st.error("Session initialization failed. See stack trace above.")
+                return
+
+        # Ensure theme exists as a fallback (defensive)
+        if "theme" not in st.session_state:
+            st.session_state.theme = "Light"
+
         if "main_app" in globals() and callable(globals()["main_app"]):
             globals()["main_app"]()
         else:
@@ -16169,9 +16186,6 @@ def _launch_main_app():
         with st.expander("Unhandled exception — click to expand stack trace", expanded=True):
             st.code(tb)
         st.error("Application failed to start due to an exception. See stack trace above.")
-
-if __name__ == "__main__":
-    _launch_main_app()
 
 # --- Application Entry Point ---
 if __name__ == "__main__":
