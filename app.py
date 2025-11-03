@@ -14465,6 +14465,9 @@ def login_page():
             
 def main_app():
     """The main application interface after successful login."""
+    # Initialize session state FIRST
+    initialize_session_state()
+    
     apply_custom_styling()
     display_overnight_changes_bar()
     
@@ -14504,8 +14507,15 @@ def main_app():
     st.sidebar.divider()
     
     st.sidebar.header("Terminal Controls")
-    st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], horizontal=True)
-    st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options", "HFT"], horizontal=True)
+    
+    # FIXED: Theme selector with unique key
+    theme = st.sidebar.radio("Theme", ["Dark", "Light"], horizontal=True, key="theme_selector")
+    st.session_state.theme = theme
+    
+    # FIXED: Terminal mode selector with unique key
+    terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options", "HFT"], horizontal=True, key="terminal_mode_selector")
+    st.session_state.terminal_mode = terminal_mode
+    
     st.sidebar.divider()
     
     # Dynamic refresh interval based on mode
@@ -14516,8 +14526,8 @@ def main_app():
         st.sidebar.caption(f"Refresh Interval: {refresh_interval}s")
     else:
         st.sidebar.header("Live Data")
-        auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
-        refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
+        auto_refresh = st.sidebar.toggle("Auto Refresh", value=True, key="auto_refresh_toggle")
+        refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh, key="refresh_interval_input")
     
     st.sidebar.divider()
     
@@ -14561,10 +14571,13 @@ def main_app():
         }
     }
     
+    # FIXED: Navigation selector with unique key
     selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
     
     st.sidebar.divider()
-    if st.sidebar.button("Logout"):
+    
+    # FIXED: Logout button with unique key
+    if st.sidebar.button("Logout", key="logout_button"):
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
@@ -14575,6 +14588,7 @@ def main_app():
     
     pages[st.session_state.terminal_mode][selection]()
 
+# --- Application Entry Point ---
 # --- Application Entry Point ---
 if __name__ == "__main__":
     initialize_session_state()
