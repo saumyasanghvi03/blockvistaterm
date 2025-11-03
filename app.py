@@ -16128,6 +16128,37 @@ def main_app():
     
     pages[st.session_state.terminal_mode][selection]()
 
+import streamlit as st
+import traceback
+import sys
+
+# Ensure page config is set early
+try:
+    st.set_page_config(
+        page_title="Block Vista Terminal",
+        layout="wide",
+        initial_sidebar_state="auto",
+    )
+except Exception:
+    # Ignore if set_page_config already called
+    pass
+
+def _launch_main_app():
+    try:
+        if "main_app" in globals() and callable(globals()["main_app"]):
+            globals()["main_app"]()
+        else:
+            st.error("main_app() was not found in app.py. Please ensure a function named main_app is defined.")
+    except Exception:
+        tb = traceback.format_exc()
+        print(tb, file=sys.stderr)
+        with st.expander("Unhandled exception — click to expand stack trace", expanded=True):
+            st.code(tb)
+        st.error("Application failed to start due to an exception. See stack trace above.")
+
+if __name__ == "__main__":
+    _launch_main_app()
+
 # --- Application Entry Point ---
 if __name__ == "__main__":
     initialize_session_state()
