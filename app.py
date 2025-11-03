@@ -53,6 +53,9 @@ st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_side
 
 def apply_custom_styling():
     """Applies a comprehensive CSS stylesheet for professional theming."""
+    theme = getattr(st.session_state, "theme", "Light")
+    document.body.classList.add(f'{theme.lower()}-theme');
+    
     theme_css = """
     <style>
         :root {
