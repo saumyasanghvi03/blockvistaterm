@@ -8470,7 +8470,7 @@ def get_nifty50_detection_params(symbol):
 
 def display_header():
     """Display header - implement in your app"""
-    st.title("🧊 Quantum Iceberg Detector")
+    st.title("BlockVista Terminal")
 
 def st_autorefresh(interval, key):
     """Auto-refresh - implement in your app"""
@@ -15673,7 +15673,7 @@ def get_nifty50_detection_params(symbol):
 
 def display_header():
     """Display header - implement in your app"""
-    st.title("🧊 Quantum Iceberg Detector")
+    st.title("BlockVista Terminal")
 
 def st_autorefresh(interval, key):
     """Auto-refresh - implement in your app"""
