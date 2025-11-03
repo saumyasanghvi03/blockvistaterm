@@ -7690,69 +7690,6 @@ def render_chart_controls(i, instrument_df):
             if order_cols[3].button("Sell", key=f"sell_btn_{i}", use_container_width=True):
                 place_order(instrument_df, ticker, quantity, 'MARKET', 'SELL', 'MIS')
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-from datetime import datetime, time, timedelta
-from nsepy import get_history
-import requests
-from io import StringIO
-
-# Define NIFTY50_STOCKS if not already defined
-NIFTY50_STOCKS = {
-    'RELIANCE': 'Reliance Industries Ltd.',
-    'TCS': 'Tata Consultancy Services Ltd.',
-    'HDFCBANK': 'HDFC Bank Ltd.',
-    'INFY': 'Infosys Ltd.',
-    'HINDUNILVR': 'Hindustan Unilever Ltd.',
-    'ICICIBANK': 'ICICI Bank Ltd.',
-    'KOTAKBANK': 'Kotak Mahindra Bank Ltd.',
-    'BHARTIARTL': 'Bharti Airtel Ltd.',
-    'ITC': 'ITC Ltd.',
-    'SBIN': 'State Bank of India',
-    'BAJFINANCE': 'Bajaj Finance Ltd.',
-    'HCLTECH': 'HCL Technologies Ltd.',
-    'ASIANPAINT': 'Asian Paints Ltd.',
-    'DMART': 'Avenue Supermarts Ltd.',
-    'MARUTI': 'Maruti Suzuki India Ltd.',
-    'SUNPHARMA': 'Sun Pharmaceutical Industries Ltd.',
-    'TITAN': 'Titan Company Ltd.',
-    'AXISBANK': 'Axis Bank Ltd.',
-    'LT': 'Larsen & Toubro Ltd.',
-    'ULTRACEMCO': 'UltraTech Cement Ltd.',
-    'NESTLEIND': 'Nestle India Ltd.',
-    'WIPRO': 'Wipro Ltd.',
-    'ONGC': 'Oil & Natural Gas Corporation Ltd.',
-    'TECHM': 'Tech Mahindra Ltd.',
-    'HDFCLIFE': 'HDFC Life Insurance Company Ltd.',
-    'SBILIFE': 'SBI Life Insurance Company Ltd.',
-    'POWERGRID': 'Power Grid Corporation of India Ltd.',
-    'NTPC': 'NTPC Ltd.',
-    'BAJAJFINSV': 'Bajaj Finserv Ltd.',
-    'ADANIPORTS': 'Adani Ports and Special Economic Zone Ltd.',
-    'COALINDIA': 'Coal India Ltd.',
-    'TATAMOTORS': 'Tata Motors Ltd.',
-    'JSWSTEEL': 'JSW Steel Ltd.',
-    'GRASIM': 'Grasim Industries Ltd.',
-    'HINDALCO': 'Hindalco Industries Ltd.',
-    'BRITANNIA': 'Britannia Industries Ltd.',
-    'DRREDDY': 'Dr. Reddys Laboratories Ltd.',
-    'EICHERMOT': 'Eicher Motors Ltd.',
-    'HEROMOTOCO': 'Hero MotoCorp Ltd.',
-    'CIPLA': 'Cipla Ltd.',
-    'SHREECEM': 'Shree Cement Ltd.',
-    'INDUSINDBK': 'IndusInd Bank Ltd.',
-    'DIVISLAB': 'DiviS Laboratories Ltd.',
-    'BAJAJ-AUTO': 'Bajaj Auto Ltd.',
-    'UPL': 'UPL Ltd.',
-    'M&M': 'Mahindra & Mahindra Ltd.',
-    'TATASTEEL': 'Tata Steel Ltd.',
-    'APOLLOHOSP': 'Apollo Hospitals Enterprise Ltd.',
-    'BPCL': 'Bharat Petroleum Corporation Ltd.',
-    'HDFC': 'Housing Development Finance Corporation Ltd.',
-    'SBICARD': 'SBI Cards & Payment Services Ltd.'
-}
-
 import pandas as pd
 import numpy as np
 import streamlit as st
@@ -9289,6 +9226,7 @@ def page_iceberg_detector():
 # Run the application
 if __name__ == "__main__":
     page_iceberg_detector()
+
 
 def page_premarket_pulse():
     """Global market overview and premarket indicators with a trader-focused UI."""
