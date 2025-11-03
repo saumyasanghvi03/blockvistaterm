@@ -10910,256 +10910,354 @@ def handle_general_queries(prompt_lower, instrument_df):
     }
     
 def page_fundamental_analytics():
-    """Enhanced Fundamental Analytics page using available Kite Connect methods."""
+    """Enhanced Fundamental Analytics page with FMP + Alpha Vantage fallback."""
     display_header()
     st.title("📊 Fundamental Analytics")
     
-    instrument_df = get_instrument_df()
-    if instrument_df.empty:
-        st.info("Please connect to a broker to view fundamental analytics.")
+    # Check API availability
+    api_status = check_api_availability()
+    
+    # Display API status
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if api_status['fmp']:
+            st.success("✅ FMP API: Available")
+        else:
+            st.error("❌ FMP API: Not Configured")
+    with col2:
+        if api_status['alphavantage']:
+            st.success("✅ Alpha Vantage: Available")
+        else:
+            st.error("❌ Alpha Vantage: Not Configured")
+    with col3:
+        if api_status['fmp'] or api_status['alphavantage']:
+            st.success("🚀 Data Sources: Ready")
+        else:
+            st.error("🚫 No API Keys Configured")
+    
+    if not api_status['fmp'] and not api_status['alphavantage']:
+        st.error("""
+        🔐 No API keys found!
+        
+        Please add at least one API key to Streamlit secrets:
+        
+        **Option 1: Financial Modeling Prep (Recommended)**
+        - Get free API key: https://site.financialmodelingprep.com/developer/docs
+        - Add to secrets: `fmp_api_key = "your_key_here"`
+        
+        **Option 2: Alpha Vantage (Fallback)**
+        - Get free API key: https://www.alphavantage.co/support/#api-key
+        - Add to secrets: `alphavantage_api_key = "your_key_here"`
+        
+        You can use both for maximum reliability!
+        """)
         return
     
-    # Symbol selection
-    col1, col2 = st.columns([3, 1])
-    
+    # Symbol input
+    col1, col2 = st.columns([2, 1])
     with col1:
-        all_symbols = instrument_df[
-            (instrument_df['exchange'].isin(['NSE', 'BSE'])) & 
-            (~instrument_df['tradingsymbol'].str.contains('-', na=False))
-        ]['tradingsymbol'].unique()
-        
-        selected_symbol = st.selectbox(
-            "Select Stock Symbol",
-            sorted(all_symbols),
-            index=list(all_symbols).index('RELIANCE') if 'RELIANCE' in all_symbols else 0,
-            key="fundamental_symbol"
-        )
-    
+        symbol = st.text_input("Enter Stock Symbol", value="AAPL", placeholder="e.g., AAPL, TSLA, RELIANCE.NS").upper()
     with col2:
-        st.write("### Quick Actions")
-        if st.button("📈 Analyze Company", key="analyze_company", use_container_width=True, type="primary"):
-            st.session_state.show_company_events = True
-        if st.button("🔄 Refresh Data", key="refresh_fundamental", use_container_width=True):
+        st.write("")
+        st.write("")
+        if st.button("🔍 Fetch Data", use_container_width=True):
+            st.session_state.fundamental_symbol = symbol
             st.rerun()
     
-    # Display current price and basic info
-    quote_data = get_watchlist_data([{'symbol': selected_symbol, 'exchange': 'NSE'}])
-    if not quote_data.empty:
-        current_price = quote_data.iloc[0]['Price']
-        change = quote_data.iloc[0]['Change']
-        pct_change = quote_data.iloc[0]['% Change']
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Current Price", f"₹{current_price:.2f}")
-        with col2:
-            st.metric("Change", f"₹{change:+.2f}")
-        with col3:
-            st.metric("Change %", f"{pct_change:+.2f}%")
-        with col4:
-            # Get basic instrument info
-            instrument = instrument_df[
-                (instrument_df['tradingsymbol'] == selected_symbol.upper()) & 
-                (instrument_df['exchange'] == 'NSE')
-            ]
-            if not instrument.empty and 'instrument_type' in instrument.iloc[0]:
-                inst_type = instrument.iloc[0]['instrument_type']
-                st.metric("Instrument Type", inst_type)
+    # Use session state to persist symbol
+    if 'fundamental_symbol' not in st.session_state:
+        st.session_state.fundamental_symbol = symbol
     
-    st.markdown("---")
+    symbol = st.session_state.fundamental_symbol
     
-    # Main analytics tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["🎯 Company Analysis", "📊 Performance", "📈 Technical", "📅 Market Calendar"])
+    if not symbol:
+        st.info("Please enter a stock symbol to analyze")
+        return
+    
+    # Data source indicator
+    with st.spinner("Checking data sources..."):
+        profile = get_company_profile(symbol)
+    
+    if profile:
+        data_source = profile.get('data_source', 'Unknown')
+        if data_source == 'FMP':
+            st.success(f"📊 Using data from: Financial Modeling Prep")
+        elif data_source == 'Alpha Vantage':
+            st.warning(f"📊 Using data from: Alpha Vantage (FMP fallback)")
+        else:
+            st.info(f"📊 Data source: {data_source}")
+    else:
+        st.error(f"❌ Could not fetch data for {symbol}. Please check the symbol and try again.")
+        return
+    
+    # Tabs for different fundamental data
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📈 Company Overview", 
+        "💰 Financial Statements", 
+        "📊 Financial Ratios", 
+        "🎯 Key Metrics", 
+        "📈 Historical Analysis",
+        "🔍 Stock Screener"
+    ])
     
     with tab1:
-        st.subheader("🎯 Company Analysis & Events")
-        st.info("Comprehensive company analysis using available market data and historical patterns.")
-        
-        # Display company events and analysis
-        display_company_events_kite(selected_symbol, instrument_df)
+        display_company_overview(symbol)
     
     with tab2:
-        st.subheader("📊 Performance Metrics")
-        
-        # Get historical data for performance analysis
-        instrument = instrument_df[
-            (instrument_df['tradingsymbol'] == selected_symbol.upper()) & 
-            (instrument_df['exchange'] == 'NSE')
-        ]
-        
-        if not instrument.empty:
-            instrument_token = instrument.iloc[0]['instrument_token']
-            
-            with st.spinner("Fetching performance data..."):
-                try:
-                    # Get historical data for different timeframes
-                    historical_1m = get_historical_data(instrument_token, 'day', period='1mo')
-                    historical_3m = get_historical_data(instrument_token, 'day', period='3mo')
-                    historical_1y = get_historical_data(instrument_token, 'day', period='1y')
-                    
-                    if not historical_1m.empty:
-                        # Calculate performance metrics
-                        current_price = historical_1m['close'].iloc[-1]
-                        price_1m_ago = historical_1m['close'].iloc[0] if len(historical_1m) > 1 else current_price
-                        price_3m_ago = historical_3m['close'].iloc[0] if not historical_3m.empty else current_price
-                        price_1y_ago = historical_1y['close'].iloc[0] if not historical_1y.empty else current_price
-                        
-                        # Performance metrics
-                        perf_1m = ((current_price - price_1m_ago) / price_1m_ago) * 100
-                        perf_3m = ((current_price - price_3m_ago) / price_3m_ago) * 100
-                        perf_1y = ((current_price - price_1y_ago) / price_1y_ago) * 100
-                        
-                        # Display performance metrics
-                        col1, col2, col3, col4 = st.columns(4)
-                        col1.metric("1 Month Return", f"{perf_1m:.2f}%")
-                        col2.metric("3 Month Return", f"{perf_3m:.2f}%")
-                        col3.metric("1 Year Return", f"{perf_1y:.2f}%")
-                        col4.metric("Current Price", f"₹{current_price:.2f}")
-                        
-                        # Create performance chart
-                        fig = go.Figure()
-                        fig.add_trace(go.Scatter(x=historical_1m.index, y=historical_1m['close'], 
-                                               name='Price', line=dict(color='blue')))
-                        
-                        fig.update_layout(
-                            title=f"{selected_symbol} - Price Performance (1 Month)",
-                            xaxis_title="Date",
-                            yaxis_title="Price (₹)",
-                            template="plotly_dark" if st.session_state.theme == 'Dark' else "plotly_white"
-                        )
-                        
-                        st.plotly_chart(fig, use_container_width=True)
-                        
-                    else:
-                        st.warning("Insufficient historical data for performance analysis.")
-                        
-                except Exception as e:
-                    st.error(f"Error fetching performance data: {e}")
-        else:
-            st.error("Instrument not found for performance analysis.")
+        display_financial_statements(symbol)
     
     with tab3:
-        st.subheader("📈 Technical Analysis")
-        
-        instrument = instrument_df[
-            (instrument_df['tradingsymbol'] == selected_symbol.upper()) & 
-            (instrument_df['exchange'] == 'NSE')
-        ]
-        
-        if not instrument.empty:
-            instrument_token = instrument.iloc[0]['instrument_token']
-            
-            # Get historical data for technical analysis
-            historical_data = get_historical_data(instrument_token, 'day', period='6mo')
-            
-            if not historical_data.empty:
-                # Calculate technical indicators
-                df = historical_data.copy()
-                
-                # RSI
-                df['RSI'] = talib.RSI(df['close'], timeperiod=14)
-                
-                # Moving averages
-                df['SMA_20'] = talib.SMA(df['close'], timeperiod=20)
-                df['SMA_50'] = talib.SMA(df['close'], timeperiod=50)
-                
-                # MACD
-                df['MACD'], df['MACD_Signal'], df['MACD_Hist'] = talib.MACD(df['close'])
-                
-                # Display current technical levels
-                current_rsi = df['RSI'].iloc[-1]
-                current_close = df['close'].iloc[-1]
-                sma_20 = df['SMA_20'].iloc[-1]
-                sma_50 = df['SMA_50'].iloc[-1]
-                
-                col1, col2, col3, col4 = st.columns(4)
-                col1.metric("RSI (14)", f"{current_rsi:.1f}")
-                col2.metric("SMA 20", f"₹{sma_20:.2f}")
-                col3.metric("SMA 50", f"₹{sma_50:.2f}")
-                col4.metric("Price vs SMA 20", f"{(current_close/sma_20 - 1)*100:.1f}%")
-                
-                # RSI interpretation
-                st.subheader("📊 RSI Analysis")
-                if current_rsi > 70:
-                    st.warning("RSI indicates OVERBOUGHT conditions. Consider caution.")
-                elif current_rsi < 30:
-                    st.info("RSI indicates OVERSOLD conditions. Potential buying opportunity.")
-                else:
-                    st.success("RSI in NEUTRAL territory.")
-                    
-                # Moving average analysis
-                st.subheader("📈 Trend Analysis")
-                if current_close > sma_20 > sma_50:
-                    st.success("UPTREND: Price above both SMAs - Bullish sentiment")
-                elif current_close < sma_20 < sma_50:
-                    st.error("DOWNTREND: Price below both SMAs - Bearish sentiment")
-                else:
-                    st.warning("SIDEWAYS: Mixed signals - Market in consolidation")
-                    
-            else:
-                st.warning("Insufficient data for technical analysis.")
-        else:
-            st.error("Instrument not found for technical analysis.")
+        display_financial_ratios(symbol)
     
     with tab4:
-        st.subheader("📅 Market Calendar & Events")
-        
-        holidays = get_market_holidays_extended()
-        
-        for category, events in holidays.items():
-            with st.expander(f"{category}", expanded=True):
-                for event in events:
-                    st.write(f"• {event}")
-        
-        # Add upcoming event reminders
-        st.subheader("🔔 Event Reminders")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("Set Quarterly Results Alert", use_container_width=True):
-                st.success(f"Quarterly results alert set for {selected_symbol}")
-        
-        with col2:
-            if st.button("Set Corporate Action Alert", use_container_width=True):
-                st.success(f"Corporate action alert set for {selected_symbol}")
+        display_key_metrics(symbol)
     
-    # Quick analysis tools
-    st.markdown("---")
-    st.subheader("🚀 Quick Analysis Tools")
+    with tab5:
+        display_historical_analysis(symbol)
     
-    col1, col2, col3, col4 = st.columns(4)
+    with tab6:
+        display_stock_screener()
+
+def display_company_overview(symbol):
+    """Display company overview with data source awareness."""
+    st.subheader(f"🏢 Company Overview - {symbol}")
+    
+    with st.spinner("Fetching company data..."):
+        profile = get_company_profile(symbol)
+        quote = get_company_quote(symbol)
+    
+    if not profile:
+        st.error(f"Could not fetch data for {symbol}. Please check the symbol and try again.")
+        return
+    
+    # Data source badge
+    data_source = profile.get('data_source', 'Unknown')
+    if data_source == 'FMP':
+        st.success("✅ Primary data source: Financial Modeling Prep")
+    elif data_source == 'Alpha Vantage':
+        st.warning("🔄 Fallback data source: Alpha Vantage")
+    
+    # Company profile section
+    col1, col2 = st.columns([1, 2])
     
     with col1:
-        if st.button("📊 Run Full Analysis", use_container_width=True):
-            st.info("Running comprehensive analysis...")
-            st.rerun()
+        if profile.get('image'):
+            st.image(profile['image'], width=150)
+        else:
+            st.image("https://via.placeholder.com/150x150?text=No+Image", width=150)
     
     with col2:
-        if st.button("📈 Technical Scan", use_container_width=True):
-            st.info("Performing technical analysis scan...")
+        st.write(f"### {profile.get('companyName', 'N/A')}")
+        st.write(f"**Sector:** {profile.get('sector', 'N/A')}")
+        st.write(f"**Industry:** {profile.get('industry', 'N/A')}")
+        st.write(f"**Exchange:** {profile.get('exchange', 'N/A')}")
+        st.write(f"**CEO:** {profile.get('ceo', 'N/A')}")
+        if profile.get('fullTimeEmployees'):
+            st.write(f"**Employees:** {profile.get('fullTimeEmployees'):,}")
     
-    with col3:
-        if st.button("💰 Valuation Check", use_container_width=True):
-            st.info("Running valuation analysis...")
+    # Real-time quote data
+    if quote:
+        st.markdown("---")
+        col1, col2, col3, col4, col5 = st.columns(5)
+        
+        with col1:
+            price = quote.get('price', 0)
+            st.metric("Current Price", f"${price:.2f}" if price else "N/A")
+        
+        with col2:
+            change = quote.get('change', 0)
+            change_pct = quote.get('changePercent', 0) or quote.get('changesPercentage', 0)
+            st.metric(
+                "Daily Change", 
+                f"${change:.2f}" if change else "N/A",
+                f"{change_pct:.2f}%" if change_pct else "N/A"
+            )
+        
+        with col3:
+            day_high = quote.get('dayHigh', 0)
+            st.metric("Day High", f"${day_high:.2f}" if day_high else "N/A")
+        
+        with col4:
+            day_low = quote.get('dayLow', 0)
+            st.metric("Day Low", f"${day_low:.2f}" if day_low else "N/A")
+        
+        with col5:
+            volume = quote.get('volume', 0)
+            st.metric("Volume", f"{volume:,}" if volume else "N/A")
+        
+        # Show quote data source
+        quote_source = quote.get('data_source', 'Unknown')
+        st.caption(f"Quote data from: {quote_source}")
     
-    with col4:
-        if st.button("📅 Event Scanner", use_container_width=True):
-            st.info("Scanning for upcoming corporate events...")
-
-    # Auto-refresh control
+    # Company description
     st.markdown("---")
-    with st.expander("⚙️ Display Settings"):
-        auto_refresh = st.checkbox("Enable Auto-refresh", value=False, key="fundamental_auto_refresh")
-        refresh_interval = st.selectbox(
-            "Refresh Interval", 
-            [30, 60, 120, 300], 
-            index=1, 
-            format_func=lambda x: f"{x} seconds",
-            key="fundamental_refresh_interval"
+    st.subheader("Company Description")
+    description = profile.get('description', 'No description available.')
+    st.write(description)
+    
+    # Key financial metrics
+    st.markdown("---")
+    st.subheader("Key Financial Metrics")
+    
+    if profile:
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            mkt_cap = profile.get('mktCap', 0) or profile.get('MarketCapitalization', 0)
+            if mkt_cap:
+                if isinstance(mkt_cap, str):
+                    mkt_cap = float(mkt_cap)
+                if mkt_cap > 1e9:
+                    st.metric("Market Cap", f"${mkt_cap/1e9:.2f}B")
+                elif mkt_cap > 1e6:
+                    st.metric("Market Cap", f"${mkt_cap/1e6:.2f}M")
+                else:
+                    st.metric("Market Cap", f"${mkt_cap:,.2f}")
+            else:
+                st.metric("Market Cap", "N/A")
+        
+        with col2:
+            beta = profile.get('beta', 0) or profile.get('Beta', 0)
+            if beta:
+                st.metric("Beta", f"{float(beta):.2f}")
+            else:
+                st.metric("Beta", "N/A")
+        
+        with col3:
+            pe_ratio = profile.get('pe', 0) or profile.get('PERatio', 0)
+            if pe_ratio:
+                st.metric("P/E Ratio", f"{float(pe_ratio):.2f}")
+            else:
+                st.metric("P/E Ratio", "N/A")
+        
+        with col4:
+            eps = profile.get('eps', 0) or profile.get('EPS', 0)
+            if eps:
+                st.metric("EPS", f"${float(eps):.2f}")
+            else:
+                st.metric("EPS", "N/A")
+
+def display_financial_statements(symbol):
+    """Display financial statements with source awareness."""
+    st.subheader(f"💰 Financial Statements - {symbol}")
+    
+    statement_type = st.radio("Statement Type", ["Income Statement", "Balance Sheet", "Cash Flow"], horizontal=True)
+    period = st.radio("Period", ["Annual", "Quarterly"], horizontal=True)
+    
+    period_param = "annual" if period == "Annual" else "quarterly"
+    
+    with st.spinner(f"Fetching {statement_type} data..."):
+        if statement_type == "Income Statement":
+            data = get_income_statement(symbol, period_param)
+        elif statement_type == "Balance Sheet":
+            data = get_balance_sheet(symbol, period_param)
+        else:  # Cash Flow
+            data = get_cash_flow(symbol, period_param)
+    
+    if data is not None and not data.empty:
+        # Show data source
+        data_source = data.get('data_source', 'Unknown').iloc[0] if 'data_source' in data.columns else 'Unknown'
+        if data_source == 'FMP':
+            st.success(f"✅ Data from: Financial Modeling Prep")
+        elif data_source == 'Alpha Vantage':
+            st.warning(f"🔄 Data from: Alpha Vantage")
+        
+        # Format the dataframe for display
+        display_df = data.copy()
+        if 'data_source' in display_df.columns:
+            display_df = display_df.drop('data_source', axis=1)
+        
+        # Convert all numeric columns to appropriate format
+        for col in display_df.columns:
+            if display_df[col].dtype in ['int64', 'float64']:
+                display_df[col] = display_df[col].apply(lambda x: format_number(x) if pd.notna(x) else "N/A")
+            elif isinstance(display_df[col].iloc[0], str) and display_df[col].iloc[0].replace('.', '').replace('-', '').isdigit():
+                # Handle string numbers
+                display_df[col] = display_df[col].apply(lambda x: format_number(float(x)) if x and x != 'None' else "N/A")
+        
+        st.dataframe(display_df, use_container_width=True)
+        
+        # Download option
+        csv = data.to_csv(index=False)
+        st.download_button(
+            label="📥 Download CSV",
+            data=csv,
+            file_name=f"{symbol}_{statement_type.replace(' ', '_')}_{period}.csv",
+            mime="text/csv",
+        )
+    else:
+        st.info(f"No {statement_type} data available for {symbol}")
+
+def display_historical_analysis(symbol):
+    """Display historical price analysis with source awareness."""
+    st.subheader(f"📈 Historical Analysis - {symbol}")
+    
+    # Time period selection
+    period = st.selectbox("Time Period", ["1 Month", "3 Months", "6 Months", "1 Year", "2 Years", "5 Years"])
+    days_map = {"1 Month": 30, "3 Months": 90, "6 Months": 180, "1 Year": 365, "2 Years": 730, "5 Years": 1825}
+    days = days_map[period]
+    
+    with st.spinner("Fetching historical data..."):
+        historical_data = get_historical_price(symbol, days)
+    
+    if historical_data is not None and not historical_data.empty:
+        # Show data source
+        data_source = historical_data.get('data_source', 'Unknown').iloc[0] if 'data_source' in historical_data.columns else 'Unknown'
+        if data_source == 'FMP':
+            st.success("✅ Historical data from: Financial Modeling Prep")
+        elif data_source == 'Alpha Vantage':
+            st.warning("🔄 Historical data from: Alpha Vantage")
+        
+        # Remove data source column for plotting
+        plot_data = historical_data.copy()
+        if 'data_source' in plot_data.columns:
+            plot_data = plot_data.drop('data_source', axis=1)
+        
+        # Create price chart
+        fig = go.Figure()
+        
+        fig.add_trace(go.Candlestick(
+            x=plot_data.index,
+            open=plot_data['open'],
+            high=plot_data['high'],
+            low=plot_data['low'],
+            close=plot_data['close'],
+            name='Price'
+        ))
+        
+        fig.update_layout(
+            title=f"{symbol} Historical Price",
+            yaxis_title="Price ($)",
+            xaxis_title="Date",
+            template="plotly_dark" if st.session_state.get('theme') == 'Dark' else "plotly_white",
+            height=500
         )
         
-        if st.button("🔄 Refresh Now", key="manual_refresh_fundamental"):
-            st.rerun()
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Price statistics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            current_price = plot_data['close'].iloc[-1]
+            st.metric("Current Price", f"${current_price:.2f}")
+        
+        with col2:
+            period_high = plot_data['high'].max()
+            st.metric("Period High", f"${period_high:.2f}")
+        
+        with col3:
+            period_low = plot_data['low'].min()
+            st.metric("Period Low", f"${period_low:.2f}")
+        
+        with col4:
+            price_change = ((current_price - plot_data['close'].iloc[0]) / plot_data['close'].iloc[0]) * 100
+            st.metric("Total Return", f"{price_change:.2f}%")
+        
+    else:
+        st.info(f"No historical data available for {symbol}")
+
+# Update other display functions similarly...
 
 def page_basket_orders():
     """A page for creating, managing, and executing basket orders."""
