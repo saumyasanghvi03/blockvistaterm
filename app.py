@@ -8543,9 +8543,6 @@ def st_autorefresh(interval, key):
 #if __name__ == "__main__":
     #page_iceberg_detector()
 
-
-
-
 def page_premarket_pulse():
     """Global market overview and premarket indicators with a trader-focused UI."""
     display_header()
