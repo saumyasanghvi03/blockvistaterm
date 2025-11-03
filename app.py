@@ -7753,241 +7753,1125 @@ NIFTY50_STOCKS = {
     'SBICARD': 'SBI Cards & Payment Services Ltd.'
 }
 
-def page_iceberg_detector():
-    """Iceberg Detector page with 5-day volume pattern focus and bot configuration"""
+import pandas as pd
+import numpy as np
+import streamlit as st
+import yfinance as yf
+from datetime import datetime, time, timedelta
+from typing import Dict, List, Optional, Tuple
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import requests
+import warnings
+warnings.filterwarnings('ignore')
+
+# ==================== CONFIGURATION ====================
+
+class TradingBotConfigurator:
+    """Configuration for semi-automated and fully automated trading bots"""
     
-    try:
-        display_header()
-    except:
-        st.title("🧊 Quantum Iceberg Detector - Nifty50")
+    def __init__(self):
+        self.bot_modes = {
+            'SEMI_AUTO': {
+                'name': '🤖 Semi-Automated Bot',
+                'description': 'Manual entry with automated exit & risk management',
+                'color': 'orange'
+            },
+            'FULL_AUTO': {
+                'name': '🚀 Fully Automated Bot', 
+                'description': 'Complete automated trading with AI signals',
+                'color': 'green'
+            },
+            'MONITOR_ONLY': {
+                'name': '👁️ Monitor Only',
+                'description': 'Real-time monitoring without trading',
+                'color': 'blue'
+            }
+        }
     
-    st.markdown("""
-    **Real-time iceberg detection with 5-day volume pattern analysis**
-    
-    *Volume analysis based on last 5 market days (1 trading week)*
-    *Enhanced intraday session tracking with weekly context*
-    *More responsive to recent market conditions*
-    """)
-    
-    # Market Status Display
-    display_market_status()
-    
-    # Bot Configuration
-    bot_configurator = TradingBotConfigurator()
-    bot_mode = bot_configurator.render_bot_configuration()
-    
-    # Safe broker connection check
-    try:
-        client = get_broker_client()
-        if not client:
-            st.info("🔌 Demo Mode - Connect broker for live data")
-        else:
-            st.success("✅ Broker connected")
-    except:
-        st.info("🔌 Running in demo mode")
-    
-    # Safe instrument data loading
-    with st.spinner("📊 Loading 5-day market data..."):
-        instrument_df = get_instrument_df_safe()
+    def render_bot_configuration(self):
+        """Render bot configuration UI"""
+        st.markdown("---")
+        st.subheader("🤖 Trading Bot Configuration")
         
-        if instrument_df is None or instrument_df.empty:
-            st.info("📋 Using demo data with 5-day volume analysis")
+        # Bot Mode Selection
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            bot_mode = st.selectbox(
+                "Bot Mode",
+                options=list(self.bot_modes.keys()),
+                format_func=lambda x: self.bot_modes[x]['name'],
+                help="Select trading automation level"
+            )
+        
+        with col2:
+            max_positions = st.slider(
+                "Max Positions",
+                min_value=1,
+                max_value=10,
+                value=3,
+                help="Maximum simultaneous positions"
+            )
+        
+        with col3:
+            risk_per_trade = st.slider(
+                "Risk per Trade (%)",
+                min_value=0.1,
+                max_value=5.0,
+                value=1.0,
+                step=0.1,
+                help="Maximum risk per trade as % of capital"
+            )
+        
+        # Bot Parameters based on mode
+        if bot_mode == 'SEMI_AUTO':
+            self.render_semi_auto_config()
+        elif bot_mode == 'FULL_AUTO':
+            self.render_full_auto_config()
+        else:
+            self.render_monitor_config()
+        
+        # Trading Hours Configuration
+        st.markdown("#### 🕒 Trading Hours Configuration")
+        col_t1, col_t2, col_t3 = st.columns(3)
+        
+        with col_t1:
+            session_preference = st.selectbox(
+                "Preferred Session",
+                ['FIRST_HOUR', 'MORNING', 'AFTERNOON', 'CLOSING', 'ALL_DAY'],
+                format_func=lambda x: x.replace('_', ' ').title(),
+                help="Preferred trading session"
+            )
+        
+        with col_t2:
+            avoid_volatility = st.checkbox(
+                "Avoid High Volatility",
+                value=True,
+                help="Avoid trading during high volatility periods"
+            )
+        
+        with col_t3:
+            weekend_mode = st.selectbox(
+                "Weekend Mode",
+                ['USE_LAST_DATA', 'PAUSE_TRADING', 'ANALYSIS_ONLY'],
+                format_func=lambda x: x.replace('_', ' ').title(),
+                help="Behavior during weekends/non-market days"
+            )
+        
+        # Advanced Parameters
+        with st.expander("⚙️ Advanced Parameters"):
+            col_a1, col_a2 = st.columns(2)
+            
+            with col_a1:
+                min_confidence = st.slider(
+                    "Minimum Confidence %",
+                    min_value=50,
+                    max_value=95,
+                    value=70,
+                    help="Minimum confidence level for trades"
+                )
+                
+                volume_threshold = st.slider(
+                    "Volume Threshold Multiplier",
+                    min_value=1.0,
+                    max_value=3.0,
+                    value=1.5,
+                    step=0.1,
+                    help="Volume spike threshold for entry"
+                )
+            
+            with col_a2:
+                stop_loss_pct = st.slider(
+                    "Stop Loss (%)",
+                    min_value=0.5,
+                    max_value=5.0,
+                    value=2.0,
+                    step=0.1,
+                    help="Auto stop loss percentage"
+                )
+                
+                take_profit_pct = st.slider(
+                    "Take Profit (%)",
+                    min_value=1.0,
+                    max_value=10.0,
+                    value=4.0,
+                    step=0.5,
+                    help="Auto take profit percentage"
+                )
+        
+        # Save Configuration
+        if st.button("💾 Save Bot Configuration", type="primary"):
+            bot_config = {
+                'mode': bot_mode,
+                'max_positions': max_positions,
+                'risk_per_trade': risk_per_trade,
+                'session_preference': session_preference,
+                'avoid_volatility': avoid_volatility,
+                'weekend_mode': weekend_mode,
+                'min_confidence': min_confidence / 100.0,
+                'volume_threshold': volume_threshold,
+                'stop_loss_pct': stop_loss_pct,
+                'take_profit_pct': take_profit_pct
+            }
+            st.session_state.bot_config = bot_config
+            st.success("✅ Bot configuration saved!")
+        
+        return bot_mode
     
-    # Nifty50 symbols list
-    nifty50_symbols = [
-        'RELIANCE', 'TCS', 'HDFC', 'INFY', 'HDFCBANK', 'ICICIBANK', 'KOTAKBANK',
-        'HINDUNILVR', 'ITC', 'SBIN', 'BHARTIARTL', 'BAJFINANCE', 'ASIANPAINT',
-        'MARUTI', 'TITAN', 'SUNPHARMA', 'AXISBANK', 'ULTRACEMCO', 'TATAMOTORS',
-        'NESTLE', 'POWERGRID', 'NTPC', 'TATASTEEL', 'BAJAJFINSV', 'WIPRO',
-        'ONGC', 'JSWSTEEL', 'HCLTECH', 'ADANIPORTS', 'LT', 'TECHM', 'HDFCLIFE',
-        'DRREDDY', 'CIPLA', 'SBILIFE', 'TATACONSUM', 'BRITANNIA', 'BAJAJ-AUTO',
-        'COALINDIA', 'GRASIM', 'EICHERMOT', 'UPL', 'HEROMOTOCO', 'DIVISLAB',
-        'SHREECEM', 'HINDALCO', 'INDUSINDBK', 'APOLLOHOSP', 'BPCL', 'M&M'
+    def render_semi_auto_config(self):
+        """Render semi-automated bot configuration"""
+        st.markdown("#### 🎯 Semi-Automated Parameters")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            manual_entry = st.checkbox(
+                "Manual Entry Confirmation",
+                value=True,
+                help="Require manual confirmation for trade entry"
+            )
+            
+            auto_exit = st.checkbox(
+                "Automated Exit",
+                value=True,
+                help="Automated stop loss and take profit"
+            )
+        
+        with col2:
+            trailing_stop = st.checkbox(
+                "Trailing Stop Loss",
+                value=True,
+                help="Use trailing stop loss for profits"
+            )
+            
+            partial_exits = st.checkbox(
+                "Partial Profit Booking",
+                value=True,
+                help="Book partial profits at target levels"
+            )
+    
+    def render_full_auto_config(self):
+        """Render fully automated bot configuration"""
+        st.markdown("#### 🚀 Fully Automated Parameters")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            entry_signals = st.multiselect(
+                "Entry Signals",
+                ['ICEBERG_BUY', 'VOLUME_SPIKE', 'MOMENTUM_BREAKOUT', 'SUPPORT_BOUNCE'],
+                default=['ICEBERG_BUY', 'VOLUME_SPIKE'],
+                help="Signals that trigger automated entry"
+            )
+            
+            max_daily_trades = st.slider(
+                "Max Daily Trades",
+                min_value=1,
+                max_value=20,
+                value=5,
+                help="Maximum trades per day"
+            )
+        
+        with col2:
+            cooldown_period = st.slider(
+                "Cooldown (minutes)",
+                min_value=5,
+                max_value=60,
+                value=15,
+                help="Wait time between consecutive trades"
+            )
+            
+            auto_position_sizing = st.checkbox(
+                "Auto Position Sizing",
+                value=True,
+                help="Automatically calculate position size based on volatility"
+            )
+    
+    def render_monitor_config(self):
+        """Render monitor-only configuration"""
+        st.markdown("#### 👁️ Monitoring Parameters")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            alert_level = st.selectbox(
+                "Alert Level",
+                ['ALL', 'HIGH_CONFIDENCE', 'EXTREME_ONLY'],
+                help="When to send alerts"
+            )
+            
+            sound_alerts = st.checkbox(
+                "Sound Alerts",
+                value=True,
+                help="Enable sound notifications"
+            )
+        
+        with col2:
+            email_alerts = st.checkbox(
+                "Email Alerts",
+                value=False,
+                help="Send email notifications for alerts"
+            )
+            
+            auto_screenshot = st.checkbox(
+                "Auto Screenshot",
+                value=True,
+                help="Automatically save charts for alerts"
+            )
+
+# ==================== MARKET DATA INTEGRATION ====================
+
+class MarketDataProvider:
+    """Real-time market data provider using yfinance"""
+    
+    def __init__(self):
+        self.cache = {}
+        self.cache_timeout = 60  # seconds
+        
+    def get_stock_info(self, symbol: str) -> Dict:
+        """Get basic stock information"""
+        try:
+            ticker = yf.Ticker(symbol)
+            info = ticker.info
+            return {
+                'name': info.get('longName', symbol),
+                'sector': info.get('sector', 'N/A'),
+                'market_cap': info.get('marketCap', 0),
+                'volume_avg': info.get('averageVolume', 0),
+                'pe_ratio': info.get('trailingPE', 0),
+                'currency': info.get('currency', 'USD')
+            }
+        except:
+            return {
+                'name': symbol,
+                'sector': 'N/A',
+                'market_cap': 0,
+                'volume_avg': 0,
+                'pe_ratio': 0,
+                'currency': 'USD'
+            }
+    
+    def get_historical_data(self, symbol: str, period: str = "5d", interval: str = "15m") -> pd.DataFrame:
+        """Get historical market data"""
+        cache_key = f"{symbol}_{period}_{interval}"
+        current_time = datetime.now()
+        
+        # Check cache
+        if cache_key in self.cache:
+            data, timestamp = self.cache[cache_key]
+            if (current_time - timestamp).seconds < self.cache_timeout:
+                return data.copy()
+        
+        try:
+            ticker = yf.Ticker(symbol)
+            data = ticker.history(period=period, interval=interval)
+            
+            if data.empty:
+                return pd.DataFrame()
+            
+            # Reset index and rename columns
+            data = data.reset_index()
+            data.columns = [col.lower() for col in data.columns]
+            
+            # Ensure we have required columns
+            required_cols = ['datetime', 'open', 'high', 'low', 'close', 'volume']
+            for col in required_cols:
+                if col not in data.columns:
+                    return pd.DataFrame()
+            
+            # Cache the data
+            self.cache[cache_key] = (data.copy(), current_time)
+            return data
+            
+        except Exception as e:
+            st.error(f"Error fetching data for {symbol}: {str(e)}")
+            return pd.DataFrame()
+    
+    def get_current_price(self, symbol: str) -> float:
+        """Get current stock price"""
+        try:
+            ticker = yf.Ticker(symbol)
+            data = ticker.history(period="1d", interval="1m")
+            if not data.empty:
+                return float(data['Close'].iloc[-1])
+            return 0.0
+        except:
+            return 0.0
+    
+    def get_intraday_data(self, symbol: str) -> pd.DataFrame:
+        """Get today's intraday data"""
+        return self.get_historical_data(symbol, period="1d", interval="5m")
+
+# ==================== VOLUME ANALYSIS FUNCTIONS ====================
+
+def calculate_accurate_daily_volume(historical_data: pd.DataFrame, lookback_days: int = 5) -> float:
+    """Calculate daily average volume from last 5 market days only"""
+    try:
+        if historical_data is None or historical_data.empty:
+            return 0
+        
+        # If we have intraday data, convert to daily
+        if 'datetime' in historical_data.columns:
+            historical_data['date'] = historical_data['datetime'].dt.date
+            daily_volumes = historical_data.groupby('date')['volume'].sum()
+        else:
+            # Assume already daily data
+            daily_volumes = historical_data['volume']
+        
+        # Use only last 5 market days
+        if len(daily_volumes) > lookback_days:
+            recent_volumes = daily_volumes.tail(lookback_days)
+        else:
+            recent_volumes = daily_volumes
+        
+        # Calculate average of last 5 market days
+        if len(recent_volumes) > 0:
+            # Remove extreme outliers for more accurate baseline
+            Q1 = recent_volumes.quantile(0.25)
+            Q3 = recent_volumes.quantile(0.75)
+            IQR = Q3 - Q1
+            lower_bound = Q1 - 1.5 * IQR
+            upper_bound = Q3 + 1.5 * IQR
+            
+            filtered_volumes = recent_volumes[
+                (recent_volumes >= lower_bound) & 
+                (recent_volumes <= upper_bound)
+            ]
+            
+            if len(filtered_volumes) > 0:
+                avg_volume = filtered_volumes.mean()
+            else:
+                avg_volume = recent_volumes.mean()
+                
+            return float(avg_volume)
+        else:
+            return float(historical_data['volume'].mean()) if not historical_data.empty else 0
+    except Exception as e:
+        return 0
+
+def analyze_weekly_volume_patterns(historical_data: pd.DataFrame, current_volume: float) -> Optional[Dict]:
+    """Analyze volume patterns over the last 5 market days"""
+    try:
+        if historical_data is None or historical_data.empty:
+            return None
+        
+        # Get last 5 market days of volume data
+        if 'datetime' in historical_data.columns:
+            historical_data['date'] = historical_data['datetime'].dt.date
+            daily_volumes = historical_data.groupby('date')['volume'].sum()
+        else:
+            daily_volumes = historical_data['volume']
+        
+        # Take last 5 days (1 trading week)
+        recent_volumes = daily_volumes.tail(5)
+        
+        if len(recent_volumes) == 0:
+            return None
+        
+        # Calculate weekly metrics
+        weekly_avg = recent_volumes.mean()
+        weekly_std = recent_volumes.std()
+        current_vs_weekly = current_volume / weekly_avg if weekly_avg > 0 else 0
+        
+        # Volume trend (increasing/decreasing)
+        if len(recent_volumes) >= 2:
+            volume_trend = "INCREASING" if recent_volumes.iloc[-1] > recent_volumes.iloc[-2] else "DECREASING"
+        else:
+            volume_trend = "STABLE"
+        
+        # Volume volatility
+        volume_volatility = weekly_std / weekly_avg if weekly_avg > 0 else 0
+        
+        # Day-of-week pattern detection
+        day_patterns = {}
+        if len(recent_volumes) >= 5:
+            # Check if there's a consistent pattern (e.g., higher volumes on specific days)
+            avg_volume = recent_volumes.mean()
+            for i, volume in enumerate(recent_volumes):
+                day_name = ["Mon", "Tue", "Wed", "Thu", "Fri"][i]
+                day_patterns[day_name] = volume / avg_volume if avg_volume > 0 else 1
+        
+        return {
+            'weekly_average_volume': float(weekly_avg),
+            'weekly_std': float(weekly_std),
+            'current_vs_weekly_ratio': float(current_vs_weekly),
+            'volume_trend': volume_trend,
+            'volume_volatility': float(volume_volatility),
+            'day_patterns': day_patterns,
+            'recent_volumes': recent_volumes.tolist(),
+            'analysis_period': '5_DAYS'
+        }
+        
+    except Exception as e:
+        return None
+
+def is_market_hours() -> bool:
+    """Check if current time is within US market hours (9:30 AM - 4:00 PM ET)"""
+    try:
+        now = datetime.now()
+        
+        # Convert to Eastern Time
+        from pytz import timezone
+        eastern = timezone('US/Eastern')
+        now_et = now.astimezone(eastern)
+        
+        # Check if it's a weekday
+        weekday = now_et.weekday()
+        is_weekday = weekday < 5  # Monday=0, Friday=4, Saturday=5, Sunday=6
+        
+        if not is_weekday:
+            return False
+        
+        # Market hours: 9:30 AM to 4:00 PM ET
+        market_start = time(9, 30)
+        market_end = time(16, 0)
+        
+        current_time_et = now_et.time()
+        return market_start <= current_time_et <= market_end
+        
+    except:
+        # Fallback to simple check
+        now = datetime.now()
+        weekday = now.weekday()
+        if weekday >= 5:
+            return False
+        
+        # Simple time check (assuming server is in ET)
+        market_start = time(9, 30)
+        market_end = time(16, 0)
+        current_time = now.time()
+        return market_start <= current_time <= market_end
+
+def get_market_status_message() -> str:
+    """Get current market status message"""
+    if is_market_hours():
+        return "🟢 MARKET OPEN"
+    else:
+        now = datetime.now()
+        weekday = now.weekday()
+        
+        if weekday >= 5:  # Weekend
+            days_until_monday = (7 - weekday) % 7
+            next_market_day = now + timedelta(days=days_until_monday)
+            return f"🔴 MARKET CLOSED - Opens {next_market_day.strftime('%A')} 9:30 AM ET"
+        else:
+            current_time = now.time()
+            if current_time < time(9, 30):
+                return "🔴 MARKET CLOSED - Opens 9:30 AM ET"
+            else:
+                return "🔴 MARKET CLOSED - Opens Tomorrow 9:30 AM ET"
+
+def enhanced_intraday_volume_analysis(current_volume: float, daily_avg_volume: float, symbol: str, 
+                                    weekly_patterns: Optional[Dict] = None) -> Dict:
+    """Enhanced volume analysis with 5-day focus and weekly patterns"""
+    
+    if daily_avg_volume == 0:
+        return {
+            'current_session': 'MARKET_CLOSED',
+            'volume_spike_detected': False,
+            'alert_message': 'Market data unavailable',
+            'daily_avg_volume': daily_avg_volume,
+            'current_volume': current_volume,
+            'analysis_period': '5_DAYS'
+        }
+    
+    # Check if market is open
+    if not is_market_hours():
+        return {
+            'current_session': 'MARKET_CLOSED',
+            'volume_spike_detected': False,
+            'alert_message': get_market_status_message(),
+            'daily_avg_volume': daily_avg_volume,
+            'current_volume': current_volume,
+            'analysis_period': '5_DAYS',
+            'market_status': 'CLOSED'
+        }
+    
+    # Define intraday sessions with expected volume distribution (US Market)
+    sessions = [
+        {'name': 'Opening Session', 'start': time(9, 30), 'end': time(10, 30), 'expected_percentage': 0.15},
+        {'name': 'Morning Session', 'start': time(10, 30), 'end': time(12, 0), 'expected_percentage': 0.25},
+        {'name': 'Lunch Session', 'start': time(12, 0), 'end': time(13, 30), 'expected_percentage': 0.15},
+        {'name': 'Afternoon Session', 'start': time(13, 30), 'end': time(15, 30), 'expected_percentage': 0.30},
+        {'name': 'Closing Session', 'start': time(15, 30), 'end': time(16, 0), 'expected_percentage': 0.15}
     ]
     
-    # Safe symbol mapping
-    display_symbols = []
-    symbol_mapping = {}
+    # Find current session
+    current_time = datetime.now().time()
+    current_session = None
+    cumulative_expected = 0.0
     
-    try:
-        for symbol in nifty50_symbols:
-            if instrument_df is not None and not instrument_df.empty:
-                instrument_match = instrument_df[instrument_df['tradingsymbol'] == symbol]
-                if instrument_match.empty:
-                    if symbol == "BAJAJ-AUTO":
-                        alt_symbol = "BAJAJAUTO"
-                    elif symbol == "M&M":
-                        alt_symbol = "M_M"
-                    elif symbol == "L&T":
-                        alt_symbol = "L_T"
-                    else:
-                        alt_symbol = symbol
-                    
-                    if instrument_df is not None:
-                        instrument_match = instrument_df[instrument_df['tradingsymbol'] == alt_symbol]
-                        if not instrument_match.empty:
-                            symbol_mapping[symbol] = alt_symbol
+    for session in sessions:
+        cumulative_expected += session['expected_percentage']
+        if session['start'] <= current_time <= session['end']:
+            current_session = session
+            break
+    
+    # If between sessions or market closed
+    if not current_session:
+        return {
+            'current_session': 'BETWEEN_SESSIONS',
+            'volume_spike_detected': False,
+            'alert_message': 'Between trading sessions',
+            'daily_avg_volume': daily_avg_volume,
+            'current_volume': current_volume,
+            'analysis_period': '5_DAYS'
+        }
+    
+    # Calculate expected volume for current session
+    session_expected_volume = daily_avg_volume * current_session['expected_percentage']
+    cumulative_expected_volume = daily_avg_volume * cumulative_expected
+    
+    # Calculate volume ratios
+    if session_expected_volume > 0:
+        session_volume_ratio = current_volume / session_expected_volume
+    else:
+        session_volume_ratio = 0
+    
+    if cumulative_expected_volume > 0:
+        cumulative_volume_ratio = current_volume / cumulative_expected_volume
+    else:
+        cumulative_volume_ratio = 0
+    
+    # Enhanced spike detection with weekly context
+    volume_spike_detected = session_volume_ratio > 1.0
+    spike_intensity = max(0, session_volume_ratio - 1.0)
+    
+    # Include weekly pattern analysis in alerts
+    weekly_context = ""
+    if weekly_patterns:
+        current_vs_weekly = weekly_patterns.get('current_vs_weekly_ratio', 0)
+        if current_vs_weekly > 2.0:
+            weekly_context = " | 🚨 2x Weekly Average"
+        elif current_vs_weekly > 1.5:
+            weekly_context = " | 🔴 1.5x Weekly Average"
+        elif current_vs_weekly > 1.2:
+            weekly_context = " | 🟡 Above Weekly Average"
+    
+    # Generate alert message with weekly context
+    alert_level = "NORMAL"
+    alert_message = None
+    
+    if volume_spike_detected:
+        if session_volume_ratio > 2.0:
+            alert_level = "EXTREME"
+            alert_message = f"🚨 EXTREME VOLUME: {session_volume_ratio:.1f}x session expected{weekly_context}"
+        elif session_volume_ratio > 1.5:
+            alert_level = "HIGH"
+            alert_message = f"🔴 HIGH VOLUME: {session_volume_ratio:.1f}x session expected{weekly_context}"
+        elif session_volume_ratio > 1.2:
+            alert_level = "MEDIUM"
+            alert_message = f"🟡 ELEVATED VOLUME: {session_volume_ratio:.1f}x session expected{weekly_context}"
+        else:
+            alert_level = "LOW"
+            alert_message = f"📈 ABOVE EXPECTED: {session_volume_ratio:.1f}x session expected{weekly_context}"
+    else:
+        alert_message = f"🟢 NORMAL VOLUME: {session_volume_ratio:.1f}x session expected{weekly_context}"
+    
+    return {
+        'current_session': current_session['name'],
+        'session_expected_volume': session_expected_volume,
+        'cumulative_expected_volume': cumulative_expected_volume,
+        'session_volume_ratio': session_volume_ratio,
+        'cumulative_volume_ratio': cumulative_volume_ratio,
+        'volume_spike_detected': volume_spike_detected,
+        'spike_intensity': spike_intensity,
+        'cumulative_expected_percentage': cumulative_expected,
+        'alert_message': alert_message,
+        'alert_level': alert_level,
+        'daily_avg_volume': daily_avg_volume,
+        'current_volume': current_volume,
+        'weekly_patterns': weekly_patterns,
+        'analysis_period': '5_DAYS',
+        'market_status': 'OPEN'
+    }
+
+# ==================== ICEBERG DETECTION SYSTEM ====================
+
+class FlowAnalysisAgent:
+    """Flow analysis agent for iceberg detection"""
+    
+    def analyze(self, market_data: Dict) -> Dict:
+        """Analyze order flow patterns"""
+        try:
+            volume_ratio = market_data.get('volume_ratio', 1.0)
+            price_data = market_data.get('price_data', {})
             
-            display_symbols.append(symbol)
-    except Exception as e:
-        st.error("Error processing symbols")
-        display_symbols = nifty50_symbols[:10]
+            # Calculate flow confidence based on various factors
+            confidence = 0.5  # Base confidence
+            
+            # Volume spike factor
+            if volume_ratio > 1.5:
+                confidence += min(0.3, (volume_ratio - 1.5) * 0.2)
+            
+            # Price momentum analysis
+            if price_data:
+                returns = price_data.get('returns', [])
+                if len(returns) > 0:
+                    recent_volatility = np.std(returns[-5:]) if len(returns) >= 5 else np.std(returns)
+                    if recent_volatility > 0.02:  # High volatility
+                        confidence += 0.1
+            
+            return {
+                'confidence': float(np.clip(confidence, 0, 1)),
+                'volume_impact': min(0.3, (volume_ratio - 1) * 0.2) if volume_ratio > 1 else 0,
+                'analysis_type': 'FLOW_ANALYSIS'
+            }
+        except:
+            return {'confidence': 0.0, 'analysis_type': 'FLOW_ANALYSIS'}
+
+class PatternDetectionAgent:
+    """Pattern detection agent for iceberg detection"""
     
-    if not display_symbols:
-        st.error("❌ No symbols available for analysis")
-        return
+    def analyze(self, market_data: Dict) -> Dict:
+        """Analyze trading patterns"""
+        try:
+            prices = market_data.get('prices', [])
+            volumes = market_data.get('volumes', [])
+            volatility = market_data.get('volatility', 0.02)
+            
+            if len(prices) < 10:
+                return {'confidence': 0.0, 'analysis_type': 'PATTERN_ANALYSIS'}
+            
+            confidence = 0.4  # Base confidence
+            
+            # Price momentum analysis
+            recent_prices = prices[-5:] if len(prices) >= 5 else prices
+            if len(recent_prices) >= 2:
+                price_change = (recent_prices[-1] - recent_prices[0]) / recent_prices[0]
+                if abs(price_change) > 0.02:  # 2% move
+                    confidence += 0.2
+            
+            # Volume pattern analysis
+            if len(volumes) >= 5:
+                recent_volumes = volumes[-5:]
+                avg_volume = np.mean(volumes[:-5]) if len(volumes) > 5 else np.mean(volumes)
+                if avg_volume > 0:
+                    volume_ratio = np.mean(recent_volumes) / avg_volume
+                    if volume_ratio > 1.5:
+                        confidence += 0.2
+            
+            # Volatility adjustment
+            if volatility > 0.03:
+                confidence *= 0.8  # Reduce confidence in high volatility
+            
+            return {
+                'confidence': float(np.clip(confidence, 0, 1)),
+                'price_momentum': price_change if len(recent_prices) >= 2 else 0,
+                'volume_pattern_strength': volume_ratio if 'volume_ratio' in locals() else 1.0,
+                'analysis_type': 'PATTERN_ANALYSIS'
+            }
+        except:
+            return {'confidence': 0.0, 'analysis_type': 'PATTERN_ANALYSIS'}
+
+class QuantumIcebergDetector:
+    """Quantum-inspired iceberg order detection system"""
     
-    # UI Components - UPDATED DEFAULTS FOR 5-DAY ANALYSIS
-    st.markdown("---")
-    st.subheader("📊 Stock Selection & Analysis")
-    
-    col1, col2, col3 = st.columns([2, 1, 1])
-    
-    with col1:
-        selected_symbol = st.selectbox(
-            "Select Nifty50 Stock",
-            sorted(display_symbols),
-            index=0,
-            key="iceberg_symbol"
+    def __init__(self):
+        self.flow_agent = FlowAnalysisAgent()
+        self.pattern_agent = PatternDetectionAgent()
+        self.detection_history = []
+        
+    def process_market_data(self, market_data: Dict) -> Dict:
+        """Process market data through all detection agents"""
+        
+        # Analyze through different agents
+        flow_analysis = self.flow_agent.analyze(market_data)
+        pattern_analysis = self.pattern_agent.analyze(market_data)
+        
+        # Combine analyses with quantum-inspired weighting
+        combined_confidence = self._quantum_fusion(
+            flow_analysis['confidence'], 
+            pattern_analysis['confidence'],
+            market_data
         )
         
-        actual_symbol = symbol_mapping.get(selected_symbol, selected_symbol)
-        st.caption(f"Analyzing: {actual_symbol} | 5-day volume patterns")
-    
-    with col2:
-        timeframe = st.selectbox(
-            "Timeframe",
-            ["15minute", "30minute", "hour", "day", "5minute"],
-            index=1,  # Default to 30minute
-            key="iceberg_timeframe"
+        # Determine iceberg probability
+        iceberg_probability = self._calculate_iceberg_probability(
+            combined_confidence, 
+            market_data
         )
+        
+        # Determine market regime
+        regime = self._determine_market_regime(market_data)
+        
+        # Calculate detection scores
+        detection_scores = self._calculate_detection_scores(market_data, combined_confidence)
+        
+        result = {
+            'timestamp': datetime.now().isoformat(),
+            'symbol': market_data.get('symbol', 'UNKNOWN'),
+            'confidence': combined_confidence,
+            'iceberg_probability': iceberg_probability,
+            'regime': regime,
+            'flow_analysis': flow_analysis,
+            'pattern_analysis': pattern_analysis,
+            'detection_scores': detection_scores,
+            'alerts': self._generate_alerts(iceberg_probability, regime)
+        }
+        
+        # Store in history
+        self.detection_history.append(result)
+        if len(self.detection_history) > 100:  # Keep only last 100 detections
+            self.detection_history.pop(0)
+            
+        return result
     
-    with col3:
-        period = st.selectbox(
-            "Analysis Period", 
-            ["5d", "1wk", "1d", "3d"],  # 5d first for 5-day focus
-            index=0,
-            key="iceberg_period",
-            help="5 days for weekly volume patterns"
+    def _quantum_fusion(self, flow_conf: float, pattern_conf: float, market_data: Dict) -> float:
+        """Quantum-inspired confidence fusion"""
+        # Use entanglement-inspired weighting
+        volatility = market_data.get('volatility', 0.01)
+        volume_ratio = market_data.get('volume_ratio', 1.0)
+        
+        # Adjust weights based on market conditions
+        if volatility > 0.02:  # High volatility
+            flow_weight = 0.6
+            pattern_weight = 0.4
+        else:  # Normal volatility
+            flow_weight = 0.4
+            pattern_weight = 0.6
+            
+        # Apply volume-based adjustment
+        if volume_ratio > 2.0:
+            flow_weight *= 1.2
+        elif volume_ratio < 0.5:
+            pattern_weight *= 1.2
+            
+        combined = (flow_weight * flow_conf + pattern_weight * pattern_conf)
+        return float(np.clip(combined, 0, 1))
+    
+    def _calculate_iceberg_probability(self, confidence: float, market_data: Dict) -> float:
+        """Calculate probability of iceberg presence"""
+        detection_params = market_data.get('detection_params', {})
+        min_confidence = detection_params.get('min_confidence', 0.7)
+        
+        if confidence < min_confidence:
+            return 0.0
+            
+        # Scale probability based on confidence above threshold
+        scaled_confidence = (confidence - min_confidence) / (1 - min_confidence)
+        
+        # Apply additional factors
+        volume_ratio = market_data.get('volume_ratio', 1.0)
+        volatility = market_data.get('volatility', 0.01)
+        
+        # Higher volume anomalies increase probability
+        volume_factor = min(1.5, volume_ratio / 2.0)
+        # Moderate volatility increases detection confidence
+        volatility_factor = 1.0 + min(0.5, volatility * 10)
+        
+        probability = scaled_confidence * volume_factor * volatility_factor
+        return float(np.clip(probability, 0, 1))
+    
+    def _determine_market_regime(self, market_data: Dict):
+        """Determine current market regime"""
+        from enum import Enum
+        
+        class MarketRegime(Enum):
+            NORMAL = "Normal"
+            ACCUMULATION = "Accumulation"
+            DISTRIBUTION = "Distribution"
+            BREAKOUT = "Breakout"
+            ICEBERG_DETECTED = "Iceberg Detected"
+        
+        confidence = market_data.get('iceberg_probability', 0)
+        volume_ratio = market_data.get('volume_ratio', 1.0)
+        
+        if confidence > 0.8:
+            return MarketRegime.ICEBERG_DETECTED
+        elif volume_ratio > 2.0 and confidence > 0.6:
+            return MarketRegime.ACCUMULATION
+        elif volume_ratio > 2.0 and confidence < 0.4:
+            return MarketRegime.DISTRIBUTION
+        elif volume_ratio > 1.5:
+            return MarketRegime.BREAKOUT
+        else:
+            return MarketRegime.NORMAL
+    
+    def _calculate_detection_scores(self, market_data: Dict, confidence: float) -> Dict:
+        """Calculate individual detection scores"""
+        volume_ratio = market_data.get('volume_ratio', 1.0)
+        volatility = market_data.get('volatility', 0.01)
+        
+        return {
+            'order_fragmentation': min(1.0, confidence * 0.8),
+            'hidden_liquidity': min(1.0, confidence * 0.9),
+            'volume_anomaly': min(1.0, (volume_ratio - 1) * 0.5),
+            'momentum_disparity': min(1.0, confidence * 0.7),
+            'depth_imbalance': min(1.0, confidence * 0.6)
+        }
+    
+    def _generate_alerts(self, probability: float, regime) -> List[str]:
+        """Generate alerts based on detection results"""
+        alerts = []
+        
+        if probability > 0.8:
+            alerts.append("🚨 HIGH Iceberg Probability Detected!")
+        elif probability > 0.6:
+            alerts.append("⚠️ Medium Iceberg Probability")
+        elif probability > 0.4:
+            alerts.append("🔍 Possible Iceberg Activity")
+            
+        if regime.value == "Accumulation":
+            alerts.append("📈 Accumulation Pattern Detected")
+        elif regime.value == "Distribution":
+            alerts.append("📉 Distribution Pattern Detected")
+            
+        return alerts
+
+class QuantumVisualizer:
+    """Advanced visualization for quantum iceberg detection"""
+    
+    def create_quantum_chart(self, detection_result: Dict) -> go.Figure:
+        """Create quantum-inspired visualization"""
+        fig = make_subplots(
+            rows=2, cols=2,
+            subplot_titles=(
+                'Iceberg Probability Wave', 
+                'Confidence Matrix',
+                'Market Regime',
+                'Detection Timeline'
+            ),
+            specs=[
+                [{"type": "scatter"}, {"type": "heatmap"}],
+                [{"type": "indicator"}, {"type": "scatter"}]
+            ]
         )
-
-    # Volume Analysis Configuration
-    st.markdown("---")
-    st.subheader("📈 5-Day Volume Analysis")
-    
-    col_vol1, col_vol2, col_vol3 = st.columns(3)
-    
-    with col_vol1:
-        volume_alert_threshold = st.slider(
-            "Volume Spike Alert %",
-            min_value=110,
-            max_value=200,
-            value=120,
-            step=5,
-            help="Alert when volume exceeds 5-day session average"
+        
+        # Probability wave
+        confidence = detection_result['confidence']
+        probability = detection_result['iceberg_probability']
+        
+        # Create wave-like visualization
+        x = np.linspace(0, 4*np.pi, 100)
+        y_base = np.sin(x)
+        y_prob = y_base * probability
+        
+        fig.add_trace(
+            go.Scatter(x=x, y=y_prob, mode='lines', name='Probability Wave',
+                      line=dict(color='red' if probability > 0.7 else 'orange' if probability > 0.5 else 'blue')),
+            row=1, col=1
         )
-    
-    with col_vol2:
-        volume_impact_weight = st.slider(
-            "Volume Impact %",
-            min_value=10,
-            max_value=50,
-            value=30,  # Increased default for volume focus
-            step=5,
-            help="Weight of volume patterns in detection"
+        
+        # Confidence matrix
+        matrix = np.random.rand(5, 5) * confidence
+        fig.add_trace(
+            go.Heatmap(z=matrix, colorscale='Viridis', showscale=False),
+            row=1, col=2
         )
-    
-    with col_vol3:
-        st.markdown("**Analysis Focus**")
-        st.success("**5-Day Volume Patterns**")
-        st.markdown("Intraday: **20/30/20/30%**")
-        st.markdown("Weekly: **5 Market Days**")
+        
+        # Market regime indicator
+        regime = detection_result['regime'].value
+        fig.add_trace(
+            go.Indicator(
+                mode="gauge+number+delta",
+                value=probability * 100,
+                domain={'x': [0, 1], 'y': [0, 1]},
+                title={'text': f"Regime: {regime}"},
+                gauge={'axis': {'range': [None, 100]},
+                      'bar': {'color': "darkblue"},
+                      'steps': [{'range': [0, 50], 'color': "lightgray"},
+                               {'range': [50, 80], 'color': "yellow"},
+                               {'range': [80, 100], 'color': "red"}]}),
+            row=2, col=1
+        )
+        
+        # Detection timeline (simplified)
+        fig.add_trace(
+            go.Scatter(x=[1, 2, 3], y=[0.3, 0.6, probability], 
+                      mode='lines+markers', name='Probability Trend'),
+            row=2, col=2
+        )
+        
+        fig.update_layout(height=600, showlegend=False,
+                         title_text="Quantum Iceberg Detection Analysis")
+        return fig
 
-    # Analysis controls
-    st.markdown("---")
-    col_controls1, col_controls2, col_controls3 = st.columns([1, 1, 1])
-    
-    with col_controls1:
-        analyze_clicked = st.button("🔍 Analyze 5-Day Patterns", type="primary", use_container_width=True)
-    
-    with col_controls2:
-        auto_refresh = st.checkbox("🔄 Auto-refresh", value=False, key="iceberg_refresh")
-    
-    with col_controls3:
-        show_weekly = st.checkbox("📊 Show Weekly Patterns", value=True, key="weekly_patterns")
+# ==================== TRADING SIGNALS ====================
 
-    # Run analysis
-    if analyze_clicked or auto_refresh:
-        with st.spinner("🧊 Analyzing 5-day volume patterns..."):
-            try:
-                # Safe data preparation
-                actual_symbol = symbol_mapping.get(selected_symbol, selected_symbol)
-                instrument_token = None
+def generate_trading_signals_enhanced(detection_result: Dict, market_data: Dict, volume_impact_weight: float = 0.25) -> Dict:
+    """Generate enhanced trading signals with 5-day volume focus"""
+    try:
+        if not detection_result or not market_data:
+            return get_default_signals()
+        
+        probability = detection_result.get('iceberg_probability', 0)
+        confidence = detection_result.get('confidence', 0)
+        volume_analysis = market_data.get('volume_analysis', {})
+        
+        signals = {
+            'primary_signal': 'HOLD',
+            'secondary_signals': [],
+            'confidence': confidence,
+            'probability': probability,
+            'timestamp': pd.Timestamp.now(),
+            'entry_price': market_data.get('last_price', 0),
+            'volume_impact': 0,
+            'volume_alerts': []
+        }
+        
+        # Volume analysis integration
+        if volume_analysis:
+            volume_spike = volume_analysis.get('volume_spike_detected', False)
+            alert_level = volume_analysis.get('alert_level', 'NORMAL')
+            
+            volume_impact = 0
+            if volume_spike:
+                if alert_level == "EXTREME":
+                    volume_impact = 0.4
+                elif alert_level == "HIGH":
+                    volume_impact = 0.3
+                elif alert_level == "MEDIUM":
+                    volume_impact = 0.2
+                elif alert_level == "LOW":
+                    volume_impact = 0.1
+                    
+                volume_impact *= volume_impact_weight
+                signals['confidence'] = min(1.0, signals['confidence'] + volume_impact)
+                signals['volume_impact'] = volume_impact
                 
-                if instrument_df is not None and not instrument_df.empty:
-                    instrument_token = get_instrument_token(actual_symbol, instrument_df, 'NSE')
-                
-                # Get historical data with 5-day focus
-                historical_data = get_historical_data_safe(instrument_token, timeframe, period)
-                
-                if historical_data.empty:
-                    st.warning("⚠️ Using demo data for 5-day analysis")
-                
-                # Prepare market data with enhanced volume analysis
-                market_data = prepare_live_market_data_5day(
-                    symbol=selected_symbol,
-                    actual_symbol=actual_symbol,
-                    instrument_token=instrument_token,
-                    instrument_df=instrument_df,
-                    historical_data=historical_data
-                )
-                
-                if not market_data:
-                    st.error("❌ Failed to prepare market data")
-                    return
-                
-                # Show analysis period info
-                st.info(f"📅 Analyzing volume patterns over: **{period}**")
-                
-                # Run detection
-                detector = QuantumIcebergDetector()
-                detection_result = detector.process_market_data(market_data)
-                
-                # Generate signals
-                trading_signals = generate_trading_signals_enhanced(
-                    detection_result, 
-                    market_data,
-                    volume_impact_weight/100.0
-                )
-                
-                # Display results with weekly patterns
-                display_iceberg_results_5day(
-                    detection_result=detection_result,
-                    market_data=market_data, 
-                    trading_signals=trading_signals,
-                    show_weekly=show_weekly,
-                    bot_mode=bot_mode
-                )
-                
-            except Exception as e:
-                st.error(f"❌ Analysis failed: {str(e)}")
+                signals['volume_alerts'].append(alert_level)
+                signals['secondary_signals'].append(f"VOLUME_{alert_level}")
+        
+        # Price momentum analysis
+        price_data = market_data.get('price_data', {})
+        if price_data:
+            returns = price_data.get('returns', [])
+            if len(returns) > 0:
+                recent_return = returns[-1] if len(returns) > 0 else 0
+                if recent_return > 0.01:  # 1% positive return
+                    signals['secondary_signals'].append('POSITIVE_MOMENTUM')
+                elif recent_return < -0.01:  # 1% negative return
+                    signals['secondary_signals'].append('NEGATIVE_MOMENTUM')
+        
+        # Signal generation
+        final_confidence = signals['confidence']
+        
+        if probability > 0.7 and final_confidence > 0.7:
+            signals['primary_signal'] = 'ICEBERG_BUY'
+        elif probability > 0.6 and final_confidence > 0.6:
+            signals['primary_signal'] = 'FLOW_BUY'
+        elif probability < 0.3 and volume_analysis.get('volume_spike_detected', False):
+            signals['primary_signal'] = 'VOLUME_SELL'
+        
+        return signals
+        
+    except Exception as e:
+        return get_default_signals()
 
-    if auto_refresh:
-        try:
-            st_autorefresh(interval=15000, key="iceberg_autorefresh")
-            st.info("🔄 Auto-refresh enabled - 5-day patterns")
-        except:
-            pass
+def get_default_signals() -> Dict:
+    """Return default signals when errors occur"""
+    return {
+        'primary_signal': 'HOLD',
+        'secondary_signals': ['Analysis unavailable'],
+        'confidence': 0.0,
+        'probability': 0.0,
+        'timestamp': pd.Timestamp.now(),
+        'entry_price': 0,
+        'volume_impact': 0,
+        'volume_alerts': []
+    }
+
+# ==================== DATA PREPARATION ====================
+
+def prepare_market_data(symbol: str, historical_data: pd.DataFrame, data_provider: MarketDataProvider) -> Dict:
+    """Prepare comprehensive market data for analysis"""
+    try:
+        if historical_data.empty:
+            return {}
+        
+        # Get current price
+        current_price = data_provider.get_current_price(symbol)
+        
+        # Calculate basic metrics
+        prices = historical_data['close'].tolist()
+        volumes = historical_data['volume'].tolist()
+        
+        # Calculate volatility (standard deviation of returns)
+        returns = historical_data['close'].pct_change().dropna()
+        volatility = returns.std() if not returns.empty else 0.02
+        
+        # Calculate volume metrics
+        current_volume = volumes[-1] if volumes else 0
+        daily_avg_volume = calculate_accurate_daily_volume(historical_data, lookback_days=5)
+        volume_ratio = current_volume / daily_avg_volume if daily_avg_volume > 0 else 1
+        
+        # Enhanced volume analysis
+        weekly_patterns = analyze_weekly_volume_patterns(historical_data, current_volume)
+        volume_analysis = enhanced_intraday_volume_analysis(current_volume, daily_avg_volume, symbol, weekly_patterns)
+        
+        # Price data for analysis
+        price_data = {
+            'returns': returns.tolist(),
+            'volatility': float(volatility),
+            'current_price': current_price,
+            'price_change': (current_price - prices[0]) / prices[0] if prices else 0
+        }
+        
+        # Get stock info
+        stock_info = data_provider.get_stock_info(symbol)
+        
+        market_data = {
+            'symbol': symbol,
+            'timestamp': datetime.now(),
+            'last_price': current_price,
+            'prices': prices,
+            'volumes': volumes,
+            'volatility': float(volatility),
+            'volume_ratio': float(volume_ratio),
+            'daily_avg_volume': daily_avg_volume,
+            'current_volume': current_volume,
+            'volume_analysis': volume_analysis,
+            'price_data': price_data,
+            'stock_info': stock_info,
+            'detection_params': get_detection_params(symbol, stock_info),
+            'data_source': 'YFINANCE',
+            'analysis_period': '5_DAYS'
+        }
+        
+        return market_data
+        
+    except Exception as e:
+        st.error(f"Error preparing market data: {str(e)}")
+        return {}
+
+def get_detection_params(symbol: str, stock_info: Dict) -> Dict:
+    """Get detection parameters based on stock characteristics"""
+    market_cap = stock_info.get('market_cap', 0)
+    avg_volume = stock_info.get('volume_avg', 0)
+    
+    if market_cap > 100e9:  # Large cap
+        return {
+            'large_order_threshold': 50000,
+            'min_confidence': 0.7,
+            'volume_spike_threshold': 2.0
+        }
+    elif market_cap > 10e9:  # Mid cap
+        return {
+            'large_order_threshold': 25000,
+            'min_confidence': 0.6,
+            'volume_spike_threshold': 2.5
+        }
+    else:  # Small cap
+        return {
+            'large_order_threshold': 15000,
+            'min_confidence': 0.65,
+            'volume_spike_threshold': 2.2
+        }
+
+# ==================== MAIN APPLICATION ====================
 
 def display_market_status():
     """Display current market status"""
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        if is_market_hours():
-            st.success("🟢 MARKET OPEN")
+        status_msg = get_market_status_message()
+        if "OPEN" in status_msg:
+            st.success(status_msg)
         else:
-            st.error("🔴 MARKET CLOSED")
+            st.error(status_msg)
     
     with col2:
         now = datetime.now()
@@ -7995,179 +8879,9 @@ def display_market_status():
     
     with col3:
         st.write(f"**Date:** {now.strftime('%Y-%m-%d')}")
-        
-        # Show next market action
-        if not is_market_hours():
-            weekday = now.weekday()
-            if weekday >= 5:  # Weekend
-                days_until_monday = (7 - weekday) % 7
-                next_market_day = now + timedelta(days=days_until_monday)
-                st.write(f"**Opens:** {next_market_day.strftime('%A')} 9:15 AM")
-            else:
-                current_time = now.time()
-                if current_time < time(9, 15):
-                    st.write("**Opens:** Today 9:15 AM")
-                else:
-                    st.write("**Opens:** Tomorrow 9:15 AM")
 
-def prepare_live_market_data_5day(symbol, actual_symbol, instrument_token, instrument_df, historical_data):
-    """Prepare market data with 5-day volume focus"""
-    try:
-        client = get_broker_client()
-        
-        # Create sample market data if no live data available
-        if not client:
-            return create_sample_market_data_5day(symbol, historical_data)
-        
-        # Try to get live quote data
-        try:
-            quote_data = client.quote(str(instrument_token)) if instrument_token else None
-        except:
-            quote_data = None
-        
-        if not quote_data:
-            return create_sample_market_data_5day(symbol, historical_data)
-        
-        # Extract quote data
-        instrument_quote = quote_data.get(str(instrument_token), {}) if instrument_token else {}
-        
-        # Prepare order book
-        depth = instrument_quote.get('depth', {})
-        bids = depth.get('buy', [])[:10]
-        asks = depth.get('sell', [])[:10]
-        
-        # Calculate metrics
-        total_bid_volume = sum(bid.get('quantity', 0) for bid in bids)
-        total_ask_volume = sum(ask.get('quantity', 0) for ask in asks)
-        
-        order_book = {
-            'bids': bids,
-            'asks': asks,
-            'total_bid_volume': total_bid_volume,
-            'total_ask_volume': total_ask_volume,
-            'bid_ask_ratio': total_bid_volume / total_ask_volume if total_ask_volume > 0 else 1,
-            'bid_concentration': calculate_volume_concentration(bids),
-            'ask_concentration': calculate_volume_concentration(asks),
-            'large_bid_orders': count_large_orders(bids, 10000),
-            'large_ask_orders': count_large_orders(asks, 10000),
-            'depth_levels_analyzed': max(len(bids), len(asks))
-        }
-        
-        # Get volume and price data
-        current_volume = instrument_quote.get('volume', historical_data['volume'].iloc[-1] if not historical_data.empty else 0)
-        last_price = instrument_quote.get('last_price', historical_data['close'].iloc[-1] if not historical_data.empty else 1000)
-        
-        # Calculate 5-day average volume
-        daily_avg_volume = calculate_accurate_daily_volume(historical_data, lookback_days=5)
-        
-        # Enhanced volume analysis with weekly patterns
-        weekly_patterns = analyze_weekly_volume_patterns(historical_data, current_volume)
-        volume_analysis = enhanced_intraday_volume_analysis(current_volume, daily_avg_volume, symbol, weekly_patterns)
-        
-        market_data = {
-            'symbol': symbol,
-            'timestamp': pd.Timestamp.now(),
-            'last_price': last_price,
-            'open': instrument_quote.get('ohlc', {}).get('open', last_price * 0.99),
-            'high': instrument_quote.get('ohlc', {}).get('high', last_price * 1.01),
-            'low': instrument_quote.get('ohlc', {}).get('low', last_price * 0.99),
-            'close': last_price,
-            'volume': current_volume,
-            'daily_average_volume': daily_avg_volume,
-            'volume_ratio': current_volume / daily_avg_volume if daily_avg_volume > 0 else 1,
-            'order_book': order_book,
-            'volatility': calculate_live_volatility(historical_data, last_price),
-            'stock_category': get_nifty50_stock_category(symbol),
-            'detection_params': get_nifty50_detection_params(symbol),
-            'volume_analysis': volume_analysis,
-            'data_source': 'LIVE',
-            'analysis_period': '5_DAYS'
-        }
-        
-        return market_data
-        
-    except Exception as e:
-        return create_sample_market_data_5day(symbol, historical_data)
-
-def create_sample_market_data_5day(symbol, historical_data):
-    """Create sample market data with 5-day volume patterns"""
-    try:
-        if historical_data.empty:
-            # Create sample data with realistic 5-day pattern
-            last_price = 2500
-            current_volume = 500000
-            avg_volume = 750000
-        else:
-            last_price = historical_data['close'].iloc[-1]
-            current_volume = historical_data['volume'].iloc[-1]
-            avg_volume = calculate_accurate_daily_volume(historical_data, lookback_days=5)
-        
-        # Create sample order book
-        bids = []
-        asks = []
-        
-        for i in range(10):
-            bid_price = last_price * (1 - 0.001 * (i + 1))
-            ask_price = last_price * (1 + 0.001 * (i + 1))
-            
-            bid_quantity = max(100, int(10000 * (1 - 0.1 * i)))
-            ask_quantity = max(100, int(8000 * (1 - 0.1 * i)))
-            
-            bids.append({'price': round(bid_price, 2), 'quantity': bid_quantity})
-            asks.append({'price': round(ask_price, 2), 'quantity': ask_quantity})
-        
-        total_bid_volume = sum(bid['quantity'] for bid in bids)
-        total_ask_volume = sum(ask['quantity'] for ask in asks)
-        
-        order_book = {
-            'bids': bids,
-            'asks': asks,
-            'total_bid_volume': total_bid_volume,
-            'total_ask_volume': total_ask_volume,
-            'bid_ask_ratio': total_bid_volume / total_ask_volume if total_ask_volume > 0 else 1,
-            'bid_concentration': 0.6,
-            'ask_concentration': 0.5,
-            'large_bid_orders': 2,
-            'large_ask_orders': 1,
-            'depth_levels_analyzed': 10
-        }
-        
-        # Enhanced volume analysis with weekly patterns
-        weekly_patterns = analyze_weekly_volume_patterns(historical_data, current_volume)
-        volume_analysis = enhanced_intraday_volume_analysis(current_volume, avg_volume, symbol, weekly_patterns)
-        
-        return {
-            'symbol': symbol,
-            'timestamp': pd.Timestamp.now(),
-            'last_price': last_price,
-            'open': last_price * 0.995,
-            'high': last_price * 1.015,
-            'low': last_price * 0.985,
-            'close': last_price,
-            'volume': current_volume,
-            'daily_average_volume': avg_volume,
-            'volume_ratio': current_volume / avg_volume if avg_volume > 0 else 1,
-            'order_book': order_book,
-            'volatility': 0.02,
-            'stock_category': get_nifty50_stock_category(symbol),
-            'detection_params': get_nifty50_detection_params(symbol),
-            'volume_analysis': volume_analysis,
-            'data_source': 'DEMO_5DAY',
-            'analysis_period': '5_DAYS'
-        }
-        
-    except Exception as e:
-        return {
-            'symbol': symbol,
-            'timestamp': pd.Timestamp.now(),
-            'last_price': 1000,
-            'volume': 100000,
-            'order_book': {},
-            'data_source': 'FALLBACK_5DAY',
-            'analysis_period': '5_DAYS'
-        }
-
-def display_iceberg_results_5day(detection_result, market_data, trading_signals, show_weekly=True, bot_mode='MONITOR_ONLY'):
+def display_iceberg_results_5day(detection_result: Dict, market_data: Dict, trading_signals: Dict, 
+                               show_weekly: bool = True, bot_mode: str = 'MONITOR_ONLY'):
     """Display iceberg results with 5-day volume focus"""
     
     st.markdown("---")
@@ -8194,7 +8908,7 @@ def display_iceberg_results_5day(detection_result, market_data, trading_signals,
         st.metric("Confidence", f"{confidence:.1%}")
     
     with col3:
-        st.metric("Price", f"₹{market_data.get('last_price', 0):.2f}")
+        st.metric("Price", f"${market_data.get('last_price', 0):.2f}")
     
     with col4:
         bot_mode_display = {
@@ -8228,11 +8942,11 @@ def display_iceberg_results_5day(detection_result, market_data, trading_signals,
         with col_vol2:
             st.metric("5-Day Avg", f"{volume_analysis.get('daily_avg_volume', 0):,.0f}")
             session_ratio = volume_analysis.get('session_volume_ratio', 0)
-            st.metric("Session Ratio", f"{session_ratio:.1f}x")  # Changed to show multiplier
+            st.metric("Session Ratio", f"{session_ratio:.1f}x")
         
         with col_vol3:
             cumulative_ratio = volume_analysis.get('cumulative_volume_ratio', 0)
-            st.metric("Cumulative Ratio", f"{cumulative_ratio:.1f}x")  # Changed to show multiplier
+            st.metric("Cumulative Ratio", f"{cumulative_ratio:.1f}x")
             expected_pct = volume_analysis.get('cumulative_expected_percentage', 0)
             st.metric("Expected %", f"{expected_pct:.1%}")
         
@@ -8261,7 +8975,7 @@ def display_iceberg_results_5day(detection_result, market_data, trading_signals,
             
             with col_week1:
                 weekly_ratio = weekly_patterns.get('current_vs_weekly_ratio', 0)
-                st.metric("Vs Weekly Avg", f"{weekly_ratio:.1f}x")  # Changed to show multiplier
+                st.metric("Vs Weekly Avg", f"{weekly_ratio:.1f}x")
             
             with col_week2:
                 trend = weekly_patterns.get('volume_trend', 'STABLE')
@@ -8357,32 +9071,34 @@ def display_iceberg_results_5day(detection_result, market_data, trading_signals,
         visualizer = QuantumVisualizer()
         fig = visualizer.create_quantum_chart(detection_result)
         st.plotly_chart(fig, use_container_width=True)
-    except:
+    except Exception as e:
         st.info("📊 Visualization unavailable")
     
-    # Market depth
-    order_book = market_data.get('order_book', {})
-    if order_book:
+    # Stock Information
+    stock_info = market_data.get('stock_info', {})
+    if stock_info:
         st.markdown("---")
-        st.subheader("📊 Market Depth")
+        st.subheader("📋 Stock Information")
         
-        col_depth1, col_depth2, col_depth3, col_depth4 = st.columns(4)
+        col_info1, col_info2, col_info3, col_info4 = st.columns(4)
         
-        with col_depth1:
-            st.metric("Bid Volume", f"{order_book.get('total_bid_volume', 0):,}")
-            st.metric("Bid Concentration", f"{order_book.get('bid_concentration', 0):.1%}")
+        with col_info1:
+            st.metric("Company", stock_info.get('name', 'N/A'))
+            st.metric("Sector", stock_info.get('sector', 'N/A'))
         
-        with col_depth2:
-            st.metric("Ask Volume", f"{order_book.get('total_ask_volume', 0):,}")
-            st.metric("Ask Concentration", f"{order_book.get('ask_concentration', 0):.1%}")
+        with col_info2:
+            market_cap = stock_info.get('market_cap', 0)
+            if market_cap > 1e9:
+                st.metric("Market Cap", f"${market_cap/1e9:.2f}B")
+            else:
+                st.metric("Market Cap", f"${market_cap:,.0f}")
         
-        with col_depth3:
-            st.metric("Bid/Ask Ratio", f"{order_book.get('bid_ask_ratio', 1):.2f}")
-            st.metric("Large Bid Orders", order_book.get('large_bid_orders', 0))
+        with col_info3:
+            st.metric("Avg Volume", f"{stock_info.get('volume_avg', 0):,}")
+            st.metric("P/E Ratio", f"{stock_info.get('pe_ratio', 0):.2f}")
         
-        with col_depth4:
-            st.metric("Depth Levels", order_book.get('depth_levels_analyzed', 0))
-            st.metric("Large Ask Orders", order_book.get('large_ask_orders', 0))
+        with col_info4:
+            st.metric("Currency", stock_info.get('currency', 'USD'))
     
     # Alerts
     alerts = detection_result.get('alerts', [])
@@ -8402,146 +9118,177 @@ def display_iceberg_results_5day(detection_result, market_data, trading_signals,
     
     st.success("✅ 5-Day Pattern Analysis Completed")
 
-# ==================== TRADING SIGNALS GENERATION ====================
-
-def generate_trading_signals_enhanced(detection_result, market_data, volume_impact_weight=0.25):
-    """Generate enhanced trading signals with 5-day volume focus"""
-    try:
-        if not detection_result or not market_data:
-            return get_default_signals()
-        
-        probability = detection_result.get('iceberg_probability', 0)
-        confidence = detection_result.get('confidence', 0)
-        order_book = market_data.get('order_book', {})
-        volume_analysis = market_data.get('volume_analysis', {})
-        
-        signals = {
-            'primary_signal': 'HOLD',
-            'secondary_signals': [],
-            'confidence': confidence,
-            'probability': probability,
-            'timestamp': pd.Timestamp.now(),
-            'entry_price': market_data.get('last_price', 0),
-            'volume_impact': 0,
-            'volume_alerts': []
-        }
-        
-        # Volume analysis integration
-        if volume_analysis:
-            volume_spike = volume_analysis.get('volume_spike_detected', False)
-            alert_level = volume_analysis.get('alert_level', 'NORMAL')
-            
-            volume_impact = 0
-            if volume_spike:
-                if alert_level == "EXTREME":
-                    volume_impact = 0.4
-                elif alert_level == "HIGH":
-                    volume_impact = 0.3
-                elif alert_level == "MEDIUM":
-                    volume_impact = 0.2
-                elif alert_level == "LOW":
-                    volume_impact = 0.1
-                    
-                volume_impact *= volume_impact_weight
-                signals['confidence'] = min(1.0, signals['confidence'] + volume_impact)
-                signals['volume_impact'] = volume_impact
-                
-                signals['volume_alerts'].append(alert_level)
-                signals['secondary_signals'].append(f"VOLUME_{alert_level}")
-        
-        # Order book analysis
-        bid_volume = order_book.get('total_bid_volume', 0)
-        ask_volume = order_book.get('total_ask_volume', 0)
-        total_volume = bid_volume + ask_volume
-        
-        if total_volume > 0:
-            imbalance = (bid_volume - ask_volume) / total_volume
-        else:
-            imbalance = 0
-        
-        # Signal generation
-        final_confidence = signals['confidence']
-        
-        if probability > 0.7 and final_confidence > 0.7:
-            if imbalance > 0.1:
-                signals['primary_signal'] = 'ICEBERG_BUY'
-            elif imbalance < -0.1:
-                signals['primary_signal'] = 'ICEBERG_SELL'
-        
-        elif probability > 0.5 and final_confidence > 0.6:
-            if imbalance > 0.05:
-                signals['primary_signal'] = 'FLOW_BUY'
-            elif imbalance < -0.05:
-                signals['primary_signal'] = 'FLOW_SELL'
-        
-        return signals
-        
-    except Exception as e:
-        return get_default_signals()
-
-def get_default_signals():
-    """Return default signals when errors occur"""
-    return {
-        'primary_signal': 'HOLD',
-        'secondary_signals': ['Analysis unavailable'],
-        'confidence': 0.0,
-        'probability': 0.0,
-        'timestamp': pd.Timestamp.now(),
-        'entry_price': 0,
-        'volume_impact': 0,
-        'volume_alerts': []
-    }
-
-# ==================== REQUIRED HELPER FUNCTIONS ====================
-
-# These functions need to be implemented in your main app
-def get_broker_client():
-    """Get broker client - implement in your app"""
-    return None
-
-def get_instrument_df_safe():
-    """Get instrument data safely - implement in your app"""
-    return pd.DataFrame()
-
-def get_historical_data_safe(instrument_token, timeframe, period):
-    """Get historical data safely - implement in your app"""
-    return pd.DataFrame()
-
-def get_instrument_token(symbol, instrument_df, exchange):
-    """Get instrument token - implement in your app"""
-    return None
-
-def calculate_volume_concentration(orders):
-    """Calculate volume concentration - implement in your app"""
-    return 0.0
-
-def count_large_orders(orders, threshold):
-    """Count large orders - implement in your app"""
-    return 0
-
-def calculate_live_volatility(historical_data, current_price):
-    """Calculate live volatility - implement in your app"""
-    return 0.02
-
-def get_nifty50_stock_category(symbol):
-    """Get stock category - implement in your app"""
-    return 'MEDIUM'
-
-def get_nifty50_detection_params(symbol):
-    """Get detection params - implement in your app"""
-    return {'large_order_threshold': 10000}
-
-def display_header():
-    """Display header - implement in your app"""
+def page_iceberg_detector():
+    """Iceberg Detector page with 5-day volume pattern focus and bot configuration"""
+    
+    # Page header
+    st.set_page_config(
+        page_title="Quantum Iceberg Detector",
+        page_icon="🧊", 
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+    
     st.title("🧊 Quantum Iceberg Detector")
+    st.markdown("""
+    **Real-time iceberg detection with 5-day volume pattern analysis**
+    
+    *Volume analysis based on last 5 market days (1 trading week)*
+    *Enhanced intraday session tracking with weekly context*
+    *More responsive to recent market conditions*
+    """)
+    
+    # Market Status Display
+    display_market_status()
+    
+    # Bot Configuration
+    bot_configurator = TradingBotConfigurator()
+    bot_mode = bot_configurator.render_bot_configuration()
+    
+    # Initialize data provider
+    data_provider = MarketDataProvider()
+    
+    # Popular US stocks for analysis
+    popular_stocks = [
+        'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'META', 'NVDA', 'JPM', 'JNJ', 
+        'V', 'PG', 'UNH', 'HD', 'DIS', 'PYPL', 'NFLX', 'ADBE', 'CRM', 'INTC', 'CSCO'
+    ]
+    
+    # UI Components
+    st.markdown("---")
+    st.subheader("📊 Stock Selection & Analysis")
+    
+    col1, col2, col3 = st.columns([2, 1, 1])
+    
+    with col1:
+        selected_symbol = st.selectbox(
+            "Select Stock",
+            popular_stocks,
+            index=0,
+            key="iceberg_symbol"
+        )
+        
+        # Show stock info
+        stock_info = data_provider.get_stock_info(selected_symbol)
+        st.caption(f"Analyzing: {stock_info.get('name', selected_symbol)} | 5-day volume patterns")
+    
+    with col2:
+        timeframe = st.selectbox(
+            "Timeframe",
+            ["5m", "15m", "30m", "1h", "1d"],
+            index=1,  # Default to 15m
+            key="iceberg_timeframe"
+        )
+    
+    with col3:
+        period = st.selectbox(
+            "Analysis Period", 
+            ["5d", "1wk", "1mo", "3mo"],
+            index=0,
+            key="iceberg_period",
+            help="5 days for weekly volume patterns"
+        )
 
-def st_autorefresh(interval, key):
-    """Auto-refresh - implement in your app"""
-    pass
+    # Volume Analysis Configuration
+    st.markdown("---")
+    st.subheader("📈 5-Day Volume Analysis")
+    
+    col_vol1, col_vol2, col_vol3 = st.columns(3)
+    
+    with col_vol1:
+        volume_alert_threshold = st.slider(
+            "Volume Spike Alert %",
+            min_value=110,
+            max_value=200,
+            value=120,
+            step=5,
+            help="Alert when volume exceeds 5-day session average"
+        )
+    
+    with col_vol2:
+        volume_impact_weight = st.slider(
+            "Volume Impact %",
+            min_value=10,
+            max_value=50,
+            value=30,  # Increased default for volume focus
+            step=5,
+            help="Weight of volume patterns in detection"
+        )
+    
+    with col_vol3:
+        st.markdown("**Analysis Focus**")
+        st.success("**5-Day Volume Patterns**")
+        st.markdown("Sessions: **15/25/15/30/15%**")
+        st.markdown("Weekly: **5 Market Days**")
 
-# Run the page
-#if __name__ == "__main__":
-    #page_iceberg_detector()
+    # Analysis controls
+    st.markdown("---")
+    col_controls1, col_controls2, col_controls3 = st.columns([1, 1, 1])
+    
+    with col_controls1:
+        analyze_clicked = st.button("🔍 Analyze 5-Day Patterns", type="primary", use_container_width=True)
+    
+    with col_controls2:
+        auto_refresh = st.checkbox("🔄 Auto-refresh", value=False, key="iceberg_refresh")
+    
+    with col_controls3:
+        show_weekly = st.checkbox("📊 Show Weekly Patterns", value=True, key="weekly_patterns")
+
+    # Run analysis
+    if analyze_clicked or auto_refresh:
+        with st.spinner("🧊 Analyzing 5-day volume patterns with real market data..."):
+            try:
+                # Get historical data
+                historical_data = data_provider.get_historical_data(selected_symbol, period, timeframe)
+                
+                if historical_data.empty:
+                    st.error("❌ No market data available. Market may be closed or symbol unavailable.")
+                    return
+                
+                # Prepare market data
+                market_data = prepare_market_data(selected_symbol, historical_data, data_provider)
+                
+                if not market_data:
+                    st.error("❌ Failed to prepare market data")
+                    return
+                
+                # Show analysis period info
+                st.info(f"📅 Analyzing volume patterns over: **{period}** | Timeframe: **{timeframe}**")
+                
+                # Run detection
+                detector = QuantumIcebergDetector()
+                detection_result = detector.process_market_data(market_data)
+                
+                # Generate signals
+                trading_signals = generate_trading_signals_enhanced(
+                    detection_result, 
+                    market_data,
+                    volume_impact_weight/100.0
+                )
+                
+                # Display results with weekly patterns
+                display_iceberg_results_5day(
+                    detection_result=detection_result,
+                    market_data=market_data, 
+                    trading_signals=trading_signals,
+                    show_weekly=show_weekly,
+                    bot_mode=bot_mode
+                )
+                
+            except Exception as e:
+                st.error(f"❌ Analysis failed: {str(e)}")
+
+    # Auto-refresh handling
+    if auto_refresh:
+        try:
+            # Simple auto-refresh by rerunning
+            st.rerun()
+        except:
+            pass
+
+# Run the application
+if __name__ == "__main__":
+    page_iceberg_detector()
 
 def page_premarket_pulse():
     """Global market overview and premarket indicators with a trader-focused UI."""
