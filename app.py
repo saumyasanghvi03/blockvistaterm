@@ -7753,6 +7753,111 @@ NIFTY50_STOCKS = {
     'SBICARD': 'SBI Cards & Payment Services Ltd.'
 }
 
+class TradingBotConfigurator:
+    """Trading Bot Configuration Component"""
+    
+    def __init__(self):
+        self.available_modes = {
+            'MONITOR_ONLY': '👁️ Monitor Only (No Trades)',
+            'SEMI_AUTO': '🤖 Semi-Auto (Confirm Signals)', 
+            'FULL_AUTO': '🚀 Full Auto (Execute Trades)'
+        }
+    
+    def render_bot_configuration(self):
+        """Render bot configuration UI"""
+        st.markdown("---")
+        st.subheader("🤖 Trading Bot Configuration")
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            bot_mode = st.selectbox(
+                "Trading Mode",
+                options=list(self.available_modes.keys()),
+                format_func=lambda x: self.available_modes[x],
+                index=0,
+                key="bot_mode_select"
+            )
+            
+            # Show mode description
+            mode_descriptions = {
+                'MONITOR_ONLY': 'Only detect and display signals',
+                'SEMI_AUTO': 'Show signals and wait for confirmation',
+                'FULL_AUTO': 'Automatically execute detected signals'
+            }
+            st.caption(f"**Mode**: {mode_descriptions.get(bot_mode, 'Unknown')}")
+        
+        with col2:
+            st.markdown("**Bot Status**")
+            if bot_mode == 'MONITOR_ONLY':
+                st.info("🔍 Monitoring")
+            elif bot_mode == 'SEMI_AUTO':
+                st.warning("⏳ Semi-Auto")
+            else:
+                st.success("🚀 Full Auto")
+        
+        # Additional bot settings based on mode
+        if bot_mode != 'MONITOR_ONLY':
+            st.markdown("**Trading Settings**")
+            
+            col_set1, col_set2 = st.columns(2)
+            
+            with col_set1:
+                max_position_size = st.number_input(
+                    "Max Position Size (₹)",
+                    min_value=1000,
+                    max_value=1000000,
+                    value=50000,
+                    step=5000,
+                    help="Maximum amount per trade"
+                )
+            
+            with col_set2:
+                risk_per_trade = st.slider(
+                    "Risk per Trade %",
+                    min_value=0.1,
+                    max_value=5.0,
+                    value=1.0,
+                    step=0.1,
+                    help="Maximum risk per trade as percentage of capital"
+                )
+            
+            # Trading filters
+            st.markdown("**Trading Filters**")
+            filter_col1, filter_col2, filter_col3 = st.columns(3)
+            
+            with filter_col1:
+                min_confidence = st.slider(
+                    "Min Confidence %",
+                    min_value=50,
+                    max_value=95,
+                    value=70,
+                    step=5,
+                    help="Minimum confidence level for trades"
+                )
+            
+            with filter_col2:
+                min_volume_ratio = st.slider(
+                    "Min Volume Ratio",
+                    min_value=1.0,
+                    max_value=3.0,
+                    value=1.5,
+                    step=0.1,
+                    help="Minimum volume ratio for signal validation"
+                )
+            
+            with filter_col3:
+                max_slippage = st.slider(
+                    "Max Slippage %",
+                    min_value=0.1,
+                    max_value=2.0,
+                    value=0.5,
+                    step=0.1,
+                    help="Maximum allowed slippage"
+                )
+        
+        return bot_mode
+
 def page_iceberg_detector():
     """Iceberg Detector page with 5-day volume pattern focus and bot configuration"""
     
