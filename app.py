@@ -49,13 +49,8 @@ import json
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 
-st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
-
 def apply_custom_styling():
     """Applies a comprehensive CSS stylesheet for professional theming."""
-    theme = getattr(st.session_state, "theme", "Light")
-    document.body.classList.add(f'{theme.lower()}-theme');
-    
     theme_css = """
     <style>
         :root {
@@ -205,10 +200,13 @@ def apply_custom_styling():
     """
     st.markdown(theme_css, unsafe_allow_html=True)
     
+    # Use get() method with default value to avoid KeyError
+    theme = st.session_state.get('theme', 'Dark')
+    
     js_theme = f"""
     <script>
         document.body.classList.remove('light-theme', 'dark-theme');
-        document.body.classList.add('{st.session_state.theme.lower()}-theme');
+        document.body.classList.add('{theme.lower()}-theme');
     </script>
     """
     st.components.v1.html(js_theme, height=0)
@@ -333,6 +331,7 @@ NIFTY50_DETECTION_PARAMS = {
     }
 }
 # ================ 1.5 INITIALIZATION ========================
+# ================ 1.5 INITIALIZATION ========================
 
 def initialize_session_state():
     """Initializes all necessary session state variables."""
@@ -345,7 +344,8 @@ def initialize_session_state():
     if 'authenticated' not in st.session_state: st.session_state.authenticated = False
     if 'two_factor_setup_complete' not in st.session_state: st.session_state.two_factor_setup_complete = False
     if 'pyotp_secret' not in st.session_state: st.session_state.pyotp_secret = None
-    if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
+    # MOVE THEME INITIALIZATION TO THE TOP
+    if 'theme' not in st.session_state: st.session_state.theme = 'Dark'  # Add this line at the top of initialization
     if 'show_company_events' not in st.session_state:
         st.session_state.show_company_events = False
     if 'fundamental_symbol' not in st.session_state:
@@ -402,6 +402,7 @@ def initialize_session_state():
     # Add special trading days
     if 'special_trading_days' not in st.session_state:
         st.session_state.special_trading_days = []
+
 # ================ 2. HELPER FUNCTIONS ================
 def get_ist_time():
     """Get current time in IST timezone."""
