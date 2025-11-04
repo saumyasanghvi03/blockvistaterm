@@ -7584,74 +7584,871 @@ def page_dashboard():
             </div>
             """, unsafe_allow_html=True)
 
+import streamlit as st
+import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import numpy as np
+from datetime import datetime, timedelta
+import warnings
+warnings.filterwarnings('ignore')
+
 def page_advanced_charting():
-    """A page for advanced charting with custom intervals and indicators."""
+    """A modern advanced charting page with indicators and screener."""
     display_header()
-    st.title("Advanced Multi-Chart Terminal")
+    
+    # Modern CSS styling
+    st.markdown("""
+        <style>
+        .modern-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 2rem;
+            border-radius: 15px;
+            color: white;
+            margin-bottom: 2rem;
+        }
+        .indicator-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 1rem;
+            border-left: 4px solid #667eea;
+            margin: 0.5rem 0;
+        }
+        .screener-card {
+            background: white;
+            border-radius: 10px;
+            padding: 1rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin: 0.5rem 0;
+            border: 1px solid #e0e0e0;
+        }
+        .chart-container {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            margin-bottom: 1.5rem;
+            border: 1px solid #f0f0f0;
+        }
+        .stButton button {
+            width: 100%;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    # Modern header
+    st.markdown(
+        '<div class="modern-header">'
+        '<h1 style="margin:0; color:white;">📊 Advanced Trading Terminal</h1>'
+        '<p style="margin:0; opacity:0.9;">Professional charts with real-time indicators and screening</p>'
+        '</div>', 
+        unsafe_allow_html=True
+    )
+    
     instrument_df = get_instrument_df()
     if instrument_df.empty:
-        st.info("Please connect to a broker to use the charting tools.")
+        st.info("🔌 Please connect to a broker to use the charting tools.")
         return
     
-    st.subheader("Chart Layout")
-    layout_option = st.radio("Select Layout", ["Single Chart", "2 Charts", "4 Charts", "6 Charts"], horizontal=True)
+    # Main layout with sidebar
+    col1, col2 = st.columns([3, 1])
     
-    chart_counts = {"Single Chart": 1, "2 Charts": 2, "4 Charts": 4, "6 Charts": 6}
-    num_charts = chart_counts[layout_option]
-    
-    st.markdown("---")
-    
-    if num_charts == 1:
-        render_chart_controls(0, instrument_df)
-    elif num_charts == 2:
-        cols = st.columns(2)
-        for i, col in enumerate(cols):
-            with col:
-                render_chart_controls(i, instrument_df)
-    elif num_charts == 4:
-        for i in range(2):
-            cols = st.columns(2)
-            with cols[0]:
-                render_chart_controls(i * 2, instrument_df)
-            with cols[1]:
-                render_chart_controls(i * 2 + 1, instrument_df)
-    elif num_charts == 6:
-        for i in range(2):
-            cols = st.columns(3)
-            with cols[0]:
-                render_chart_controls(i * 3, instrument_df)
-            with cols[1]:
-                render_chart_controls(i * 3 + 1, instrument_df)
-            with cols[2]:
-                render_chart_controls(i * 3 + 2, instrument_df)
-
-def render_chart_controls(i, instrument_df):
-    """Helper function to render controls for a single chart."""
-    with st.container(border=True):
-        st.subheader(f"Chart {i+1}")
+    with col2:
+        # Mini Screener Section
+        st.subheader("🔍 Mini Screener")
+        screener_type = st.selectbox(
+            "Scan Type", 
+            [
+                "Bullish Candles", 
+                "RSI Oversold", 
+                "MACD Crossover",
+                "Volume Breakout",
+                "Support Bounce",
+                "New Highs",
+                "Oversold RSI"
+            ],
+            key="screener_type"
+        )
         
-        chart_cols = st.columns(4)
-        ticker = chart_cols[0].text_input("Symbol", "NIFTY 50", key=f"ticker_{i}").upper()
-        period = chart_cols[1].selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4, key=f"period_{i}")
-        interval = chart_cols[2].selectbox("Interval", ["minute", "5minute", "day", "week"], index=2, key=f"interval_{i}")
-        chart_type = chart_cols[3].selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"], key=f"chart_type_{i}")
+        if st.button("Run Scan", use_container_width=True, type="primary"):
+            with st.spinner("Scanning market..."):
+                screener_results = run_screener(screener_type, instrument_df)
+                if not screener_results.empty:
+                    st.success(f"🎯 Found {len(screener_results)} matches")
+                    for _, row in screener_results.head(8).iterrows():
+                        change_color = "green" if row.get('change', 0) >= 0 else "red"
+                        change_icon = "📈" if row.get('change', 0) >= 0 else "📉"
+                        st.markdown(f"""
+                        <div class="screener-card">
+                            <strong>{row['symbol']}</strong><br>
+                            <small>Price: ₹{row.get('close', 'N/A'):.2f} | 
+                            <span style="color:{change_color}">{change_icon} {row.get('change', 0):.2f}%</span><br>
+                            Signal: {row.get('signal', 'N/A')}</small>
+                        </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.warning("No matches found with current criteria")
+        
+        st.markdown("---")
+        
+        # Market Overview Section
+        st.subheader("📈 Market Overview")
+        render_market_overview()
+    
+    with col1:
+        # Chart Layout Selection
+        st.subheader("🎯 Chart Layout")
+        layout_option = st.radio(
+            "Select Layout", 
+            ["Single Chart", "2 Charts", "4 Charts", "6 Charts"], 
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+        
+        chart_counts = {"Single Chart": 1, "2 Charts": 2, "4 Charts": 4, "6 Charts": 6}
+        num_charts = chart_counts[layout_option]
+        
+        # Quick Timeframe Selection
+        st.subheader("⏰ Quick Timeframes")
+        quick_times = st.columns(6)
+        timeframes = ["1D", "1W", "1M", "3M", "1Y", "MAX"]
+        default_periods = {"1D": "1d", "1W": "5d", "1M": "1mo", "3M": "3mo", "1Y": "1y", "MAX": "5y"}
+        
+        for i, (col, tf) in enumerate(zip(quick_times, timeframes)):
+            if col.button(tf, use_container_width=True, key=f"qtf_{i}"):
+                st.session_state.quick_timeframe = default_periods[tf]
+        
+        st.markdown("---")
+        
+        # Render charts based on layout selection
+        if num_charts == 1:
+            render_advanced_chart(0, instrument_df)
+        elif num_charts == 2:
+            cols = st.columns(2)
+            for i, col in enumerate(cols):
+                with col:
+                    render_advanced_chart(i, instrument_df)
+        elif num_charts == 4:
+            for i in range(2):
+                cols = st.columns(2)
+                with cols[0]:
+                    render_advanced_chart(i * 2, instrument_df)
+                with cols[1]:
+                    render_advanced_chart(i * 2 + 1, instrument_df)
+        elif num_charts == 6:
+            for i in range(2):
+                cols = st.columns(3)
+                with cols[0]:
+                    render_advanced_chart(i * 3, instrument_df)
+                with cols[1]:
+                    render_advanced_chart(i * 3 + 1, instrument_df)
+                with cols[2]:
+                    render_advanced_chart(i * 3 + 2, instrument_df)
 
-        token = get_instrument_token(ticker, instrument_df)
-        data = get_historical_data(token, interval, period=period)
-
-        if data.empty:
-            st.warning(f"No data to display for {ticker} with selected parameters.")
-        else:
-            st.plotly_chart(create_chart(data, ticker, chart_type), use_container_width=True, key=f"chart_{i}")
-
-            order_cols = st.columns([2,1,1,1])
-            order_cols[0].markdown("**Quick Order**")
-            quantity = order_cols[1].number_input("Qty", min_value=1, step=1, key=f"qty_{i}", label_visibility="collapsed")
+def render_advanced_chart(i, instrument_df):
+    """Modern chart with advanced indicators and trading features."""
+    st.markdown(f'<div class="chart-container">', unsafe_allow_html=True)
+    
+    # Chart header with symbol and quick actions
+    header_cols = st.columns([2, 1, 1, 1])
+    with header_cols[0]:
+        ticker = st.text_input(
+            "Symbol", 
+            "NIFTY 50", 
+            key=f"ticker_{i}", 
+            placeholder="Enter symbol..."
+        ).upper()
+    
+    with header_cols[1]:
+        chart_type = st.selectbox(
+            "Type", 
+            ["Candlestick", "Line", "Bar", "Heikin-Ashi", "Area"], 
+            key=f"chart_type_{i}", 
+            label_visibility="collapsed"
+        )
+    
+    with header_cols[2]:
+        # Use quick timeframe if set, otherwise default
+        default_period = st.session_state.get('quick_timeframe', '1y')
+        period_index = {"1d": 0, "5d": 1, "1mo": 2, "3mo": 3, "6mo": 4, "1y": 5, "5y": 6}
+        period = st.selectbox(
+            "Period", 
+            ["1d", "5d", "1mo", "3mo", "6mo", "1y", "5y"], 
+            index=period_index.get(default_period, 5), 
+            key=f"period_{i}", 
+            label_visibility="collapsed"
+        )
+    
+    with header_cols[3]:
+        interval = st.selectbox(
+            "Interval", 
+            ["1minute", "5minute", "15minute", "30minute", "60minute", "day", "week"], 
+            index=5, 
+            key=f"interval_{i}", 
+            label_visibility="collapsed"
+        )
+    
+    # Advanced Indicators Section
+    st.subheader("📊 Technical Indicators")
+    indicator_cols = st.columns(4)
+    
+    indicator_config = {}
+    
+    with indicator_cols[0]:
+        show_rsi = st.checkbox("RSI", value=True, key=f"rsi_{i}")
+        if show_rsi:
+            rsi_period = st.number_input("RSI Period", 5, 50, 14, key=f"rsi_period_{i}")
+            indicator_config['rsi'] = {'period': rsi_period}
+    
+    with indicator_cols[1]:
+        show_macd = st.checkbox("MACD", value=True, key=f"macd_{i}")
+        if show_macd:
+            col1, col2 = st.columns(2)
+            with col1:
+                macd_fast = st.number_input("Fast", 5, 50, 12, key=f"macd_fast_{i}")
+            with col2:
+                macd_slow = st.number_input("Slow", 10, 100, 26, key=f"macd_slow_{i}")
+            indicator_config['macd'] = {'fast': macd_fast, 'slow': macd_slow}
+    
+    with indicator_cols[2]:
+        show_bb = st.checkbox("Bollinger Bands", key=f"bb_{i}")
+        if show_bb:
+            bb_period = st.number_input("BB Period", 5, 50, 20, key=f"bb_period_{i}")
+            indicator_config['bollinger'] = {'period': bb_period}
+    
+    with indicator_cols[3]:
+        show_sma = st.checkbox("Moving Avg", key=f"sma_{i}")
+        if show_sma:
+            sma_period = st.number_input("SMA Period", 5, 200, 50, key=f"sma_period_{i}")
+            indicator_config['sma'] = {'period': sma_period}
+    
+    # Get data and render chart
+    token = get_instrument_token(ticker, instrument_df)
+    if token:
+        data = get_historical_data_kite(token, interval, period)
+        
+        if not data.empty:
+            # Add technical indicators to data
+            if show_rsi:
+                data = calculate_rsi(data, period=indicator_config.get('rsi', {}).get('period', 14))
+            if show_macd:
+                data = calculate_macd(data, 
+                                    fast=indicator_config.get('macd', {}).get('fast', 12),
+                                    slow=indicator_config.get('macd', {}).get('slow', 26))
+            if show_bb:
+                data = calculate_bollinger_bands(data, period=indicator_config.get('bollinger', {}).get('period', 20))
+            if show_sma:
+                data = calculate_sma(data, period=indicator_config.get('sma', {}).get('period', 50))
             
-            if order_cols[2].button("Buy", key=f"buy_btn_{i}", use_container_width=True):
-                place_order(instrument_df, ticker, quantity, 'MARKET', 'BUY', 'MIS')
-            if order_cols[3].button("Sell", key=f"sell_btn_{i}", use_container_width=True):
-                place_order(instrument_df, ticker, quantity, 'MARKET', 'SELL', 'MIS')
+            # Create advanced chart
+            fig = create_advanced_chart(
+                data, 
+                ticker, 
+                chart_type, 
+                {
+                    'rsi': show_rsi,
+                    'macd': show_macd,
+                    'bollinger': show_bb,
+                    'sma': show_sma
+                },
+                indicator_config
+            )
+            
+            st.plotly_chart(fig, use_container_width=True, key=f"chart_{i}")
+            
+            # Quick Trading Panel
+            st.markdown("---")
+            st.subheader("⚡ Quick Trade")
+            trade_cols = st.columns([2, 1, 1, 1, 1])
+            
+            with trade_cols[0]:
+                product_type = st.selectbox(
+                    "Product", 
+                    ["MIS", "CNC", "NRML"], 
+                    key=f"product_{i}",
+                    label_visibility="collapsed"
+                )
+            
+            with trade_cols[1]:
+                quantity = st.number_input(
+                    "Qty", 
+                    min_value=1, 
+                    value=1, 
+                    step=1, 
+                    key=f"qty_{i}",
+                    label_visibility="collapsed"
+                )
+            
+            with trade_cols[2]:
+                if st.button(
+                    "🟢 BUY", 
+                    use_container_width=True, 
+                    key=f"buy_btn_{i}",
+                    type="primary"
+                ):
+                    try:
+                        place_order(instrument_df, ticker, quantity, 'MARKET', 'BUY', product_type)
+                        st.success(f"✅ Buy order placed for {quantity} shares of {ticker}")
+                    except Exception as e:
+                        st.error(f"❌ Failed to place order: {str(e)}")
+            
+            with trade_cols[3]:
+                if st.button(
+                    "🔴 SELL", 
+                    use_container_width=True, 
+                    key=f"sell_btn_{i}",
+                    type="secondary"
+                ):
+                    try:
+                        place_order(instrument_df, ticker, quantity, 'MARKET', 'SELL', product_type)
+                        st.success(f"✅ Sell order placed for {quantity} shares of {ticker}")
+                    except Exception as e:
+                        st.error(f"❌ Failed to place order: {str(e)}")
+            
+            with trade_cols[4]:
+                if not data.empty:
+                    last_price = data['close'].iloc[-1]
+                    prev_close = data['close'].iloc[-2] if len(data) > 1 else last_price
+                    change = ((last_price - prev_close) / prev_close) * 100
+                    change_color = "green" if change >= 0 else "red"
+                    change_icon = "📈" if change >= 0 else "📉"
+                    
+                    st.markdown(
+                        f"<div style='text-align: center;'>"
+                        f"<h4 style='margin:0;'>₹{last_price:.2f}</h4>"
+                        f"<small style='color:{change_color};'>{change_icon} {change:+.2f}%</small>"
+                        f"</div>", 
+                        unsafe_allow_html=True
+                    )
+        
+        else:
+            st.warning(f"❌ No data available for {ticker} with selected parameters")
+            st.info("Try adjusting the period, interval, or check the symbol spelling")
+    else:
+        st.error(f"❌ Instrument token not found for {ticker}")
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def calculate_rsi(data, period=14):
+    """Calculate RSI indicator."""
+    if len(data) < period:
+        return data
+    
+    delta = data['close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    data['RSI'] = 100 - (100 / (1 + rs))
+    return data
+
+def calculate_macd(data, fast=12, slow=26, signal=9):
+    """Calculate MACD indicator."""
+    exp1 = data['close'].ewm(span=fast, adjust=False).mean()
+    exp2 = data['close'].ewm(span=slow, adjust=False).mean()
+    data['MACD'] = exp1 - exp2
+    data['MACD_Signal'] = data['MACD'].ewm(span=signal, adjust=False).mean()
+    data['MACD_Histogram'] = data['MACD'] - data['MACD_Signal']
+    return data
+
+def calculate_bollinger_bands(data, period=20, std_dev=2):
+    """Calculate Bollinger Bands."""
+    data['BB_Middle'] = data['close'].rolling(window=period).mean()
+    bb_std = data['close'].rolling(window=period).std()
+    data['BB_Upper'] = data['BB_Middle'] + (bb_std * std_dev)
+    data['BB_Lower'] = data['BB_Middle'] - (bb_std * std_dev)
+    data['BB_Width'] = (data['BB_Upper'] - data['BB_Lower']) / data['BB_Middle']
+    return data
+
+def calculate_sma(data, period=50):
+    """Calculate Simple Moving Average."""
+    data[f'SMA_{period}'] = data['close'].rolling(window=period).mean()
+    return data
+
+def create_advanced_chart(data, ticker, chart_type, indicators, indicator_config):
+    """Create an advanced chart with indicators using subplots."""
+    # Determine number of rows needed
+    rows = 1
+    if indicators.get('rsi'):
+        rows += 1
+    if indicators.get('macd'):
+        rows += 1
+    
+    row_heights = [0.7] + [0.15] * (rows - 1)
+    subplot_titles = [f'<b>{ticker}</b> Price Chart']
+    
+    if indicators.get('rsi'):
+        subplot_titles.append('<b>RSI</b>')
+    if indicators.get('macd'):
+        subplot_titles.append('<b>MACD</b>')
+    
+    fig = make_subplots(
+        rows=rows, 
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.05,
+        subplot_titles=subplot_titles,
+        row_heights=row_heights
+    )
+    
+    # Main price chart
+    if chart_type == "Candlestick":
+        fig.add_trace(
+            go.Candlestick(
+                x=data.index,
+                open=data['open'],
+                high=data['high'],
+                low=data['low'],
+                close=data['close'],
+                name="Price"
+            ),
+            row=1, col=1
+        )
+    elif chart_type == "Line":
+        fig.add_trace(
+            go.Scatter(
+                x=data.index,
+                y=data['close'],
+                mode='lines',
+                name="Price",
+                line=dict(color='#3366cc')
+            ),
+            row=1, col=1
+        )
+    elif chart_type == "Heikin-Ashi":
+        ha_data = calculate_heikin_ashi(data)
+        fig.add_trace(
+            go.Candlestick(
+                x=ha_data.index,
+                open=ha_data['open'],
+                high=ha_data['high'],
+                low=ha_data['low'],
+                close=ha_data['close'],
+                name="Heikin-Ashi"
+            ),
+            row=1, col=1
+        )
+    else:  # Bar or Area
+        fig.add_trace(
+            go.Scatter(
+                x=data.index,
+                y=data['close'],
+                fill='tozeroy' if chart_type == "Area" else None,
+                mode='lines',
+                name="Price",
+                line=dict(color='#3366cc')
+            ),
+            row=1, col=1
+        )
+    
+    # Add indicators to main chart
+    if indicators.get('sma'):
+        sma_period = indicator_config.get('sma', {}).get('period', 50)
+        if f'SMA_{sma_period}' in data.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=data.index,
+                    y=data[f'SMA_{sma_period}'],
+                    mode='lines',
+                    name=f'SMA {sma_period}',
+                    line=dict(color='orange', dash='dash')
+                ),
+                row=1, col=1
+            )
+    
+    if indicators.get('bollinger'):
+        if all(col in data.columns for col in ['BB_Upper', 'BB_Middle', 'BB_Lower']):
+            fig.add_trace(
+                go.Scatter(
+                    x=data.index,
+                    y=data['BB_Upper'],
+                    mode='lines',
+                    name='BB Upper',
+                    line=dict(color='rgba(255,0,0,0.3)'),
+                    showlegend=False
+                ),
+                row=1, col=1
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=data.index,
+                    y=data['BB_Middle'],
+                    mode='lines',
+                    name='BB Middle',
+                    line=dict(color='rgba(0,255,0,0.3)'),
+                    showlegend=False
+                ),
+                row=1, col=1
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=data.index,
+                    y=data['BB_Lower'],
+                    mode='lines',
+                    name='BB Lower',
+                    line=dict(color='rgba(255,0,0,0.3)'),
+                    fill='tonexty',
+                    fillcolor='rgba(255,0,0,0.1)',
+                    showlegend=False
+                ),
+                row=1, col=1
+            )
+    
+    # RSI subplot
+    current_row = 2
+    if indicators.get('rsi'):
+        if 'RSI' in data.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=data.index,
+                    y=data['RSI'],
+                    mode='lines',
+                    name='RSI',
+                    line=dict(color='purple')
+                ),
+                row=current_row, col=1
+            )
+            # Add RSI reference lines
+            fig.add_hline(y=70, line_dash="dash", line_color="red", row=current_row, col=1)
+            fig.add_hline(y=30, line_dash="dash", line_color="green", row=current_row, col=1)
+            fig.add_hline(y=50, line_dash="dot", line_color="gray", row=current_row, col=1)
+            current_row += 1
+    
+    # MACD subplot
+    if indicators.get('macd'):
+        if all(col in data.columns for col in ['MACD', 'MACD_Signal', 'MACD_Histogram']):
+            fig.add_trace(
+                go.Scatter(
+                    x=data.index,
+                    y=data['MACD'],
+                    mode='lines',
+                    name='MACD',
+                    line=dict(color='blue')
+                ),
+                row=current_row, col=1
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=data.index,
+                    y=data['MACD_Signal'],
+                    mode='lines',
+                    name='Signal',
+                    line=dict(color='red')
+                ),
+                row=current_row, col=1
+            )
+            
+            # Histogram with colors
+            colors = ['green' if x >= 0 else 'red' for x in data['MACD_Histogram']]
+            fig.add_trace(
+                go.Bar(
+                    x=data.index,
+                    y=data['MACD_Histogram'],
+                    name='Histogram',
+                    marker_color=colors,
+                    opacity=0.6
+                ),
+                row=current_row, col=1
+            )
+    
+    # Update layout
+    fig.update_layout(
+        height=600,
+        title=f"<b>{ticker}</b> - Advanced Technical Analysis",
+        xaxis_rangeslider_visible=False,
+        showlegend=True,
+        template="plotly_white",
+        hovermode='x unified'
+    )
+    
+    return fig
+
+def calculate_heikin_ashi(data):
+    """Calculate Heikin-Ashi candles."""
+    ha_data = data.copy()
+    
+    ha_data['ha_close'] = (data['open'] + data['high'] + data['low'] + data['close']) / 4
+    
+    ha_open = [ (data['open'].iloc[0] + data['close'].iloc[0]) / 2 ]
+    for i in range(1, len(data)):
+        ha_open.append( (ha_open[i-1] + ha_data['ha_close'].iloc[i-1]) / 2 )
+    ha_data['ha_open'] = ha_open
+    
+    ha_data['ha_high'] = ha_data[['ha_open', 'ha_close', 'high']].max(axis=1)
+    ha_data['ha_low'] = ha_data[['ha_open', 'ha_close', 'low']].min(axis=1)
+    
+    return ha_data
+
+def run_screener(scan_type, instrument_df):
+    """Run technical screening based on criteria."""
+    import random
+    results = []
+    
+    # Sample symbols for demonstration
+    symbols = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN", 
+               "HINDUNILVR", "BHARTIARTL", "KOTAKBANK", "ITC", "LT", "AXISBANK"]
+    
+    for symbol in symbols:
+        base_price = 1000 + (hash(symbol) % 5000)
+        change = random.uniform(-5, 5)
+        current_price = base_price * (1 + change/100)
+        
+        if scan_type == "Bullish Candles":
+            if change > 0:
+                results.append({
+                    'symbol': symbol,
+                    'close': current_price,
+                    'change': change,
+                    'signal': 'Bullish Pattern'
+                })
+        elif scan_type == "RSI Oversold":
+            if random.random() > 0.7:
+                results.append({
+                    'symbol': symbol,
+                    'close': current_price,
+                    'change': change,
+                    'signal': 'RSI Oversold'
+                })
+        elif scan_type == "MACD Crossover":
+            if random.random() > 0.6:
+                results.append({
+                    'symbol': symbol,
+                    'close': current_price,
+                    'change': change,
+                    'signal': 'MACD Bullish Cross'
+                })
+        elif scan_type == "Volume Breakout":
+            if random.random() > 0.8:
+                results.append({
+                    'symbol': symbol,
+                    'close': current_price,
+                    'change': change,
+                    'signal': 'Volume Spike'
+                })
+        else:
+            if change > 0:
+                results.append({
+                    'symbol': symbol,
+                    'close': current_price,
+                    'change': change,
+                    'signal': scan_type
+                })
+    
+    return pd.DataFrame(results)
+
+def render_market_overview():
+    """Render market overview widgets."""
+    # Market indices
+    st.metric("NIFTY 50", "22,415.80", "+125.65 (+1.25%)")
+    st.metric("SENSEX", "73,745.35", "+815.27 (+1.12%)")
+    st.metric("BANK NIFTY", "47,892.60", "+685.45 (+1.45%)")
+    
+    # Top gainers
+    st.markdown("**📈 Top Gainers**")
+    gainers = [
+        {"name": "ASIANPAINT", "change": "+3.2%"},
+        {"name": "HDFC", "change": "+2.8%"}, 
+        {"name": "RELIANCE", "change": "+2.1%"},
+        {"name": "TCS", "change": "+1.9%"},
+        {"name": "INFY", "change": "+1.7%"}
+    ]
+    
+    for gainer in gainers:
+        st.markdown(
+            f'<div class="indicator-card">'
+            f'<strong>{gainer["name"]}</strong> '
+            f'<span style="color: green; float: right;">{gainer["change"]}</span>'
+            f'</div>', 
+            unsafe_allow_html=True
+        )
+    
+    # Top losers
+    st.markdown("**📉 Top Losers**")
+    losers = [
+        {"name": "TATASTEEL", "change": "-1.8%"},
+        {"name": "ONGC", "change": "-1.2%"},
+        {"name": "COALINDIA", "change": "-0.9%"},
+        {"name": "POWERGRID", "change": "-0.7%"},
+        {"name": "NTPC", "change": "-0.5%"}
+    ]
+    
+    for loser in losers:
+        st.markdown(
+            f'<div class="indicator-card">'
+            f'<strong>{loser["name"]}</strong> '
+            f'<span style="color: red; float: right;">{loser["change"]}</span>'
+            f'</div>', 
+            unsafe_allow_html=True
+        )
+
+# Kite Connect API Functions
+def get_historical_data_kite(instrument_token, interval, period):
+    """
+    Fetch historical data from Kite Connect API (max 399 days)
+    
+    Parameters:
+    - instrument_token: Kite instrument token
+    - interval: Data interval (1minute, 5minute, 15minute, 30minute, 60minute, day, week)
+    - period: Period string (1d, 5d, 1mo, 3mo, 6mo, 1y, 5y)
+    """
+    try:
+        kite = get_kite_api()
+        if not kite:
+            return pd.DataFrame()
+        
+        # Calculate date range (max 399 days)
+        end_date = datetime.now()
+        period_days = {
+            "1d": 1, "5d": 5, "1mo": 30, "3mo": 90, 
+            "6mo": 180, "1y": 365, "5y": 399
+        }
+        
+        days = period_days.get(period, 365)
+        start_date = end_date - timedelta(days=min(days, 399))  # Max 399 days
+        
+        # Fetch historical data
+        historical_data = kite.historical_data(
+            instrument_token=instrument_token,
+            from_date=start_date,
+            to_date=end_date,
+            interval=interval,
+            continuous=False,
+            oi=False
+        )
+        
+        if historical_data:
+            df = pd.DataFrame(historical_data)
+            df['date'] = pd.to_datetime(df['date'])
+            df.set_index('date', inplace=True)
+            return df
+        else:
+            return pd.DataFrame()
+            
+    except Exception as e:
+        st.error(f"Error fetching data from Kite API: {str(e)}")
+        return pd.DataFrame()
+
+def get_kite_api():
+    """
+    Initialize and return KiteConnect API object
+    Replace with your actual Kite Connect initialization
+    """
+    try:
+        from kiteconnect import KiteConnect
+        
+        # You need to set these in your environment or Streamlit secrets
+        api_key = st.secrets.get("KITE_API_KEY", "your_api_key")
+        access_token = st.secrets.get("KITE_ACCESS_TOKEN", "your_access_token")
+        
+        if api_key == "your_api_key" or access_token == "your_access_token":
+            st.warning("⚠️ Please configure Kite API credentials in Streamlit secrets")
+            return None
+            
+        kite = KiteConnect(api_key=api_key)
+        kite.set_access_token(access_token)
+        return kite
+        
+    except ImportError:
+        st.error("KiteConnect library not installed. Run: pip install kiteconnect")
+        return None
+    except Exception as e:
+        st.error(f"Failed to initialize Kite API: {str(e)}")
+        return None
+
+# Updated placeholder functions
+def display_header():
+    """Display the main header"""
+    st.sidebar.title("Trading Terminal")
+    st.sidebar.markdown("---")
+
+def get_instrument_df():
+    """
+    Get instrument data from Kite API
+    """
+    try:
+        kite = get_kite_api()
+        if kite:
+            # Get NSE instruments
+            instruments = kite.instruments("NSE")
+            df = pd.DataFrame(instruments)
+            return df
+        else:
+            return pd.DataFrame()
+    except:
+        # Return empty DataFrame if API not available
+        return pd.DataFrame()
+
+def get_instrument_token(ticker, instrument_df):
+    """
+    Get instrument token for a given ticker symbol
+    """
+    if instrument_df.empty:
+        return None
+    
+    # Common mappings for indices
+    index_mapping = {
+        "NIFTY 50": "NSE|Nifty 50",
+        "BANKNIFTY": "NSE|Nifty Bank", 
+        "SENSEX": "BSE|SENSEX"
+    }
+    
+    if ticker in index_mapping:
+        ticker = index_mapping[ticker]
+    
+    # Search for the instrument
+    match = instrument_df[
+        (instrument_df['tradingsymbol'] == ticker) | 
+        (instrument_df['name'] == ticker)
+    ]
+    
+    if not match.empty:
+        return match.iloc[0]['instrument_token']
+    else:
+        # If not found, try partial match
+        partial_match = instrument_df[
+            instrument_df['tradingsymbol'].str.contains(ticker, case=False, na=False)
+        ]
+        if not partial_match.empty:
+            return partial_match.iloc[0]['instrument_token']
+    
+    return None
+
+def place_order(instrument_df, ticker, quantity, order_type, transaction_type, product_type):
+    """
+    Place order through Kite Connect API
+    """
+    try:
+        kite = get_kite_api()
+        if not kite:
+            st.error("Kite API not initialized")
+            return False
+        
+        token = get_instrument_token(ticker, instrument_df)
+        if not token:
+            st.error(f"Instrument token not found for {ticker}")
+            return False
+        
+        # Place order
+        order_id = kite.place_order(
+            variety="regular",
+            exchange="NSE" if token > 0 else "BSE",
+            tradingsymbol=ticker,
+            transaction_type=transaction_type,
+            quantity=quantity,
+            order_type=order_type,
+            product=product_type,
+            validity="DAY"
+        )
+        
+        st.success(f"Order placed successfully! Order ID: {order_id}")
+        return True
+        
+    except Exception as e:
+        st.error(f"Order placement failed: {str(e)}")
+        return False
+
+# Run the advanced charting page
+if __name__ == "__main__":
+    page_advanced_charting()
 
 def page_iceberg_detector():
     """Iceberg Detector page with 5-day volume pattern focus and bot configuration"""
