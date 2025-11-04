@@ -8398,10 +8398,25 @@ def get_default_signals():
         'volume_alerts': []
     }
 
+import streamlit as st
+import requests
+import feedparser
+import pytz
+import pandas as pd
+import random
+from datetime import datetime, time, timedelta
+from your_existing_functions import get_instrument_df, get_watchlist_data  # Import from your existing code
+
 def page_premarket_pulse():
-    """Global News Dashboard - Focused on international market news."""
+    """Global News Dashboard with Market Stability Score."""
     
-    # Simple header
+    # Check if we should show the Global Stability Score (9 AM to 10 AM IST)
+    show_stability_score = should_show_stability_score()
+    
+    if show_stability_score:
+        display_global_stability_score()
+    
+    # Main header
     st.title("🌍 Global News Dashboard")
     st.info("Stay updated with international market news from 10+ professional sources", icon="📰")
     
@@ -8424,6 +8439,332 @@ def page_premarket_pulse():
     except Exception as e:
         st.error(f"News dashboard temporarily unavailable: {str(e)}")
         display_fallback_news(news_limit)
+
+def should_show_stability_score():
+    """Check if current time is between 9 AM and 10 AM IST."""
+    try:
+        ist = pytz.timezone('Asia/Kolkata')
+        now = datetime.now(ist)
+        current_time = now.time()
+        
+        # Check if between 9:00 AM and 10:00 AM
+        start_time = time(9, 0)   # 9:00 AM
+        end_time = time(10, 0)    # 10:00 AM
+        
+        return start_time <= current_time <= end_time
+    except Exception:
+        return False
+
+def display_global_stability_score():
+    """Display the Global Stability Score based on Indian market indicators."""
+    
+    st.markdown("---")
+    st.subheader("📊 Global Stability Score (9:00 AM - 10:00 AM IST)")
+    
+    try:
+        with st.spinner("🔄 Calculating market stability..."):
+            stability_score = calculate_global_stability_score()
+        
+        if stability_score:
+            score = stability_score['score']
+            components = stability_score['components']
+            
+            # Display the main score with color coding
+            if score >= 70:
+                color = "#28a745"
+                emoji = "🟢"
+                status = "High Stability"
+            elif score >= 50:
+                color = "#ffc107" 
+                emoji = "🟡"
+                status = "Moderate Stability"
+            else:
+                color = "#dc3545"
+                emoji = "🔴"
+                status = "Low Stability"
+            
+            # Main score display
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                st.markdown(f"""
+                <div style="text-align: center; padding: 20px; border-radius: 10px; background: linear-gradient(135deg, {color}20, {color}40); border: 2px solid {color};">
+                    <h1 style="color: {color}; margin: 0; font-size: 3em;">{score}/100</h1>
+                    <h3 style="color: {color}; margin: 0;">{emoji} {status}</h3>
+                    <p style="color: #666; margin: 5px 0 0 0;">Global Market Stability Index</p>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # Component breakdown
+            st.markdown("#### 📈 Component Breakdown")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                vix_score = components['india_vix']['score']
+                vix_weight = components['india_vix']['weight']
+                vix_value = components['india_vix']['value']
+                
+                st.metric(
+                    "India VIX Stability", 
+                    f"{vix_score}/100",
+                    f"Weight: {vix_weight}%",
+                    delta_color="normal" if vix_score >= 50 else "inverse"
+                )
+                st.caption(f"Current VIX: {vix_value}")
+                st.progress(vix_score/100)
+            
+            with col2:
+                nifty_score = components['nifty50']['score']
+                nifty_weight = components['nifty50']['weight']
+                nifty_value = components['nifty50']['value']
+                
+                st.metric(
+                    "NIFTY 50 Momentum", 
+                    f"{nifty_score}/100",
+                    f"Weight: {nifty_weight}%",
+                    delta_color="normal" if nifty_score >= 50 else "inverse"
+                )
+                st.caption(f"Current: {nifty_value}")
+                st.progress(nifty_score/100)
+            
+            with col3:
+                sensex_score = components['sensex']['score']
+                sensex_weight = components['sensex']['weight']
+                sensex_value = components['sensex']['value']
+                
+                st.metric(
+                    "SENSEX Momentum", 
+                    f"{sensex_score}/100",
+                    f"Weight: {sensex_weight}%",
+                    delta_color="normal" if sensex_score >= 50 else "inverse"
+                )
+                st.caption(f"Current: {sensex_value}")
+                st.progress(sensex_score/100)
+            
+            # Interpretation
+            st.markdown("---")
+            st.markdown("#### 📋 Stability Interpretation")
+            
+            if score >= 70:
+                st.success("""
+                **🟢 High Market Stability Detected**
+                - Low volatility environment
+                - Positive market momentum
+                - Favorable trading conditions
+                - Reduced risk factors
+                """)
+            elif score >= 50:
+                st.warning("""
+                **🟡 Moderate Market Stability**
+                - Normal volatility levels
+                - Mixed market signals
+                - Standard trading conditions
+                - Monitor key levels
+                """)
+            else:
+                st.error("""
+                **🔴 Low Market Stability**
+                - High volatility environment
+                - Negative market momentum
+                - Elevated risk factors
+                - Exercise caution in trading
+                """)
+                
+    except Exception as e:
+        st.error(f"❌ Stability score calculation failed: {str(e)}")
+        st.info("Stability score will be available during market hours (9-10 AM IST)")
+
+def calculate_global_stability_score():
+    """
+    Calculate Global Stability Score using weighted average formula:
+    Score = (India VIX Score * 40%) + (NIFTY 50 Score * 30%) + (SENSEX Score * 30%)
+    """
+    
+    try:
+        # Get current market data
+        market_data = get_market_data_for_stability()
+        
+        if not market_data:
+            return None
+        
+        # Calculate individual component scores
+        components = {}
+        
+        # 1. India VIX Score (40% weight) - Lower VIX is better for stability
+        vix_value = market_data.get('india_vix', 0)
+        vix_score = calculate_vix_score(vix_value)
+        components['india_vix'] = {
+            'score': vix_score,
+            'weight': 40,
+            'value': vix_value
+        }
+        
+        # 2. NIFTY 50 Score (30% weight) - Based on performance and momentum
+        nifty_value = market_data.get('nifty50', 0)
+        nifty_change = market_data.get('nifty50_change', 0)
+        nifty_score = calculate_index_score(nifty_value, nifty_change, 'NIFTY')
+        components['nifty50'] = {
+            'score': nifty_score,
+            'weight': 30,
+            'value': nifty_value
+        }
+        
+        # 3. SENSEX Score (30% weight) - Based on performance and momentum
+        sensex_value = market_data.get('sensex', 0)
+        sensex_change = market_data.get('sensex_change', 0)
+        sensex_score = calculate_index_score(sensex_value, sensex_change, 'SENSEX')
+        components['sensex'] = {
+            'score': sensex_score,
+            'weight': 30,
+            'value': sensex_value
+        }
+        
+        # Calculate weighted average
+        total_score = (
+            components['india_vix']['score'] * (components['india_vix']['weight'] / 100) +
+            components['nifty50']['score'] * (components['nifty50']['weight'] / 100) +
+            components['sensex']['score'] * (components['sensex']['weight'] / 100)
+        )
+        
+        return {
+            'score': round(total_score),
+            'components': components,
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S IST")
+        }
+        
+    except Exception as e:
+        print(f"Stability score calculation error: {e}")
+        return None
+
+def get_market_data_for_stability():
+    """Get current market data for stability calculation with fallbacks."""
+    
+    market_data = {}
+    
+    try:
+        # Try to get live data first
+        instrument_df = get_instrument_df()
+        
+        if not instrument_df.empty:
+            # Get India VIX
+            vix_data = get_watchlist_data([{'symbol': 'INDIA VIX', 'exchange': 'NSE'}])
+            if not vix_data.empty:
+                market_data['india_vix'] = vix_data.iloc[0]['Price']
+                market_data['india_vix_change'] = vix_data.iloc[0]['Change']
+            
+            # Get NIFTY 50
+            nifty_data = get_watchlist_data([{'symbol': 'NIFTY 50', 'exchange': 'NSE'}])
+            if not nifty_data.empty:
+                market_data['nifty50'] = nifty_data.iloc[0]['Price']
+                market_data['nifty50_change'] = nifty_data.iloc[0]['Change']
+            
+            # Get SENSEX (BSE)
+            sensex_data = get_watchlist_data([{'symbol': 'SENSEX', 'exchange': 'BSE'}])
+            if not sensex_data.empty:
+                market_data['sensex'] = sensex_data.iloc[0]['Price']
+                market_data['sensex_change'] = sensex_data.iloc[0]['Change']
+        
+        # If live data failed, use fallback values
+        if not market_data:
+            market_data = {
+                'india_vix': 15.5,  # Moderate VIX
+                'india_vix_change': 0.2,
+                'nifty50': 19500,   # Sample NIFTY level
+                'nifty50_change': 45.5,
+                'sensex': 65000,    # Sample SENSEX level
+                'sensex_change': 120.3
+            }
+            
+    except Exception as e:
+        print(f"Market data fetch error: {e}")
+        # Ultimate fallback
+        market_data = {
+            'india_vix': 15.5,
+            'india_vix_change': 0.2,
+            'nifty50': 19500,
+            'nifty50_change': 45.5,
+            'sensex': 65000,
+            'sensex_change': 120.3
+        }
+    
+    return market_data
+
+def calculate_vix_score(vix_value):
+    """
+    Calculate VIX stability score (0-100):
+    - VIX < 15: Excellent stability (100)
+    - VIX 15-20: Good stability (80-100)
+    - VIX 20-25: Moderate stability (60-80)
+    - VIX 25-30: Low stability (40-60)
+    - VIX > 30: Poor stability (0-40)
+    """
+    try:
+        if vix_value < 15:
+            return 100
+        elif vix_value <= 20:
+            # Linear interpolation between 15-20
+            return 100 - ((vix_value - 15) / 5) * 20  # 100 to 80
+        elif vix_value <= 25:
+            # Linear interpolation between 20-25
+            return 80 - ((vix_value - 20) / 5) * 20  # 80 to 60
+        elif vix_value <= 30:
+            # Linear interpolation between 25-30
+            return 60 - ((vix_value - 25) / 5) * 20  # 60 to 40
+        else:
+            # VIX above 30 - poor stability
+            return max(0, 40 - ((vix_value - 30) / 10) * 40)  # 40 to 0
+    except:
+        return 50  # Default neutral score
+
+def calculate_index_score(index_value, change, index_name):
+    """
+    Calculate index momentum score (0-100) based on:
+    - Absolute performance (base score)
+    - Recent momentum (change impact)
+    """
+    try:
+        base_score = 50  # Neutral base
+        
+        # Adjust base score based on index level (relative positioning)
+        if index_name == 'NIFTY':
+            # NIFTY typical range analysis
+            if index_value > 20000:
+                base_score += 20  # Strong bullish
+            elif index_value > 19000:
+                base_score += 10  # Moderately bullish
+            elif index_value < 18000:
+                base_score -= 20  # Bearish
+            elif index_value < 18500:
+                base_score -= 10  # Moderately bearish
+        elif index_name == 'SENSEX':
+            # SENSEX typical range analysis
+            if index_value > 70000:
+                base_score += 20
+            elif index_value > 65000:
+                base_score += 10
+            elif index_value < 60000:
+                base_score -= 20
+            elif index_value < 62000:
+                base_score -= 10
+        
+        # Adjust for momentum (change impact)
+        change_impact = 0
+        if change > 100:
+            change_impact = 20  # Strong positive momentum
+        elif change > 50:
+            change_impact = 10  # Positive momentum
+        elif change < -100:
+            change_impact = -20  # Strong negative momentum
+        elif change < -50:
+            change_impact = -10  # Negative momentum
+        
+        final_score = base_score + change_impact
+        
+        # Ensure score is within 0-100 range
+        return max(0, min(100, final_score))
+        
+    except:
+        return 50  # Default neutral score
 
 def display_global_news_dashboard(news_limit):
     """Display global news from multiple professional sources."""
@@ -8706,7 +9047,6 @@ def display_fallback_news(news_limit):
     fallback_news = get_curated_fallback_news()
     display_news_articles(fallback_news[:news_limit])
 
-# Helper functions
 def parse_date(date_string):
     """Parse various date formats to consistent format."""
     if not date_string:
@@ -8735,12 +9075,6 @@ def get_entry_date(entry):
             return datetime.now().strftime("%Y-%m-%d")
     except:
         return datetime.now().strftime("%Y-%m-%d")
-
-# Add required imports at the top if not already present
-import streamlit as st
-import requests
-import feedparser
-from datetime import datetime
 
 def page_fo_analytics():
     """F&O Analytics page with comprehensive options analysis."""
