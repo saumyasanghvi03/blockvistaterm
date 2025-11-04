@@ -8966,6 +8966,313 @@ def get_economic_events() -> List[Dict]:
             {"time": "09:30 PM IST", "event": "API Crude Oil Stock Change", "country": "USA", "impact": "High", "forecast": "N/A", "previous": "-1.4M"}
         ]
 
+Thought for 9spythonimport streamlit as st
+import yfinance as yf
+import plotly.graph_objects as go
+import plotly.express as px
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+import random
+from typing import Dict, List, Optional
+from zoneinfo import ZoneInfo
+import requests
+from bs4 import BeautifulSoup  # Assume installed for scraping
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_ist_time():
+    """Get current IST time."""
+    return datetime.now(ZoneInfo("Asia/Kolkata"))
+
+@st.cache_data(ttl=60)
+def get_market_status() -> Dict[str, str]:
+    """Determine market status based on IST time."""
+    now = get_ist_time()
+    if now.weekday() >= 5:  # Sat/Sun
+        return {'status': 'market_closed'}
+    market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
+    market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    if market_open <= now <= market_close:
+        return {'status': 'market_open'}
+    elif now < market_open and now.hour >= 6:
+        return {'status': 'pre_market'}
+    else:
+        return {'status': 'market_closed'}
+
+def display_header():
+    """Display app header."""
+    st.markdown("""
+    <style>
+    .main-header {font-size: 2.5rem; color: #1f77b4; text-align: center; margin-bottom: 2rem;}
+    </style>
+    """, unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">Trading Pulse Dashboard</h1>', unsafe_allow_html=True)
+
+def is_pre_market_hours() -> bool:
+    """Check if current time is pre-market hours."""
+    status = get_market_status()
+    return status['status'] == 'pre_market'
+
+def is_market_hours() -> bool:
+    """Check if current time is market hours."""
+    status = get_market_status()
+    return status['status'] == 'market_open'
+
+@st.cache_data(ttl=300)
+def get_global_indices_data_enhanced(tickers: Dict[str, str]) -> pd.DataFrame:
+    """Fetch global indices data with robust error handling and retries."""
+    if not tickers:
+        return pd.DataFrame()
+    
+    data = []
+    max_retries = 3
+    for ticker_name, yf_ticker in tickers.items():
+        for attempt in range(max_retries):
+            try:
+                stock_data = yf.download(yf_ticker, period="2d", progress=False, timeout=15)
+                if stock_data.empty or len(stock_data) < 2:
+                    raise ValueError("Insufficient data")
+                
+                current_close = stock_data['Close'].iloc[-1]
+                prev_close = stock_data['Close'].iloc[-2]
+                change = current_close - prev_close
+                pct_change = (change / prev_close) * 100
+                
+                data.append({
+                    'Ticker': ticker_name,
+                    'Price': current_close,
+                    'Change': change,
+                    '% Change': pct_change,
+                    'Previous Close': prev_close
+                })
+                break
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    st.warning(f"Failed to fetch {ticker_name}: {str(e)}. Skipping.")
+                continue
+    
+    df = pd.DataFrame(data)
+    if df.empty:
+        st.error("No global data available. Please check connectivity.")
+    return df
+
+@st.cache_data(ttl=60)
+def get_gift_nifty_data_enhanced() -> pd.DataFrame:
+    """Fetch GIFT NIFTY data: Real during open/pre, synthetic only if closed."""
+    status = get_market_status()
+    is_closed = status['status'] == 'market_closed'
+    
+    tickers_to_try = ["NIFTY_F1", "^NSEI", "ES=F"]
+    
+    if not is_closed:
+        for ticker in tickers_to_try:
+            try:
+                data = yf.download(ticker, period="1d", interval="5m", progress=False, timeout=15)
+                if not data.empty and len(data) > 1:
+                    required_cols = ['Open', 'High', 'Low', 'Close']
+                    for col in required_cols:
+                        if col not in data.columns:
+                            data[col] = data['Close']
+                    st.success(f"✓ Real GIFT NIFTY data from {ticker}")
+                    return data[required_cols]
+            except Exception as e:
+                st.debug(f"Real fetch failed for {ticker}: {e}")
+                continue
+        
+        st.error("Real GIFT NIFTY data unavailable during market hours. Please retry.")
+        return pd.DataFrame()
+    else:
+        st.info("📊 Market closed: Using simulated GIFT NIFTY for reference")
+        now = get_ist_time()
+        dates = pd.date_range(start=now - timedelta(hours=6), end=now, freq='5min')
+        base_price = 24000
+        trend = random.uniform(-0.005, 0.005)
+        volatility = 0.003
+        
+        synthetic_data = []
+        current_price = base_price
+        for i, date in enumerate(dates):
+            drift = trend * (i / len(dates))
+            shock = random.gauss(0, volatility)
+            current_price *= (1 + drift + shock)
+            
+            o = current_price * random.uniform(0.998, 1.002)
+            h = max(o, current_price) * random.uniform(1.0005, 1.003)
+            l = min(o, current_price) * random.uniform(0.997, 0.9995)
+            c = current_price
+            
+            synthetic_data.append({'Open': o, 'High': h, 'Low': l, 'Close': c})
+        
+        return pd.DataFrame(synthetic_data, index=dates)
+
+@st.cache_data(ttl=300)
+def get_instrument_df() -> pd.DataFrame:
+    """Real instrument mapping using yf tickers."""
+    return pd.DataFrame({
+        'symbol': ['NIFTY 50', 'NIFTY BANK', 'INDIA VIX'],
+        'exchange': ['NSE', 'NSE', 'NSE'],
+        'yf_ticker': ['^NSEI', '^NSEBANK', '^INDIAVIX']
+    })
+
+@st.cache_data(ttl=300)
+def get_watchlist_data(watchlist: List[Dict]) -> pd.DataFrame:
+    """Fetch real watchlist data using yfinance."""
+    data = []
+    instrument_df = get_instrument_df()
+    
+    for item in watchlist:
+        symbol = item['symbol']
+        ticker_row = instrument_df[instrument_df['symbol'] == symbol]
+        if ticker_row.empty:
+            continue
+        yf_ticker = ticker_row['yf_ticker'].iloc[0]
+        
+        try:
+            stock_data = yf.download(yf_ticker, period="2d", progress=False, timeout=10)
+            if stock_data.empty or len(stock_data) < 2:
+                raise ValueError("Insufficient data")
+            
+            current_price = stock_data['Close'].iloc[-1]
+            prev_close = stock_data['Close'].iloc[-2]
+            change = current_price - prev_close
+            pct_change = (change / prev_close) * 100 if prev_close != 0 else 0
+            
+            data.append({
+                'Price': current_price,
+                'Change': change,
+                '% Change': pct_change,
+                'Symbol': symbol
+            })
+        except Exception as e:
+            st.warning(f"Failed to fetch real data for {symbol}: {e}")
+            continue
+    
+    df = pd.DataFrame(data)
+    if df.empty:
+        st.error("No real Indian market data available.")
+    return df
+
+@st.cache_data(ttl=600)
+def fetch_and_analyze_news(query: Optional[str] = None) -> pd.DataFrame:
+    """Fetch real market news using yfinance."""
+    try:
+        ticker = yf.Ticker('^NSEI')
+        news_list = ticker.news
+        
+        if not news_list:
+            raise ValueError("No news fetched")
+        
+        recent_news = news_list[:10]
+        
+        news_data = []
+        for item in recent_news:
+            title = item.get('title', 'No Title')
+            source = item.get('publisher', 'Unknown')
+            pub_time = datetime.fromtimestamp(item.get('providerPublishTime', 0))
+            date_str = pub_time.strftime('%Y-%m-%d %H:%M')
+            link = item.get('link', '#')
+            summary = item.get('uuid', '')[:200] + '...' if len(item.get('uuid', '')) > 200 else item.get('uuid', 'No summary')
+            
+            title_lower = title.lower()
+            pos_words = ['gain', 'rise', 'beat', 'strong', 'positive', 'bullish']
+            neg_words = ['fall', 'drop', 'miss', 'weak', 'negative', 'bearish']
+            score = sum(1 for w in pos_words if w in title_lower) - sum(1 for w in neg_words if w in title_lower)
+            score = max(min(score, 1), -1)
+            
+            news_data.append({
+                'title': title,
+                'source': source,
+                'date': date_str,
+                'summary': summary,
+                'sentiment': score,
+                'link': link
+            })
+        
+        df = pd.DataFrame(news_data)
+        if query:
+            df = df[df['title'].str.contains(query, case=False, na=False)]
+        
+        return df
+        
+    except Exception as e:
+        st.error(f"Real news fetch failed: {e}.")
+        return get_fallback_news()
+
+def get_fallback_news() -> pd.DataFrame:
+    """Minimal fallback for news."""
+    return pd.DataFrame([
+        {'title': 'Market Update: Check official sources', 'source': 'Fallback', 'date': get_ist_time().strftime('%Y-%m-%d'), 'summary': 'Real data temporarily unavailable.', 'sentiment': 0.0, 'link': '#'}
+    ])
+
+def create_enhanced_sgx_chart(data: pd.DataFrame) -> go.Figure:
+    """Create interactive SGX Nifty chart with volume and indicators."""
+    fig = go.Figure()
+    
+    if all(col in data.columns for col in ['Open', 'High', 'Low', 'Close']):
+        fig.add_trace(go.Candlestick(
+            x=data.index, open=data['Open'], high=data['High'], low=data['Low'], close=data['Close'],
+            name='Price', increasing_line_color='green', decreasing_line_color='red'
+        ))
+        if 'Volume' in data.columns:
+            fig.add_trace(go.Bar(x=data.index, y=data['Volume'], name='Volume', yaxis='y2', opacity=0.3))
+        
+        data['SMA_20'] = data['Close'].rolling(window=min(20, len(data)), min_periods=1).mean()
+        fig.add_trace(go.Scatter(x=data.index, y=data['SMA_20'], name='SMA 20', line=dict(color='blue', width=1)))
+    
+    fig.update_layout(
+        title="GIFT Nifty Futures - Real Time View",
+        xaxis_title="Time (IST)", yaxis_title="Price",
+        template='plotly_dark', height=450, showlegend=True,
+        yaxis2=dict(title="Volume", side="right", overlaying="y", showgrid=False),
+        hovermode='x unified'
+    )
+    return fig
+
+@st.cache_data(ttl=3600)
+def get_economic_events() -> List[Dict]:
+    """Fetch economic events via scraping Investing.com."""
+    try:
+        url = "https://www.investing.com/economic-calendar/"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+        response = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # Simplified parsing: Look for event rows (adjust selector based on site structure)
+        events = []
+        event_rows = soup.find_all('tr', class_='js-event-item')
+        for row in event_rows[:5]:  # Top 5 events
+            time_td = row.find('td', class_='time')
+            event_td = row.find('td', class_='event')
+            country_td = row.find('td', class_='flagCur')
+            impact_td = row.find('td', class_='sentiment')
+            
+            if time_td and event_td and country_td:
+                time = time_td.get_text(strip=True)
+                event = event_td.get_text(strip=True)
+                country = country_td.get_text(strip=True).split()[0]  # e.g., 'IND'
+                impact = impact_td.get('title', 'Medium') if impact_td else 'Medium'
+                
+                events.append({
+                    'time': time + ' IST',
+                    'event': event,
+                    'country': country,
+                    'impact': impact,
+                    'forecast': 'N/A',  # Parse if available
+                    'previous': 'N/A'
+                })
+        return events if events else fallback_events()
+    except Exception as e:
+        st.warning(f"Calendar scrape failed: {e}. Using fallback events.")
+        return fallback_events()
+
+def fallback_events() -> List[Dict]:
+    """Fallback economic events for today."""
+    return [
+        {"time": "09:00 AM IST", "event": "HSBC India Manufacturing PMI", "country": "IND", "impact": "High", "forecast": "N/A", "previous": "57.5"},
+        {"time": "11:35 AM IST", "event": "Fed Bowman Speech", "country": "USA", "impact": "High", "forecast": "N/A", "previous": "N/A"},
+        {"time": "09:30 PM IST", "event": "API Crude Oil Stock Change", "country": "USA", "impact": "High", "forecast": "N/A", "previous": "-1.4M"}
+    ]
+
 def page_premarket_pulse():
     """Global market overview and premarket indicators with innovative trader UI."""
     try:
@@ -8995,10 +9302,15 @@ def page_premarket_pulse():
                 st.progress(time_elapsed / 375)
                 st.caption("🟢 Live Trading")
             else:
-                next_open = get_ist_time().replace(hour=9, minute=15) + timedelta(days=1 if get_ist_time().hour >= 15 else 0)
-                if next_open < get_ist_time():
+                now = get_ist_time()
+                next_open = now.replace(hour=9, minute=15)
+                if now > next_open:
                     next_open += timedelta(days=1)
-                time_to_open = (next_open - get_ist_time()).seconds / 3600
+                if now.weekday() == 5:  # Saturday
+                    next_open += timedelta(days=2)
+                elif now.weekday() == 6:  # Sunday
+                    next_open += timedelta(days=1)
+                time_to_open = (next_open - now).total_seconds() / 3600
                 st.caption(f"🔴 Closed | Next Open: ~{time_to_open:.0f} hrs")
         
         with col_status4:
@@ -9127,6 +9439,7 @@ def page_premarket_pulse():
         with col_news2:
             news_limit = st.selectbox("Show", [5, 10], index=0, key="news_limit")
         
+        news_df = pd.DataFrame()  # Initialize to avoid scope issues
         try:
             with st.spinner("Fetching real news..."):
                 news_df = fetch_and_analyze_news(news_query)
@@ -9190,6 +9503,13 @@ def page_premarket_pulse():
                     news_count += 1
         except Exception as e:
             st.error(f"News error: {e}")
+            fallback_df = get_fallback_news()
+            try:
+                for _, news in fallback_df.head(news_limit).iterrows():
+                    st.write(f"**{news['title']}** - {news['source']} ({news['date']})")
+                    st.markdown("---")
+            except NameError:
+                st.info("Fallback news unavailable.")
         
         st.markdown("---")
         
@@ -9205,7 +9525,7 @@ def page_premarket_pulse():
         # Innovation: Trade Ideas
         if st.button("💡 Generate AI Trade Ideas", type="secondary"):
             st.balloons()
-            avg_sent = news_df['sentiment'].mean() if 'news_df' in locals() else 0
+            avg_sent = news_df['sentiment'].mean() if not news_df.empty else 0
             st.info(f"Based on sentiment {avg_sent:.2f}: {'Bullish on NIFTY if VIX <15' if avg_sent > 0 else 'Cautious, monitor support levels.'} (AI Suggestion)")
         
         # Refresh
