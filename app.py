@@ -8581,16 +8581,50 @@ def page_premarket_pulse():
         enhanced_news = fetch_and_analyze_news(query=news_query if news_query else None)
         display_enhanced_news(enhanced_news, news_limit=5)
 
-    # Professional Economic Calendar
+    # Professional Economic Calendar from FMP
     st.markdown("---")
-    st.subheader("📅 Professional Economic Calendar")
+    st.subheader("📅 Professional Economic Calendar (FMP)")
     
     try:
-        economic_events = get_professional_economic_calendar()
-        if economic_events:
-            display_economic_calendar(economic_events)
+        # Date range selection for economic calendar
+        col_cal1, col_cal2 = st.columns([1, 1])
+        with col_cal1:
+            start_date = st.date_input("From", value=datetime.now().date())
+        with col_cal2:
+            end_date = st.date_input("To", value=datetime.now().date() + timedelta(days=7))
+        
+        # Country filter
+        countries = st.multiselect(
+            "Filter Countries",
+            ["US", "IN", "CN", "JP", "GB", "DE", "FR", "CA", "AU"],
+            default=["US", "IN"],
+            help="Select countries to show economic events for"
+        )
+        
+        # Impact level filter
+        impact_levels = st.multiselect(
+            "Impact Levels",
+            ["High", "Medium", "Low", "Non-Economic"],
+            default=["High", "Medium"],
+            help="Filter by expected market impact"
+        )
+        
+        if st.button("📊 Load Economic Calendar", type="primary"):
+            with st.spinner("Loading economic calendar from FMP..."):
+                economic_events = get_fmp_economic_calendar(start_date, end_date, countries, impact_levels)
+                
+            if economic_events:
+                display_fmp_economic_calendar(economic_events)
+            else:
+                st.warning("No economic events found for the selected criteria.")
         else:
-            show_sample_economic_events()
+            # Show today's events by default
+            economic_events = get_fmp_economic_calendar(datetime.now().date(), datetime.now().date(), ["US", "IN"], ["High", "Medium"])
+            if economic_events:
+                display_fmp_economic_calendar(economic_events)
+            else:
+                st.info("No major economic events today. Try loading a broader date range.")
+                
     except Exception as e:
         st.error(f"Error loading economic calendar: {e}")
         show_sample_economic_events()
@@ -8603,7 +8637,173 @@ def page_premarket_pulse():
     # Last updated with source info
     st.caption(f"🕒 Last updated: {get_ist_time().strftime('%Y-%m-%d %H:%M:%S IST')} | Sources: {'Alpha Vantage' if use_alpha_vantage else ''} {'FMP' if use_fmp else ''}")
 
-# ================ PROFESSIONAL DATA FUNCTIONS ================
+# ================ FMP ECONOMIC CALENDAR FUNCTIONS ================
+
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def get_fmp_economic_calendar(start_date, end_date, countries=None, impact_levels=None):
+    """Get economic calendar data from Financial Modeling Prep."""
+    api_key = st.secrets.get("FMP_API_KEY")
+    if not api_key:
+        st.error("FMP API key not found in secrets")
+        return None
+    
+    try:
+        # Format dates for FMP API
+        start_str = start_date.strftime("%Y-%m-%d")
+        end_str = end_date.strftime("%Y-%m-%d")
+        
+        url = f"https://financialmodelingprep.com/api/v3/economic_calendar?from={start_str}&to={end_str}&apikey={api_key}"
+        
+        response = requests.get(url, timeout=15)
+        response.raise_for_status()
+        events_data = response.json()
+        
+        if not events_data:
+            return None
+        
+        # Filter events based on selected countries and impact levels
+        filtered_events = []
+        for event in events_data:
+            # Check country filter
+            if countries and event.get('country') not in countries:
+                continue
+                
+            # Check impact level filter
+            event_impact = event.get('impact', '').capitalize()
+            if impact_levels and event_impact not in impact_levels:
+                continue
+                
+            filtered_events.append(event)
+        
+        return filtered_events
+        
+    except requests.exceptions.RequestException as e:
+        st.error(f"Network error fetching economic calendar: {e}")
+        return None
+    except Exception as e:
+        st.error(f"Error processing economic calendar data: {e}")
+        return None
+
+def display_fmp_economic_calendar(events):
+    """Display FMP economic calendar in a professional format."""
+    if not events:
+        st.info("No economic events to display.")
+        return
+    
+    # Sort events by date and time
+    events_sorted = sorted(events, key=lambda x: (
+        x.get('date', ''),
+        x.get('time', '')
+    ))
+    
+    # Group events by date
+    events_by_date = {}
+    for event in events_sorted:
+        event_date = event.get('date', '')
+        if event_date not in events_by_date:
+            events_by_date[event_date] = []
+        events_by_date[event_date].append(event)
+    
+    # Display events grouped by date
+    for date, date_events in events_by_date.items():
+        # Format date for display
+        try:
+            display_date = datetime.strptime(date, "%Y-%m-%d").strftime("%A, %b %d, %Y")
+        except:
+            display_date = date
+        
+        st.subheader(f"📅 {display_date}")
+        
+        for event in date_events:
+            with st.container():
+                col1, col2, col3, col4 = st.columns([1, 3, 1, 1])
+                
+                with col1:
+                    # Event time
+                    event_time = event.get('time', 'TBD')
+                    if event_time and event_time != 'TBD':
+                        try:
+                            # Convert to IST if possible
+                            if ':' in event_time:
+                                time_obj = datetime.strptime(event_time, '%H:%M:%S')
+                                ist_time = time_obj.strftime('%I:%M %p')
+                                st.write(f"**{ist_time}**")
+                            else:
+                                st.write(f"**{event_time}**")
+                        except:
+                            st.write(f"**{event_time}**")
+                    else:
+                        st.write("**TBD**")
+                
+                with col2:
+                    # Event details
+                    event_name = event.get('event', 'Unknown Event')
+                    country = event.get('country', '')
+                    country_name = get_country_name(country)
+                    
+                    st.write(f"**{event_name}**")
+                    if country_name:
+                        st.caption(f"🇺🇳 {country_name}")
+                    
+                    # Event description if available
+                    if event.get('description'):
+                        with st.expander("Details"):
+                            st.write(event['description'])
+                
+                with col3:
+                    # Impact level with color coding
+                    impact = event.get('impact', '').capitalize()
+                    impact_color = {
+                        'High': '#dc3545',
+                        'Medium': '#ffc107', 
+                        'Low': '#28a745',
+                        'Non-economic': '#6c757d'
+                    }.get(impact, '#6c757d')
+                    
+                    st.markdown(f"<div style='text-align: center; padding: 5px; background-color: {impact_color}; color: white; border-radius: 5px; font-weight: bold;'>{impact}</div>", unsafe_allow_html=True)
+                
+                with col4:
+                    # Previous and forecast values
+                    previous = event.get('previous')
+                    estimate = event.get('estimate')
+                    
+                    if previous is not None or estimate is not None:
+                        with st.expander("Values"):
+                            if previous is not None:
+                                st.write(f"Prev: {previous}")
+                            if estimate is not None:
+                                st.write(f"Est: {estimate}")
+                    
+                    # Actual value if available (for past events)
+                    actual = event.get('actual')
+                    if actual is not None:
+                        st.success(f"Actual: {actual}")
+                
+                st.markdown("---")
+
+def get_country_name(country_code):
+    """Convert country code to full country name."""
+    country_map = {
+        'US': 'United States',
+        'IN': 'India',
+        'CN': 'China',
+        'JP': 'Japan',
+        'GB': 'United Kingdom',
+        'DE': 'Germany',
+        'FR': 'France',
+        'CA': 'Canada',
+        'AU': 'Australia',
+        'BR': 'Brazil',
+        'RU': 'Russia',
+        'ZA': 'South Africa',
+        'MX': 'Mexico',
+        'KR': 'South Korea',
+        'IT': 'Italy',
+        'ES': 'Spain'
+    }
+    return country_map.get(country_code, country_code)
+
+# ================ EXISTING PROFESSIONAL DATA FUNCTIONS ================
 
 @st.cache_data(ttl=300)
 def get_alpha_vantage_global_indices():
@@ -9005,26 +9205,6 @@ def display_enhanced_news(news_data, news_limit=5):
         st.write(f"**{news['title']}**")
         st.caption(f"Source: {news['source']} • {news['date']}")
         st.markdown("---")
-
-def get_professional_economic_calendar():
-    """Get professional economic calendar data."""
-    # This would be implemented with actual API calls
-    return None
-
-def display_economic_calendar(events):
-    """Display economic calendar."""
-    if events:
-        for event in events:
-            col1, col2, col3 = st.columns([2, 3, 1])
-            with col1:
-                st.write(f"**{event['time']}**")
-            with col2:
-                st.write(f"{event['event']} ({event['country']})")
-            with col3:
-                impact_color = {"High": "#dc3545", "Medium": "#ffc107", "Low": "#28a745"}
-                st.markdown(f"<span style='color:{impact_color[event['impact']]}; font-weight:bold;'>{event['impact']}</span>", unsafe_allow_html=True)
-    else:
-        show_sample_economic_events()
 
 def show_sample_economic_events():
     """Show sample economic events."""
