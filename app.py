@@ -138,7 +138,7 @@ def apply_custom_styling():
             border: 1px solid var(--border-color);
             padding: 1.5rem;
             border-radius: 10px;
-            border-left-width='stretch': 5px;
+            border-left-use_container_width: 5px;
         }
         
         .trade-card {
@@ -146,13 +146,13 @@ def apply_custom_styling():
             border: 1px solid var(--border-color);
             padding: 1.5rem;
             border-radius: 10px;
-            border-left-width='stretch': 5px;
+            border-left-use_container_width: 5px;
         }
 
         .notification-bar {
             position: sticky;
             top: 0;
-            width='stretch': 100%;
+            use_container_width: 100%;
             background-color: var(--secondary-bg);
             color: var(--text-color);
             padding: 8px 12px;
@@ -164,7 +164,7 @@ def apply_custom_styling():
             border-bottom: 1px solid var(--border-color);
             margin-left: -20px;
             margin-right: -20px;
-            width='stretch': calc(100% + 40px);
+            use_container_width: calc(100% + 40px);
         }
         .notification-bar span {
             margin: 0 15px;
@@ -539,7 +539,7 @@ def quick_trade_interface(symbol=None, exchange=None):
         price = st.number_input("Price", min_value=0.01, key="quick_price") if order_type == "LIMIT" else 0
 
         col1, col2 = st.columns(2)
-        if col1.button("Submit Order", width='stretch'=True, type="primary"):
+        if col1.button("Submit Order", use_container_width=True, type="primary"):
             if symbol and quantity > 0:
                 place_order(get_instrument_df(), symbol, quantity, order_type, transaction_type, product, price if price > 0 else None)
                 st.session_state.show_quick_trade = False
@@ -547,7 +547,7 @@ def quick_trade_interface(symbol=None, exchange=None):
             else:
                 st.warning("Please fill in all fields.")
         
-        if col2.button("Cancel", width='stretch'=True):
+        if col2.button("Cancel", use_container_width=True):
             st.session_state.show_quick_trade = False
             st.rerun()
 
@@ -730,10 +730,10 @@ def display_header():
 
     with col3:
         b_col1, b_col2 = st.columns(2)
-        if b_col1.button("Buy", width='stretch'=True, key="header_buy"):
+        if b_col1.button("Buy", use_container_width=True, key="header_buy"):
             st.session_state.show_quick_trade = True
             st.rerun()
-        if b_col2.button("Sell", width='stretch'=True, key="header_sell"):
+        if b_col2.button("Sell", use_container_width=True, key="header_sell"):
             st.session_state.show_quick_trade = True
             st.rerun()
 
@@ -845,14 +845,14 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_in
     # Bollinger Bands using TA-Lib
     if 'close' in chart_df.columns:
         upperband, middleband, lowerband = talib.BBANDS(chart_df['close'], timeperiod=20, nbdevup=2, nbdevdn=2, matype=0)
-        fig.add_trace(go.Scatter(x=chart_df.index, y=lowerband, line=dict(color='rgba(135,206,250,0.5)', width='stretch'=1), name='Lower Band'))
-        fig.add_trace(go.Scatter(x=chart_df.index, y=upperband, line=dict(color='rgba(135,206,250,0.5)', width='stretch'=1), fill='tonexty', fillcolor='rgba(135,206,250,0.1)', name='Upper Band'))
+        fig.add_trace(go.Scatter(x=chart_df.index, y=lowerband, line=dict(color='rgba(135,206,250,0.5)', use_container_width=1), name='Lower Band'))
+        fig.add_trace(go.Scatter(x=chart_df.index, y=upperband, line=dict(color='rgba(135,206,250,0.5)', use_container_width=1), fill='tonexty', fillcolor='rgba(135,206,250,0.1)', name='Upper Band'))
         
     if forecast_df is not None:
         fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['Predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
         if conf_int_df is not None:
-            fig.add_trace(go.Scatter(x=conf_int_df.index, y=conf_int_df['lower'], line=dict(color='rgba(255,255,0,0.2)', width='stretch'=1), name='Lower CI', showlegend=False))
-            fig.add_trace(go.Scatter(x=conf_int_df.index, y=conf_int_df['upper'], line=dict(color='rgba(255,255,0,0.2)', width='stretch'=1), fill='tonexty', fillcolor='rgba(255,255,0,0.2)', name='Confidence Interval'))
+            fig.add_trace(go.Scatter(x=conf_int_df.index, y=conf_int_df['lower'], line=dict(color='rgba(255,255,0,0.2)', use_container_width=1), name='Lower CI', showlegend=False))
+            fig.add_trace(go.Scatter(x=conf_int_df.index, y=conf_int_df['upper'], line=dict(color='rgba(255,255,0,0.2)', use_container_width=1), fill='tonexty', fillcolor='rgba(255,255,0,0.2)', name='Confidence Interval'))
         
     template = 'plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white'
     fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
@@ -1079,7 +1079,7 @@ def display_optimized_hft_market_depth(instrument_token, symbol, levels=5):
     with col1:
         st.write(f"**Real-time Order Book** (Top {levels} levels from Kite)")
     with col2:
-        if st.button("🔄 Refresh", key=f"refresh_{symbol}", width='stretch'=True):
+        if st.button("🔄 Refresh", key=f"refresh_{symbol}", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
     with col3:
@@ -1201,7 +1201,7 @@ def display_compact_depth_chart(depth_data, levels=5):
         max_quantity = max(bid_quantities + ask_quantities) if bid_quantities or ask_quantities else 1
         fig.update_xaxis(range=[-max_quantity * 1.1, max_quantity * 1.1])
     
-    st.plotly_chart(fig, width='stretch'=True)
+    st.plotly_chart(fig, use_container_width=True)
 
 def display_compact_order_book(depth_data, levels=5):
     """Display compact order book table for top 5 levels only."""
@@ -1262,7 +1262,7 @@ def display_compact_order_book(depth_data, levels=5):
                 return ['background-color: #fff3cd', 'background-color: #fff3cd', 'background-color: #fff3cd', 'background-color: #fff3cd', 'background-color: #fff3cd']
         
         styled_df = df_display.style.apply(style_compact_order_book, axis=1)
-        st.dataframe(styled_df, width='stretch'=True, hide_index=True)
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
     else:
         st.info("No depth data available for display.")
 
@@ -1790,7 +1790,7 @@ def display_market_sentiment_dashboard():
     with col1:
         query = st.text_input("🔍 Filter news by keyword", placeholder="e.g., RBI, IT, Inflation")
     with col2:
-        if st.button("🔄 Refresh Sentiment", width='stretch'=True):
+        if st.button("🔄 Refresh Sentiment", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
     
@@ -1850,7 +1850,7 @@ def display_market_sentiment_dashboard():
                 {'range': [0.1, 1], 'color': "lightgreen"}
             ],
             'threshold': {
-                'line': {'color': "red", 'width='stretch'': 4},
+                'line': {'color': "red", 'use_container_width': 4},
                 'thickness': 0.75,
                 'value': 0.9
             }
@@ -1858,7 +1858,7 @@ def display_market_sentiment_dashboard():
     ))
     
     fig.update_layout(height=300)
-    st.plotly_chart(fig, width='stretch'=True)
+    st.plotly_chart(fig, use_container_width=True)
     
     # News articles with sentiment
     st.markdown("---")
@@ -1964,7 +1964,7 @@ def show_most_active_dialog(underlying, instrument_df):
     if 'show_most_active' not in st.session_state:
         st.session_state.show_most_active = False
     
-    if st.button("Most Active Options", width='stretch'=True) or st.session_state.show_most_active:
+    if st.button("Most Active Options", use_container_width=True) or st.session_state.show_most_active:
         st.session_state.show_most_active = True
         
         st.subheader(f"Most Active {underlying} Options (By Volume)")
@@ -2005,9 +2005,9 @@ def show_most_active_dialog(underlying, instrument_df):
                 
                 df = pd.DataFrame(active_options)
                 df_sorted = df.sort_values(by='Volume', ascending=False)
-                st.dataframe(df_sorted.head(10), width='stretch'=True, hide_index=True)
+                st.dataframe(df_sorted.head(10), use_container_width=True, hide_index=True)
 
-                if st.button("Close", width='stretch'=True):
+                if st.button("Close", use_container_width=True):
                     st.session_state.show_most_active = False
                     st.rerun()
 
@@ -2579,13 +2579,13 @@ def execute_bot_trade(instrument_df, bot_result):
     
     col1, col2 = st.columns(2)
     
-    if col1.button(f"Execute {action} Order", key=f"execute_{symbol}", width='stretch'=True, type="primary"):
+    if col1.button(f"Execute {action} Order", key=f"execute_{symbol}", use_container_width=True, type="primary"):
         # Only execute when user explicitly clicks
         place_order(instrument_df, symbol, quantity, 'MARKET', action, 'MIS')
         st.toast(f"✅ {action} order for {symbol} placed successfully!", icon="🎉")
         st.rerun()
     
-    if col2.button("Ignore Recommendation", key=f"ignore_{symbol}", width='stretch'=True):
+    if col2.button("Ignore Recommendation", key=f"ignore_{symbol}", use_container_width=True):
         st.info("Trade execution cancelled.")
         st.rerun()
 
@@ -2657,7 +2657,7 @@ def page_algo_bots():
         st.write(f"**Selected Bot:** {selected_bot}")
         st.write(f"**Available Capital:** ₹{trading_capital:,}")
         
-        if st.button("🚀 Run Trading Bot", width='stretch'=True, type="primary"):
+        if st.button("🚀 Run Trading Bot", use_container_width=True, type="primary"):
             with st.spinner(f"Running {selected_bot} analysis..."):
                 bot_function = ALGO_BOTS[selected_bot]
                 bot_result = bot_function(instrument_df, selected_symbol, trading_capital)
@@ -2737,7 +2737,7 @@ def page_algo_bots():
         }
         
         comparison_df = pd.DataFrame(comparison_data)
-        st.dataframe(comparison_df, width='stretch'=True, hide_index=True)
+        st.dataframe(comparison_df, use_container_width=True, hide_index=True)
 
 # ================ AUTOMATED BOT FUNCTIONS ================
 
@@ -2990,7 +2990,7 @@ def setup_breakout_bot(instrument_df, nifty25_auto_trade=False):
         min_confidence = st.slider("Min Confidence", 60, 90, 75, key="breakout_conf")
     
     # SCAN AND EXECUTE
-    if st.button("🔍 Scan Breakout Opportunities", type="primary", width='stretch'=True):
+    if st.button("🔍 Scan Breakout Opportunities", type="primary", use_container_width=True):
         with st.spinner(f"Scanning {len(symbols_to_scan)} symbols for breakout patterns..."):
             breakout_signals = run_breakout_analysis(
                 symbols_to_scan, 
@@ -3216,7 +3216,7 @@ def setup_multi_signal_bot(instrument_df, nifty25_auto_trade=False):
     with col_control1:
         auto_execute = st.checkbox("🤖 Auto-Execute Trades", value=False, key="multi_auto")
     with col_control2:
-        if st.button("🚀 Scan Multi-Signal Opportunities", type="primary", width='stretch'=True):
+        if st.button("🚀 Scan Multi-Signal Opportunities", type="primary", use_container_width=True):
             with st.spinner(f"Running multi-signal analysis on {len(symbols_to_scan)} symbols..."):
                 multi_signals = run_multi_signal_analysis(
                     symbols_to_scan,
@@ -3534,7 +3534,7 @@ def display_breakout_signals(signals_data, total_capital, risk_percent, auto_exe
     
     # AUTO-EXECUTION
     if auto_execute and top_signals:
-        if st.button("🤖 Execute All Breakout Trades", type="primary", width='stretch'=True):
+        if st.button("🤖 Execute All Breakout Trades", type="primary", use_container_width=True):
             execute_batch_breakout_trades(top_signals, total_capital, risk_percent)
 
 def execute_batch_breakout_trades(signals, total_capital, risk_percent):
@@ -3664,7 +3664,7 @@ def display_multi_signals(signals_data, total_capital, risk_percent, auto_execut
     
     # AUTO-EXECUTION
     if auto_execute and top_signals:
-        if st.button("🤖 Execute All Multi-Signal Trades", type="primary", width='stretch'=True):
+        if st.button("🤖 Execute All Multi-Signal Trades", type="primary", use_container_width=True):
             execute_batch_multi_trades(top_signals, total_capital, risk_percent)
 
 def calculate_breakout_position_size(signal, risk_amount):
@@ -3874,7 +3874,7 @@ def page_semi_automated_bots(instrument_df):
         st.write(f"**Selected Bot:** {selected_bot}")
         st.write(f"**Available Capital:** ₹{trading_capital:,}")
         
-        if st.button("🚀 Run Trading Bot", width='stretch'=True, type="primary", key="semi_run"):
+        if st.button("🚀 Run Trading Bot", use_container_width=True, type="primary", key="semi_run"):
             with st.spinner(f"Running {selected_bot} analysis..."):
                 bot_function = ALGO_BOTS[selected_bot]
                 bot_result = bot_function(instrument_df, selected_symbol, trading_capital)
@@ -3954,7 +3954,7 @@ def page_semi_automated_bots(instrument_df):
         }
         
         comparison_df = pd.DataFrame(comparison_data)
-        st.dataframe(comparison_df, width='stretch'=True, hide_index=True)
+        st.dataframe(comparison_df, use_container_width=True, hide_index=True)
 
 def initialize_automated_mode():
     """Initialize session state for fully automated trading with paper trading."""
@@ -4552,7 +4552,7 @@ def display_bot_thinking(instrument_df):
         
         # Display styled dataframe
         styled_df = thinking_df.style.apply(lambda x: [color_signal(val) for val in x], subset=['signal'])
-        st.dataframe(styled_df, width='stretch'=True, hide_index=True)
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
         
         # Summary statistics
         buy_signals = len(thinking_df[thinking_df['signal'] == 'BUY'])
@@ -4641,7 +4641,7 @@ def display_detailed_diagnostics(instrument_df):
                     'Data Points': 0
                 })
         
-        st.dataframe(pd.DataFrame(data_status), width='stretch'=True, hide_index=True)
+        st.dataframe(pd.DataFrame(data_status), use_container_width=True, hide_index=True)
     
     # Bot-specific diagnostics
     st.write("**🤖 Bot Configuration Check:**")
@@ -4654,7 +4654,7 @@ def display_detailed_diagnostics(instrument_df):
             'Strategy': AUTOMATED_BOTS[bot_name].get('description', 'N/A')
         })
     
-    st.dataframe(pd.DataFrame(bot_diagnostics), width='stretch'=True, hide_index=True)
+    st.dataframe(pd.DataFrame(bot_diagnostics), use_container_width=True, hide_index=True)
     
     # Trading limits check
     st.write("**📈 Trading Limits:**")
@@ -4668,7 +4668,7 @@ def display_detailed_diagnostics(instrument_df):
         ],
         'Status': ['✅ OK', '✅ OK', '✅ OK', '✅ OK']
     }
-    st.dataframe(pd.DataFrame(limits_data), width='stretch'=True, hide_index=True)
+    st.dataframe(pd.DataFrame(limits_data), use_container_width=True, hide_index=True)
 
 # NOW define the main function
 def page_fully_automated_bots(instrument_df):
@@ -4746,7 +4746,7 @@ def page_fully_automated_bots(instrument_df):
     
     with col_nifty3:
         if nifty25_auto_trade:
-            if st.button("🔄 Refresh Nifty", width='stretch'=True):
+            if st.button("🔄 Refresh Nifty", use_container_width=True):
                 st.rerun()
     
     # NIFTY 25 CONFIGURATION WHEN ENABLED
@@ -4883,21 +4883,21 @@ def page_fully_automated_bots(instrument_df):
             if not st.session_state.automated_mode.get('running', False):
                 # Start button - always available
                 if live_trading:
-                    if st.button("🔴 Start Live Trading", width='stretch'=True, type="secondary"):
+                    if st.button("🔴 Start Live Trading", use_container_width=True, type="secondary"):
                         st.session_state.need_live_confirmation = True
                         st.rerun()
                 else:
-                    if st.button("🔵 Start Paper Trading", width='stretch'=True, type="primary"):
+                    if st.button("🔵 Start Paper Trading", use_container_width=True, type="primary"):
                         st.session_state.automated_mode['running'] = True
                         st.success("Paper trading started!")
                         st.rerun()
             else:
                 # Stop button
-                if st.button("🛑 Stop Trading", width='stretch'=True, type="secondary"):
+                if st.button("🛑 Stop Trading", use_container_width=True, type="secondary"):
                     st.session_state.automated_mode['running'] = False
                     st.rerun()
         else:
-            st.button("Start Trading", width='stretch'=True, disabled=True)
+            st.button("Start Trading", use_container_width=True, disabled=True)
     
     with col4:
         st.write("**💰 Capital**")
@@ -4969,7 +4969,7 @@ def page_fully_automated_bots(instrument_df):
         col_confirm1, col_confirm2, col_confirm3 = st.columns([2, 1, 1])
         
         with col_confirm1:
-            if st.button("✅ CONFIRM LIVE TRADING", type="primary", width='stretch'=True):
+            if st.button("✅ CONFIRM LIVE TRADING", type="primary", use_container_width=True):
                 st.session_state.automated_mode['running'] = True
                 st.session_state.automated_mode['live_trading'] = True
                 st.session_state.need_live_confirmation = False
@@ -4978,7 +4978,7 @@ def page_fully_automated_bots(instrument_df):
                 st.rerun()
         
         with col_confirm2:
-            if st.button("📄 PAPER TRADING", width='stretch'=True):
+            if st.button("📄 PAPER TRADING", use_container_width=True):
                 st.session_state.automated_mode['running'] = True
                 st.session_state.automated_mode['live_trading'] = False
                 st.session_state.need_live_confirmation = False
@@ -4986,7 +4986,7 @@ def page_fully_automated_bots(instrument_df):
                 st.rerun()
                 
         with col_confirm3:
-            if st.button("❌ CANCEL", width='stretch'=True):
+            if st.button("❌ CANCEL", use_container_width=True):
                 st.session_state.automated_mode['live_trading'] = False
                 st.session_state.need_live_confirmation = False
                 st.info("Live trading cancelled.")
@@ -5133,12 +5133,12 @@ def display_enhanced_live_thinking_tab(instrument_df):
         st.caption(f"Analyzing {len(watchlist_symbols)} symbols with {len(active_bots)} active bots")
     
     with col2:
-        if st.button("🔄 Refresh Analysis", type="primary", width='stretch'=True):
+        if st.button("🔄 Refresh Analysis", type="primary", use_container_width=True):
             st.session_state.last_analysis_time = get_ist_time().strftime("%H:%M:%S IST")
             st.rerun()
     
     with col3:
-        if st.button("📊 View Raw Data", width='stretch'=True):
+        if st.button("📊 View Raw Data", use_container_width=True):
             st.session_state.show_raw_thinking_data = not st.session_state.get('show_raw_thinking_data', False)
     
     # Show last analysis time
@@ -5290,12 +5290,12 @@ def display_enhanced_live_thinking_tab(instrument_df):
                 .map(color_confidence, subset=['Confidence'])\
                 .map(color_risk, subset=['Risk Level'])
             
-            st.dataframe(styled_df, width='stretch'=True, hide_index=True)
+            st.dataframe(styled_df, use_container_width=True, hide_index=True)
             
             # Show raw data if requested
             if st.session_state.get('show_raw_thinking_data', False):
                 with st.expander("📋 Raw Analysis Data", expanded=False):
-                    st.dataframe(filtered_df, width='stretch'=True)
+                    st.dataframe(filtered_df, use_container_width=True)
         else:
             st.warning("No results match your current filters. Try adjusting filter settings.")
         
@@ -5323,7 +5323,7 @@ def display_enhanced_live_thinking_tab(instrument_df):
             'Confidence': 'mean'
         }).rename(columns={'Signal': 'Analyses', 'Confidence': 'Avg Confidence'})
         
-        st.dataframe(bot_performance.style.format({'Avg Confidence': '{:.1f}%'}), width='stretch'=True)
+        st.dataframe(bot_performance.style.format({'Avg Confidence': '{:.1f}%'}), use_container_width=True)
         
         # Actionable insights
         st.subheader("💡 Market Insights & Recommendations")
@@ -5475,7 +5475,7 @@ def display_symbol_override_tab(instrument_df):
         current_status = get_market_status()['status']
         market_open = is_market_hours()
         
-        if st.button("🚀 Execute Manual Trade", type="primary", width='stretch'=True):
+        if st.button("🚀 Execute Manual Trade", type="primary", use_container_width=True):
             if symbol:
                 try:
                     if st.session_state.automated_mode.get('live_trading', False):
@@ -5545,7 +5545,7 @@ def display_symbol_override_tab(instrument_df):
         st.write("**🔍 Quick Analysis**")
         analysis_symbol = st.text_input("Analyze Symbol", key="analysis_symbol", placeholder="Enter symbol for quick analysis").upper()
         
-        if st.button("🤖 Run Bot Analysis", width='stretch'=True) and analysis_symbol:
+        if st.button("🤖 Run Bot Analysis", use_container_width=True) and analysis_symbol:
             with st.spinner(f"Analyzing {analysis_symbol}..."):
                 # Run all active bots on this symbol
                 active_bots = [bot for bot, active in st.session_state.automated_mode.get('bots_active', {}).items() if active]
@@ -5566,11 +5566,11 @@ def display_symbol_override_tab(instrument_df):
         # Portfolio management
         st.write("**💰 Portfolio Actions**")
         
-        if st.button("🔄 Update Portfolio Values", width='stretch'=True):
+        if st.button("🔄 Update Portfolio Values", use_container_width=True):
             update_paper_portfolio_values(instrument_df)
             st.success("✅ Portfolio values updated!")
         
-        if st.button("🗑️ Clear All Trades", width='stretch'=True):
+        if st.button("🗑️ Clear All Trades", use_container_width=True):
             st.session_state.automated_mode['trade_history'] = []
             st.session_state.automated_mode['paper_portfolio'] = {
                 'cash_balance': st.session_state.automated_mode['total_capital'],
@@ -5937,25 +5937,25 @@ def display_enhanced_square_off_actions(analyzed_positions):
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        if st.button("🔴 Close High Priority", width='stretch'=True, type="primary"):
+        if st.button("🔴 Close High Priority", use_container_width=True, type="primary"):
             close_high_priority_positions(analyzed_positions)
             st.success("High priority positions closed!")
             st.rerun()
     
     with col2:
-        if st.button("📉 Close All Losing", width='stretch'=True):
+        if st.button("📉 Close All Losing", use_container_width=True):
             close_losing_positions(analyzed_positions)
             st.success("All losing positions closed!")
             st.rerun()
     
     with col3:
-        if st.button("🤖 Smart Close All", width='stretch'=True):
+        if st.button("🤖 Smart Close All", use_container_width=True):
             execute_smart_close_all(analyzed_positions)
             st.success("Smart close executed!")
             st.rerun()
     
     with col4:
-        if st.button("📊 Market Analysis", width='stretch'=True):
+        if st.button("📊 Market Analysis", use_container_width=True):
             display_market_analysis_report(analyzed_positions)
             
 # =============================================================================
@@ -6281,7 +6281,7 @@ def display_company_events_kite(symbol, instrument_df):
                 template="plotly_dark" if st.session_state.theme == 'Dark' else "plotly_white"
             )
             
-            st.plotly_chart(fig, width='stretch'=True)
+            st.plotly_chart(fig, use_container_width=True)
             
             # Volume analysis
             st.subheader("📈 Volume Analysis")
@@ -6694,7 +6694,7 @@ def display_trade_history():
         return styles
     
     styled_df = df_trades.style.apply(color_trade_row, axis=1)
-    st.dataframe(styled_df, width='stretch'=True, hide_index=True)
+    st.dataframe(styled_df, use_container_width=True, hide_index=True)
     
     # Summary statistics
     st.subheader("📊 Trade Summary")
@@ -6719,7 +6719,7 @@ def display_trade_history():
     col_actions1, col_actions2, col_actions3 = st.columns(3)
     
     with col_actions1:
-        if st.button("📥 Export to CSV", width='stretch'=True):
+        if st.button("📥 Export to CSV", use_container_width=True):
             # Create downloadable CSV
             csv = df_trades.to_csv(index=False)
             st.download_button(
@@ -6727,17 +6727,17 @@ def display_trade_history():
                 data=csv,
                 file_name=f"trade_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
-                width='stretch'=True
+                use_container_width=True
             )
     
     with col_actions2:
-        if st.button("🗑️ Clear History", width='stretch'=True, type="secondary"):
+        if st.button("🗑️ Clear History", use_container_width=True, type="secondary"):
             st.session_state.automated_mode['trade_history'] = []
             st.success("Trade history cleared!")
             st.rerun()
     
     with col_actions3:
-        if st.button("🔄 Refresh", width='stretch'=True):
+        if st.button("🔄 Refresh", use_container_width=True):
             st.rerun()
 
 def get_current_price(symbol):
@@ -7209,13 +7209,13 @@ def display_bot_configuration_tab(instrument_df, nifty25_auto_trade=False):
         col_actions1, col_actions2 = st.columns(2)
         
         with col_actions1:
-            if st.button("🔄 Reset Settings", width='stretch'=True, key="reset_bots"):
+            if st.button("🔄 Reset Settings", use_container_width=True, key="reset_bots"):
                 reset_bot_configuration()
                 st.success("Bot configuration reset to defaults!")
                 st.rerun()
         
         with col_actions2:
-            if st.button("💾 Save Config", width='stretch'=True, key="save_bots"):
+            if st.button("💾 Save Config", use_container_width=True, key="save_bots"):
                 save_bot_configuration()
                 st.success("Configuration saved!")
 
@@ -7468,7 +7468,7 @@ def page_dashboard():
             st.info("BMP data is loading...")
     with heatmap_col:
         st.subheader("NIFTY 50 Heatmap")
-        st.plotly_chart(create_nifty_heatmap(instrument_df), width='stretch'=True)
+        st.plotly_chart(create_nifty_heatmap(instrument_df), use_container_width=True)
 
     st.markdown("---")
     
@@ -7513,11 +7513,11 @@ def page_dashboard():
                     
                     quantity = w_cols[2].number_input("Qty", min_value=1, step=1, key=f"qty_{row['Ticker']}", label_visibility="collapsed")
                     
-                    if w_cols[3].button("B", key=f"buy_{row['Ticker']}", width='stretch'=True):
+                    if w_cols[3].button("B", key=f"buy_{row['Ticker']}", use_container_width=True):
                         place_order(instrument_df, row['Ticker'], quantity, 'MARKET', 'BUY', 'MIS')
-                    if w_cols[4].button("S", key=f"sell_{row['Ticker']}", width='stretch'=True):
+                    if w_cols[4].button("S", key=f"sell_{row['Ticker']}", use_container_width=True):
                         place_order(instrument_df, row['Ticker'], quantity, 'MARKET', 'SELL', 'MIS')
-                    if w_cols[5].button("🗑️", key=f"del_{row['Ticker']}", width='stretch'=True):
+                    if w_cols[5].button("🗑️", key=f"del_{row['Ticker']}", use_container_width=True):
                         st.session_state.watchlists[st.session_state.active_watchlist] = [item for item in active_list if item['symbol'] != row['Ticker']]
                         st.rerun()
                 st.markdown("---")
@@ -7529,7 +7529,7 @@ def page_dashboard():
             st.metric("Today's Profit & Loss", f"₹{total_pnl:,.2f}", delta=f"{total_pnl:,.2f}")
             with st.expander("View Holdings"):
                 if not holdings_df.empty:
-                    st.dataframe(holdings_df, width='stretch'=True, hide_index=True)
+                    st.dataframe(holdings_df, use_container_width=True, hide_index=True)
                 else:
                     st.info("No holdings found.")
     with col2:
@@ -7538,7 +7538,7 @@ def page_dashboard():
         if nifty_token:
             nifty_data = get_historical_data(nifty_token, "minute", period="1d")
             if not nifty_data.empty:
-                st.plotly_chart(create_chart(nifty_data.tail(150), "NIFTY 50"), width='stretch'=True)
+                st.plotly_chart(create_chart(nifty_data.tail(150), "NIFTY 50"), use_container_width=True)
             else:
                 st.warning("Could not load NIFTY 50 chart. Market might be closed.")
     
@@ -7561,7 +7561,7 @@ def page_dashboard():
                     100% {{ transform: translate(-100%, 0); }}
                 }}
                 .marquee-container {{
-                    width='stretch': 100%;
+                    use_container_width: 100%;
                     overflow: hidden;
                     position: fixed;
                     bottom: 0;
@@ -7642,15 +7642,15 @@ def render_chart_controls(i, instrument_df):
         if data.empty:
             st.warning(f"No data to display for {ticker} with selected parameters.")
         else:
-            st.plotly_chart(create_chart(data, ticker, chart_type), width='stretch'=True, key=f"chart_{i}")
+            st.plotly_chart(create_chart(data, ticker, chart_type), use_container_width=True, key=f"chart_{i}")
 
             order_cols = st.columns([2,1,1,1])
             order_cols[0].markdown("**Quick Order**")
             quantity = order_cols[1].number_input("Qty", min_value=1, step=1, key=f"qty_{i}", label_visibility="collapsed")
             
-            if order_cols[2].button("Buy", key=f"buy_btn_{i}", width='stretch'=True):
+            if order_cols[2].button("Buy", key=f"buy_btn_{i}", use_container_width=True):
                 place_order(instrument_df, ticker, quantity, 'MARKET', 'BUY', 'MIS')
-            if order_cols[3].button("Sell", key=f"sell_btn_{i}", width='stretch'=True):
+            if order_cols[3].button("Sell", key=f"sell_btn_{i}", use_container_width=True):
                 place_order(instrument_df, ticker, quantity, 'MARKET', 'SELL', 'MIS')
 
 def page_iceberg_detector():
@@ -7811,7 +7811,7 @@ def page_iceberg_detector():
     col_controls1, col_controls2, col_controls3 = st.columns([1, 1, 1])
     
     with col_controls1:
-        analyze_clicked = st.button("🔍 Analyze 5-Day Patterns", type="primary", width='stretch'=True, key="analyze_button")
+        analyze_clicked = st.button("🔍 Analyze 5-Day Patterns", type="primary", use_container_width=True, key="analyze_button")
     
     with col_controls2:
         auto_refresh = st.checkbox("🔄 Auto-refresh", value=False, key="iceberg_refresh")
@@ -8262,7 +8262,7 @@ def display_iceberg_results_5day(detection_result, market_data, trading_signals,
     try:
         visualizer = QuantumVisualizer()
         fig = visualizer.create_quantum_chart(detection_result)
-        st.plotly_chart(fig, width='stretch'=True)
+        st.plotly_chart(fig, use_container_width=True)
     except:
         st.info("📊 Visualization unavailable")
     
@@ -9321,7 +9321,7 @@ def page_fo_analytics():
                 st.metric("Current Price", f"₹{underlying_ltp:,.2f}")
                 st.metric("Expiry Date", expiry.strftime("%d %b %Y") if expiry else "N/A")
             with col3:
-                if st.button("Most Active Options", width='stretch'=True):
+                if st.button("Most Active Options", use_container_width=True):
                     show_most_active_dialog(underlying, instrument_df)
 
             st.dataframe(
@@ -9330,7 +9330,7 @@ def page_fo_analytics():
                     'STRIKE': '₹{:.0f}',
                     'CALL OI': '{:,.0f}', 'PUT OI': '{:,.0f}'
                 }),
-                width='stretch'=True, hide_index=True
+                use_container_width=True, hide_index=True
             )
         else:
             st.warning("Could not load options chain data.")
@@ -9392,7 +9392,7 @@ def page_fo_analytics():
             fig.update_yaxes(title_text="Implied Volatility (%)", secondary_y=False)
             fig.update_yaxes(title_text="Open Interest", secondary_y=True)
             
-            st.plotly_chart(fig, width='stretch'=True)
+            st.plotly_chart(fig, use_container_width=True)
         else:
             st.warning("Please select an underlying and expiry in the 'Options Chain' tab to view the volatility surface.")
 
@@ -9432,7 +9432,7 @@ def page_ai_sentiment_analyzer():
     
     with control_col2:
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🔄 **Refresh Now**", width='stretch'=True, type="primary"):
+        if st.button("🔄 **Refresh Now**", use_container_width=True, type="primary"):
             st.session_state.sentiment_loading = True
             st.session_state.sentiment_data = None
             st.rerun()
@@ -9810,7 +9810,7 @@ def display_sentiment_dashboard(sentiment_data, news_limit=10):
             font=dict(color='white')
         )
         
-        st.plotly_chart(fig_pie, width='stretch'=True)
+        st.plotly_chart(fig_pie, use_container_width=True)
     
     st.markdown("---")
     
@@ -9864,7 +9864,7 @@ def display_sentiment_dashboard(sentiment_data, news_limit=10):
                             <p style="color: #ccc; margin: 0; line-height: 1.5;">{article['summary']}</p>
                             {f'<a href="{article["link"]}" target="_blank" style="color: #667eea; text-decoration: none; font-size: 0.9em;">🔗 Read full article</a>' if article["link"] != "#" else ""}
                         </div>
-                        <div style="margin-left: 15px; text-align: center; min-width='stretch': 100px;">
+                        <div style="margin-left: 15px; text-align: center; min-use_container_width: 100px;">
                             <div style="font-size: 2em; margin-bottom: 5px;">{article['sentiment_emoji']}</div>
                             <div style="font-weight: bold; color: {article['sentiment_color']};">{article['sentiment_label']}</div>
                             <div style="color: {article['sentiment_color']}; font-size: 0.9em;">{article['sentiment_score']:+.3f}</div>
@@ -9892,10 +9892,10 @@ def display_sentiment_gauge(sentiment_score):
         title = {'text': "Market Sentiment Score", 'font': {'size': 20}},
         delta = {'reference': 0, 'increasing': {'color': "#00ff88"}, 'decreasing': {'color': "#ff4444"}},
         gauge = {
-            'axis': {'range': [-1, 1], 'tickwidth='stretch'': 1, 'tickcolor': "white"},
+            'axis': {'range': [-1, 1], 'tickuse_container_width': 1, 'tickcolor': "white"},
             'bar': {'color': "#667eea"},
             'bgcolor': "black",
-            'borderwidth='stretch'': 2,
+            'borderuse_container_width': 2,
             'bordercolor': "gray",
             'steps': [
                 {'range': [-1, -0.1], 'color': '#ff4444'},
@@ -9903,7 +9903,7 @@ def display_sentiment_gauge(sentiment_score):
                 {'range': [0.1, 1], 'color': '#00ff88'}
             ],
             'threshold': {
-                'line': {'color': "white", 'width='stretch'': 4},
+                'line': {'color': "white", 'use_container_width': 4},
                 'thickness': 0.75,
                 'value': sentiment_score
             }
@@ -9917,7 +9917,7 @@ def display_sentiment_gauge(sentiment_score):
         margin=dict(t=50, b=10, l=10, r=10)
     )
     
-    st.plotly_chart(fig, width='stretch'=True)
+    st.plotly_chart(fig, use_container_width=True)
 
 def page_market_sentiment():
     """Market Sentiment Analysis Page - Uses the new improved version"""
@@ -10172,7 +10172,7 @@ def page_forecasting_ml():
         duration_key = st.radio("Forecast Duration", list(forecast_durations.keys()), horizontal=True, key="ml_duration")
         forecast_steps = forecast_durations[duration_key]
 
-        if st.button("Train Model & Forecast", width='stretch'=True, type="primary"):
+        if st.button("Train Model & Forecast", use_container_width=True, type="primary"):
             with st.spinner(f"Loading data and training model for {instrument_name}..."):
                 data = load_and_combine_data(instrument_name)
                 if data.empty or len(data) < 100:
@@ -10208,7 +10208,7 @@ def page_forecasting_ml():
                 fig = create_chart(data.tail(252), instrument_name, forecast_df=forecast_df, conf_int_df=conf_int_df)
                 fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Backtest Prediction', line=dict(color='orange', dash='dot')))
                 fig.update_layout(title=f"{instrument_name} Forecast vs. Historical Data")
-                st.plotly_chart(fig, width='stretch'=True)
+                st.plotly_chart(fig, use_container_width=True)
 
                 st.subheader("Model Performance (Backtest)")
                 
@@ -10227,7 +10227,7 @@ def page_forecasting_ml():
                 with st.expander(f"View {duration_key} Forecast Data"):
                     # Rename for display to be more user-friendly
                     display_df_forecast = forecast_df.rename(columns={'Predicted': 'Forecast'}).join(conf_int_df)
-                    st.dataframe(display_df_forecast.style.format("₹{:.2f}"), width='stretch'=True)
+                    st.dataframe(display_df_forecast.style.format("₹{:.2f}"), use_container_width=True)
             else:
                 st.info("Train a model to see the forecast results.")
         else:
@@ -10254,7 +10254,7 @@ def page_portfolio_and_risk():
     with tab1:
         st.subheader("Live Intraday Positions")
         if not positions_df.empty:
-            st.dataframe(positions_df, width='stretch'=True, hide_index=True)
+            st.dataframe(positions_df, use_container_width=True, hide_index=True)
             st.metric("Total Day P&L", f"₹{total_pnl:,.2f}", delta=f"{total_pnl:,.2f}")
         else:
             st.info("No open positions for the day.")
@@ -10262,7 +10262,7 @@ def page_portfolio_and_risk():
     with tab2:
         st.subheader("Investment Holdings")
         if not holdings_df.empty:
-            st.dataframe(holdings_df, width='stretch'=True, hide_index=True)
+            st.dataframe(holdings_df, use_container_width=True, hide_index=True)
             st.markdown("---")
 
             st.subheader("Portfolio Allocation")
@@ -10290,7 +10290,7 @@ def page_portfolio_and_risk():
                     textinfo='label+percent'
                 )])
                 fig_stock.update_layout(showlegend=False, template='plotly_dark' if st.session_state.get('theme') == "Dark" else 'plotly_white')
-                st.plotly_chart(fig_stock, width='stretch'=True)
+                st.plotly_chart(fig_stock, use_container_width=True)
                 
             if 'Sector' in holdings_df.columns:
                 with col2_alloc:
@@ -10303,7 +10303,7 @@ def page_portfolio_and_risk():
                         textinfo='label+percent'
                     )])
                     fig_sector.update_layout(showlegend=False, template='plotly_dark' if st.session_state.get('theme') == "Dark" else 'plotly_white')
-                    st.plotly_chart(fig_sector, width='stretch'=True)
+                    st.plotly_chart(fig_sector, use_container_width=True)
         else:
             st.info("No holdings found.")
 
@@ -10381,7 +10381,7 @@ def display_trade_history():
             return ''
         
         styled_df = df.style.map(color_status, subset=['Status']).map(color_action, subset=['Action'])
-        st.dataframe(styled_df, width='stretch'=True, hide_index=True)
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
         
         # Summary statistics
         total_trades = len(all_trades)
@@ -10394,14 +10394,14 @@ def display_trade_history():
         col3.metric("Open", open_trades)
         
         # Export option
-        if st.button("📊 Export Trade History to CSV", width='stretch'=True):
+        if st.button("📊 Export Trade History to CSV", use_container_width=True):
             csv = df.to_csv(index=False)
             st.download_button(
                 label="Download CSV",
                 data=csv,
                 file_name=f"trade_history_{get_ist_time().strftime('%Y%m%d_%H%M')}.csv",
                 mime="text/csv",
-                width='stretch'=True
+                use_container_width=True
             )
     else:
         st.info("No trades to display.")
@@ -10439,7 +10439,7 @@ def display_order_history():
                             'Status': order.get('status', '')
                         })
                     
-                    st.dataframe(pd.DataFrame(order_data), width='stretch'=True)
+                    st.dataframe(pd.DataFrame(order_data), use_container_width=True)
                 else:
                     st.info("No orders placed today.")
                     
@@ -10469,7 +10469,7 @@ def display_order_history():
                             'Status': order.get('status', '')
                         })
                     
-                    st.dataframe(pd.DataFrame(order_data), width='stretch'=True)
+                    st.dataframe(pd.DataFrame(order_data), use_container_width=True)
                 else:
                     st.info("No orders placed today.")
             
@@ -10505,17 +10505,17 @@ def page_ai_assistant():
     with st.sidebar:
         st.subheader("🛠️ Quick Actions")
         
-        if st.button("📊 Portfolio Health Check", width='stretch'=True):
+        if st.button("📊 Portfolio Health Check", use_container_width=True):
             st.session_state.assistant_messages.append({"role": "user", "content": "Analyze my portfolio health and suggest improvements"})
             # This will trigger the response in the main chat
             
-        if st.button("📈 Market Outlook", width='stretch'=True):
+        if st.button("📈 Market Outlook", use_container_width=True):
             st.session_state.assistant_messages.append({"role": "user", "content": "What's the current market outlook and any opportunities?"})
             
-        if st.button("🎯 Trade Ideas", width='stretch'=True):
+        if st.button("🎯 Trade Ideas", use_container_width=True):
             st.session_state.assistant_messages.append({"role": "user", "content": "Suggest some high-probability trade ideas"})
             
-        if st.button("⚠️ Risk Assessment", width='stretch'=True):
+        if st.button("⚠️ Risk Assessment", use_container_width=True):
             st.session_state.assistant_messages.append({"role": "user", "content": "Assess my portfolio risk and suggest hedging"})
             
         st.markdown("---")
@@ -11117,9 +11117,9 @@ def page_fundamental_analytics():
     
     with col2:
         st.write("### Quick Actions")
-        if st.button("📈 Analyze Company", key="analyze_company", width='stretch'=True, type="primary"):
+        if st.button("📈 Analyze Company", key="analyze_company", use_container_width=True, type="primary"):
             st.session_state.show_company_events = True
-        if st.button("🔄 Refresh Data", key="refresh_fundamental", width='stretch'=True):
+        if st.button("🔄 Refresh Data", key="refresh_fundamental", use_container_width=True):
             st.rerun()
     
     # Display current price and basic info
@@ -11208,7 +11208,7 @@ def page_fundamental_analytics():
                             template="plotly_dark" if st.session_state.theme == 'Dark' else "plotly_white"
                         )
                         
-                        st.plotly_chart(fig, width='stretch'=True)
+                        st.plotly_chart(fig, use_container_width=True)
                         
                     else:
                         st.warning("Insufficient historical data for performance analysis.")
@@ -11296,11 +11296,11 @@ def page_fundamental_analytics():
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("Set Quarterly Results Alert", width='stretch'=True):
+            if st.button("Set Quarterly Results Alert", use_container_width=True):
                 st.success(f"Quarterly results alert set for {selected_symbol}")
         
         with col2:
-            if st.button("Set Corporate Action Alert", width='stretch'=True):
+            if st.button("Set Corporate Action Alert", use_container_width=True):
                 st.success(f"Corporate action alert set for {selected_symbol}")
     
     # Quick analysis tools
@@ -11310,20 +11310,20 @@ def page_fundamental_analytics():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        if st.button("📊 Run Full Analysis", width='stretch'=True):
+        if st.button("📊 Run Full Analysis", use_container_width=True):
             st.info("Running comprehensive analysis...")
             st.rerun()
     
     with col2:
-        if st.button("📈 Technical Scan", width='stretch'=True):
+        if st.button("📈 Technical Scan", use_container_width=True):
             st.info("Performing technical analysis scan...")
     
     with col3:
-        if st.button("💰 Valuation Check", width='stretch'=True):
+        if st.button("💰 Valuation Check", use_container_width=True):
             st.info("Running valuation analysis...")
     
     with col4:
-        if st.button("📅 Event Scanner", width='stretch'=True):
+        if st.button("📅 Event Scanner", use_container_width=True):
             st.info("Scanning for upcoming corporate events...")
 
     # Auto-refresh control
@@ -11390,7 +11390,7 @@ def page_basket_orders():
                         st.rerun()
             
             st.markdown("---")
-            if st.button("Execute Basket Order", type="primary", width='stretch'=True):
+            if st.button("Execute Basket Order", type="primary", use_container_width=True):
                 execute_basket_order(st.session_state.basket, instrument_df)
         else:
             st.info("Your basket is empty. Add orders using the form on the left.")
@@ -11514,7 +11514,7 @@ def page_algo_strategy_maker():
         st.markdown("**Trade Execution**")
         quantity = st.number_input("Trade Quantity", min_value=1, value=1)
         
-        run_button = st.button("Run Backtest & Get Signal", width='stretch'=True, type="primary")
+        run_button = st.button("Run Backtest & Get Signal", use_container_width=True, type="primary")
 
     with col2:
         if run_button:
@@ -11547,7 +11547,7 @@ def page_algo_strategy_maker():
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=results['curve'].index, y=results['curve'], mode='lines', name='Portfolio Value'))
             fig.update_layout(title="Portfolio Growth Over 1 Year", yaxis_title="Portfolio Value (₹)")
-            st.plotly_chart(fig, width='stretch'=True)
+            st.plotly_chart(fig, use_container_width=True)
 
             st.subheader("Live Signal & Trading")
             signal = results['signal']
@@ -11555,7 +11555,7 @@ def page_algo_strategy_maker():
             st.markdown(f"### Latest Signal: <span style='color:{color};'>{signal if signal else 'HOLD'}</span>", unsafe_allow_html=True)
 
             if signal in ["BUY", "SELL"]:
-                if st.button(f"Place {signal} Order for {results['quantity']} of {results['symbol']}", width='stretch'=True):
+                if st.button(f"Place {signal} Order for {results['quantity']} of {results['symbol']}", use_container_width=True):
                     place_order(instrument_df, results['symbol'], results['quantity'], "MARKET", signal, "MIS")
 
 @st.cache_data(ttl=3600)
@@ -11860,7 +11860,7 @@ def page_momentum_and_trend_finder():
         )
     
     with col2:
-        if st.button("🔄 Scan Now", width='stretch'=True, type="primary"):
+        if st.button("🔄 Scan Now", use_container_width=True, type="primary"):
             st.rerun()
     
     st.markdown("---")
@@ -11915,7 +11915,7 @@ def page_momentum_and_trend_finder():
                 return ''
             styled_data = data.style.map(color_breakout, subset=['Breakout'])
         
-        st.dataframe(styled_data, width='stretch'=True, hide_index=True)
+        st.dataframe(styled_data, use_container_width=True, hide_index=True)
         
         # Simple statistics
         if scanner_type == "Momentum (RSI)":
@@ -11938,18 +11938,18 @@ def page_momentum_and_trend_finder():
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("📋 Export to CSV", width='stretch'=True):
+            if st.button("📋 Export to CSV", use_container_width=True):
                 csv = data.to_csv(index=False)
                 st.download_button(
                     label="Download CSV",
                     data=csv,
                     file_name=f"{scanner_type.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv",
-                    width='stretch'=True
+                    use_container_width=True
                 )
         
         with col2:
-            if st.button("👀 Add to Watchlist", width='stretch'=True):
+            if st.button("👀 Add to Watchlist", use_container_width=True):
                 added = 0
                 for symbol in data['Symbol'].head(5): # Add top 5
                     if symbol not in [item['symbol'] for item in st.session_state.watchlists[st.session_state.active_watchlist]]:
@@ -12108,7 +12108,7 @@ def page_option_strategy_builder():
                 yaxis_title="Profit / Loss (₹)",
                 template='plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white'
             )
-            st.plotly_chart(fig, width='stretch'=True)
+            st.plotly_chart(fig, use_container_width=True)
             
             st.subheader("Risk & Reward Profile")
             metrics_col1, metrics_col2 = st.columns(2)
@@ -12186,7 +12186,7 @@ def page_futures_terminal():
                             'OI': data.get('oi', 0)
                         })
                 live_df = pd.DataFrame(live_data)
-                st.dataframe(live_df, width='stretch'=True, hide_index=True)
+                st.dataframe(live_df, use_container_width=True, hide_index=True)
 
             except Exception as e:
                 st.error(f"Could not fetch live futures data: {e}")
@@ -12200,7 +12200,7 @@ def page_futures_terminal():
             calendar_df = futures_contracts[['tradingsymbol', 'expiry']].copy()
             calendar_df['expiry'] = pd.to_datetime(calendar_df['expiry'])
             calendar_df['Days to Expiry'] = (calendar_df['expiry'] - pd.to_datetime('today')).dt.days
-            st.dataframe(calendar_df.rename(columns={'tradingsymbol': 'Contract', 'expiry': 'Expiry Date'}), width='stretch'=True, hide_index=True)
+            st.dataframe(calendar_df.rename(columns={'tradingsymbol': 'Contract', 'expiry': 'Expiry Date'}), use_container_width=True, hide_index=True)
 
 def generate_ai_trade_idea(instrument_df, active_list):
     """Dynamically generates a trade idea based on watchlist signals."""
@@ -12360,7 +12360,7 @@ def page_ai_discovery():
             st.metric("India VIX", "N/A")
         
         st.markdown("---")
-        if st.button("🔄 Refresh Analysis", width='stretch'=True):
+        if st.button("🔄 Refresh Analysis", use_container_width=True):
             st.rerun()
 
     # Display results
@@ -13245,7 +13245,7 @@ def page_economic_calendar():
     with col2:
         days_ahead = st.selectbox("Show next", [7, 14, 30], index=0, key="calendar_days")
     with col3:
-        if st.button("🔄 Update Now", width='stretch'=True):
+        if st.button("🔄 Update Now", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
     
@@ -13662,13 +13662,13 @@ def display_live_economic_calendar(days_ahead=7):
     # Display the table
     st.dataframe(
         styled_df,
-        width='stretch'=True,
+        use_container_width=True,
         hide_index=True,
         column_config={
             "Date": st.column_config.DateColumn("Date", format="DD/MM/YY"),
             "Time": st.column_config.TextColumn("Time (IST)"),
             "Country": st.column_config.TextColumn("Country"),
-            "Event": st.column_config.TextColumn("Event", width='stretch'="large"),
+            "Event": st.column_config.TextColumn("Event", use_container_width="large"),
             "Impact": st.column_config.TextColumn("Impact"),
             "Previous": st.column_config.TextColumn("Previous"),
             "Forecast": st.column_config.TextColumn("Forecast"),
@@ -13735,14 +13735,14 @@ def display_live_economic_calendar(days_ahead=7):
     st.caption(f"🕒 Last updated: {get_ist_time().strftime('%Y-%m-%d %H:%M:%S IST')}")
     
     # Export option
-    if st.button("📥 Export Calendar to CSV", width='stretch'=True):
+    if st.button("📥 Export Calendar to CSV", use_container_width=True):
         csv = filtered_df.to_csv(index=False)
         st.download_button(
             label="Download CSV",
             data=csv,
             file_name=f"economic_calendar_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             mime="text/csv",
-            width='stretch'=True
+            use_container_width=True
         )
 
 # ============ 5.5 HFT TERMINAL PAGE ============
@@ -13957,7 +13957,7 @@ def page_hft_terminal():
         with mcol1:
             if st.button(
                 "🟢 BUY MARKET", 
-                width='stretch'=True,
+                use_container_width=True,
                 type="primary",
                 key="market_buy",
                 help=f"Buy {quantity} at market price"
@@ -13968,7 +13968,7 @@ def page_hft_terminal():
         with mcol2:
             if st.button(
                 "🔴 SELL MARKET", 
-                width='stretch'=True,
+                use_container_width=True,
                 type="secondary",
                 key="market_sell", 
                 help=f"Sell {quantity} at market price"
@@ -13988,10 +13988,10 @@ def page_hft_terminal():
             
             price_col1, price_col2 = st.columns(2)
             with price_col1:
-                if st.button(f"Bid: ₹{best_bid:.2f}", width='stretch'=True, key="use_bid"):
+                if st.button(f"Bid: ₹{best_bid:.2f}", use_container_width=True, key="use_bid"):
                     st.session_state.hft_limit_price = best_bid
             with price_col2:
-                if st.button(f"Ask: ₹{best_ask:.2f}", width='stretch'=True, key="use_ask"):
+                if st.button(f"Ask: ₹{best_ask:.2f}", use_container_width=True, key="use_ask"):
                     st.session_state.hft_limit_price = best_ask
         
         limit_price = st.number_input(
@@ -14006,7 +14006,7 @@ def page_hft_terminal():
         with lcol1:
             if st.button(
                 "🟢 BUY LIMIT", 
-                width='stretch'=True,
+                use_container_width=True,
                 key="limit_buy",
                 help=f"Buy {quantity} at ₹{limit_price:.2f}"
             ):
@@ -14016,7 +14016,7 @@ def page_hft_terminal():
         with lcol2:
             if st.button(
                 "🔴 SELL LIMIT", 
-                width='stretch'=True,
+                use_container_width=True,
                 key="limit_sell",
                 help=f"Sell {quantity} at ₹{limit_price:.2f}"
             ):
@@ -14047,7 +14047,7 @@ def page_hft_terminal():
         # Tick Log Controls
         control_col1, control_col2 = st.columns(2)
         with control_col1:
-            if st.button("🗑️ Clear", width='stretch'=True, key="clear_ticks"):
+            if st.button("🗑️ Clear", use_container_width=True, key="clear_ticks"):
                 st.session_state.hft_tick_log = []
                 st.rerun()
         with control_col2:
@@ -14769,7 +14769,7 @@ class QuantumVisualizer:
                 theta=categories + [categories[0]],
                 fill='toself',
                 name='Detection Scores',
-                line=dict(color='blue', width='stretch'=2),
+                line=dict(color='blue', use_container_width=2),
                 fillcolor='rgba(0, 0, 255, 0.3)'
             ))
             
@@ -15503,7 +15503,7 @@ def page_iceberg_detector():
     col_controls1, col_controls2, col_controls3 = st.columns([1, 1, 1])
     
     with col_controls1:
-        analyze_clicked = st.button("🔍 Analyze 5-Day Patterns", type="primary", width='stretch'=True)
+        analyze_clicked = st.button("🔍 Analyze 5-Day Patterns", type="primary", use_container_width=True)
     
     with col_controls2:
         auto_refresh = st.checkbox("🔄 Auto-refresh", value=False, key="iceberg_refresh")
@@ -15883,7 +15883,7 @@ def display_iceberg_results_5day(detection_result, market_data, trading_signals,
     try:
         visualizer = QuantumVisualizer()
         fig = visualizer.create_quantum_chart(detection_result)
-        st.plotly_chart(fig, width='stretch'=True)
+        st.plotly_chart(fig, use_container_width=True)
     except:
         st.info("📊 Visualization unavailable")
     
@@ -16054,8 +16054,8 @@ def show_two_factor_setup():
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     
-    # Display with normal size (remove width='stretch')
-    st.image(buf.getvalue(), caption="Scan with your authenticator app", width='stretch'=300)
+    # Display with normal size (remove use_container_width)
+    st.image(buf.getvalue(), caption="Scan with your authenticator app", use_container_width=300)
     
     st.markdown(f"**Your Secret Key:** `{secret}` (You can also enter this manually)")
     
@@ -16064,7 +16064,7 @@ def show_two_factor_setup():
     auth_code = st.text_input("Enter 6-digit code from your authenticator app", max_chars=6, key="verify_2fa")
     
     col1, col2 = st.columns(2)
-    if col1.button("Verify & Continue", width='stretch'=True, type="primary"):
+    if col1.button("Verify & Continue", use_container_width=True, type="primary"):
         if auth_code:
             try:
                 totp = pyotp.TOTP(secret)
@@ -16080,7 +16080,7 @@ def show_two_factor_setup():
         else:
             st.warning("Please enter a verification code.")
     
-    if col2.button("Skip 2FA Setup", width='stretch'=True):
+    if col2.button("Skip 2FA Setup", use_container_width=True):
         st.session_state.two_factor_setup_complete = True
         st.session_state.authenticated = True
         st.info("2FA setup skipped. You can enable it later in settings.")
@@ -16094,7 +16094,7 @@ def show_two_factor_auth():
     auth_code = st.text_input("2FA Code", max_chars=6, key="2fa_code")
     
     col1, col2 = st.columns(2)
-    if col1.button("Authenticate", width='stretch'=True, type="primary"):
+    if col1.button("Authenticate", use_container_width=True, type="primary"):
         if auth_code:
             try:
                 totp = pyotp.TOTP(st.session_state.pyotp_secret)
@@ -16109,11 +16109,11 @@ def show_two_factor_auth():
         else:
             st.warning("Please enter a code.")
     
-    if col2.button("Use Backup Code", width='stretch'=True):
+    if col2.button("Use Backup Code", use_container_width=True):
         st.info("Backup code feature not yet implemented.")
     
     st.markdown("---")
-    if st.button("🔄 Return to Login", width='stretch'=True):
+    if st.button("🔄 Return to Login", use_container_width=True):
         for key in list(st.session_state.keys()):
             if key not in ['theme', 'watchlists', 'active_watchlist']:
                 del st.session_state[key]
@@ -16149,10 +16149,10 @@ def qr_code_dialog():
         img.save(buf, format="PNG")
         
         # Display with normal size
-        st.image(buf.getvalue(), caption="Scan with your authenticator app", width='stretch'=300)
+        st.image(buf.getvalue(), caption="Scan with your authenticator app", use_container_width=300)
         st.markdown(f"**Your Secret Key:** `{secret}` (You can also enter this manually)")
         
-        if st.button("I have scanned the code. Continue.", width='stretch'=True):
+        if st.button("I have scanned the code. Continue.", use_container_width=True):
             st.session_state.two_factor_setup_complete = True
             st.session_state.show_qr_dialog = False
             st.rerun()
