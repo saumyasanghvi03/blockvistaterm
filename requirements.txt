@@ -19,4 +19,3 @@ praw==7.7.1
 textblob==0.18.0
 ta-lib
 nsepy
-autobahn>=20.12.3
