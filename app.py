@@ -8405,7 +8405,17 @@ import pytz
 import pandas as pd
 import random
 from datetime import datetime, time, timedelta
-from your_existing_functions import get_instrument_df, get_watchlist_data  # Import from your existing code
+
+# Import from your existing code - make sure these functions exist
+try:
+    from your_existing_functions import get_instrument_df, get_watchlist_data
+except ImportError:
+    # Fallback implementations if imports fail
+    def get_instrument_df():
+        return pd.DataFrame()
+    
+    def get_watchlist_data(instruments):
+        return pd.DataFrame()
 
 def page_premarket_pulse():
     """Global News Dashboard with Market Stability Score."""
@@ -8427,7 +8437,7 @@ def page_premarket_pulse():
     with col2:
         news_limit = st.slider("News Count", 10, 25, 15, help="Number of news articles to display")
     with col3:
-        if st.button("🔄 Refresh News", width='stretch'=True):
+        if st.button("🔄 Refresh News", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
     
