@@ -8424,65 +8424,59 @@ def page_premarket_pulse():
 
     st.markdown("---")
 
-    # Professional Data Source Selection
-    st.subheader("🔧 Data Sources")
-    col_source1, col_source2 = st.columns(2)
-    with col_source1:
-        use_alpha_vantage = st.checkbox("Alpha Vantage", value=True, help="Professional market data")
-    with col_source2:
-        use_fmp = st.checkbox("Financial Modeling Prep", value=True, help="Financial statements & fundamentals")
-
-    # Global Market Snapshot with Professional Data
+    # Global Market Snapshot
     st.subheader("🌍 Global Market Snapshot")
     
-    try:
-        # Try Alpha Vantage first for global indices
-        if use_alpha_vantage:
-            global_data = get_alpha_vantage_global_indices()
-        else:
-            global_data = pd.DataFrame()
+    # Major global indices with proper tickers
+    global_tickers = {
+        "S&P 500": "^GSPC", 
+        "Dow Jones": "^DJI", 
+        "NASDAQ": "^IXIC", 
+        "FTSE 100": "^FTSE", 
+        "DAX": "^GDAXI",
+        "Nikkei 225": "^N225", 
+        "Hang Seng": "^HSI",
+        "Shanghai": "000001.SS",
+        "SGX Nifty": "NIFTY_F1"
+    }
+    
+    # Try to get live global data
+    global_data = get_global_indices_data_enhanced(global_tickers)
+    
+    # Check if we have valid data
+    valid_data = False
+    if not global_data.empty:
+        # Check if we have at least some valid prices
+        valid_prices = global_data[~global_data['Price'].isna()]['Price']
+        if len(valid_prices) > 0:
+            valid_data = True
+    
+    if not valid_data:
+        st.warning("⚠️ Live global data temporarily unavailable. Showing sample data for reference.")
+        global_data = get_fallback_global_data(global_tickers)
+    
+    if not global_data.empty:
+        # Display global indices in a grid
+        cols = st.columns(4)
+        displayed_count = 0
         
-        # Fallback to FMP if Alpha Vantage fails or is disabled
-        if global_data.empty and use_fmp:
-            global_data = get_fmp_global_indices()
-        
-        # Final fallback to free data
-        if global_data.empty:
-            global_tickers = {
-                "S&P 500": "^GSPC", 
-                "Dow Jones": "^DJI", 
-                "NASDAQ": "^IXIC",
-                "SGX Nifty": "NIFTY_F1"
-            }
-            global_data = get_global_indices_data_enhanced(global_tickers)
-            st.info("📡 Using enhanced market data")
-        
-        if not global_data.empty:
-            # Display global indices in a grid
-            cols = st.columns(4)
-            displayed_count = 0
+        for i, row in global_data.iterrows():
+            price = row['Price']
+            change = row['Change']
+            pct_change = row['% Change']
             
-            for i, row in global_data.iterrows():
-                price = row['Price']
-                change = row['Change']
-                pct_change = row['% Change']
-                
-                if not np.isnan(price) and not np.isnan(pct_change):
-                    col_idx = displayed_count % 4
-                    with cols[col_idx]:
-                        delta_color = "normal" if change >= 0 else "inverse"
-                        st.metric(
-                            label=row['Ticker'], 
-                            value=f"{price:,.0f}" if price > 100 else f"{price:.2f}",
-                            delta=f"{pct_change:+.2f}%",
-                            delta_color=delta_color
-                        )
-                    displayed_count += 1
-        else:
-            st.warning("Unable to load global market data")
-            
-    except Exception as e:
-        st.error(f"Error loading global data: {e}")
+            if not np.isnan(price) and not np.isnan(pct_change):
+                col_idx = displayed_count % 4
+                with cols[col_idx]:
+                    # Color coding for changes
+                    delta_color = "normal" if change >= 0 else "inverse"
+                    st.metric(
+                        label=row['Ticker'], 
+                        value=f"{price:,.0f}" if price > 100 else f"{price:.2f}",
+                        delta=f"{pct_change:+.2f}%",
+                        delta_color=delta_color
+                    )
+                displayed_count += 1
 
     st.markdown("---")
 
@@ -8492,8 +8486,8 @@ def page_premarket_pulse():
     with col1:
         st.subheader("📈 NIFTY 50 Futures (SGX Nifty)")
         
-        # Get SGX Nifty data with professional sources
-        sgx_data = get_professional_sgx_data()
+        # Get SGX Nifty data
+        sgx_data = get_gift_nifty_data_enhanced()
         
         if not sgx_data.empty:
             # Calculate change and percentage
@@ -8511,20 +8505,70 @@ def page_premarket_pulse():
                     delta_color="normal" if change >= 0 else "inverse"
                 )
             
-            # Create professional chart
-            fig = create_professional_futures_chart(sgx_data)
+            # Create chart
+            fig = go.Figure()
+            
+            # Add candlestick or line trace based on data availability
+            if all(col in sgx_data.columns for col in ['Open', 'High', 'Low', 'Close']):
+                fig.add_trace(go.Candlestick(
+                    x=sgx_data.index,
+                    open=sgx_data['Open'],
+                    high=sgx_data['High'],
+                    low=sgx_data['Low'],
+                    close=sgx_data['Close'],
+                    name='SGX Nifty'
+                ))
+            else:
+                # Fallback to line chart
+                fig.add_trace(go.Scatter(
+                    x=sgx_data.index,
+                    y=sgx_data['Close' if 'Close' in sgx_data.columns else sgx_data.iloc[:, 0]],
+                    mode='lines',
+                    name='SGX Nifty',
+                    line=dict(color='cyan')
+                ))
+            
+            fig.update_layout(
+                title="SGX Nifty Futures",
+                xaxis_title="Date",
+                yaxis_title="Price",
+                template='plotly_dark',
+                height=400,
+                showlegend=False,
+                xaxis_rangeslider_visible=False
+            )
+            
             st.plotly_chart(fig, use_container_width=True)
             
         else:
-            # Professional fallback
-            st.info("📊 Using NIFTY 50 as reference")
-            show_nifty_fallback()
+            # Fallback: Show NIFTY 50 chart if SGX data unavailable
+            st.info("📊 SGX Nifty data unavailable. Showing NIFTY 50 instead.")
+            instrument_df = get_instrument_df()
+            if not instrument_df.empty:
+                nifty_token = get_instrument_token('NIFTY 50', instrument_df, 'NSE')
+                if nifty_token:
+                    nifty_data = get_historical_data(nifty_token, "5minute", period="1d")
+                    if not nifty_data.empty:
+                        st.plotly_chart(create_chart(nifty_data.tail(100), "NIFTY 50"), use_container_width=True)
+                    else:
+                        st.error("Unable to load NIFTY 50 data")
+                else:
+                    st.error("NIFTY 50 token not found")
+            else:
+                st.error("Instrument data not available")
             
     with col2:
         st.subheader("🌏 Asian Markets Live")
         
-        # Professional Asian markets data
-        asian_data = get_professional_asian_markets()
+        asian_tickers = {
+            "Nikkei 225": "^N225", 
+            "Hang Seng": "^HSI",
+            "Shanghai Comp": "000001.SS",
+            "Taiwan": "^TWII",
+            "KOSPI": "^KS11"
+        }
+        
+        asian_data = get_global_indices_data_enhanced(asian_tickers)
         
         if not asian_data.empty:
             for _, row in asian_data.iterrows():
@@ -8547,688 +8591,305 @@ def page_premarket_pulse():
 
         st.markdown("---")
         
-        # Professional Indian Market Indicators
+        # Pre-market indicators for Indian market
         st.subheader("🇮🇳 Indian Market Indicators")
-        show_professional_indian_indicators()
+        
+        try:
+            # Get NIFTY 50 and BANK NIFTY data
+            instrument_df = get_instrument_df()
+            if not instrument_df.empty:
+                # NIFTY 50
+                nifty_data = get_watchlist_data([{'symbol': 'NIFTY 50', 'exchange': 'NSE'}])
+                if not nifty_data.empty:
+                    nifty_row = nifty_data.iloc[0]
+                    st.metric(
+                        "NIFTY 50",
+                        f"{nifty_row['Price']:.2f}",
+                        delta=f"{nifty_row['Change']:+.2f} ({nifty_row['% Change']:+.2f}%)"
+                    )
+                else:
+                    st.write("**NIFTY 50:** Data updating...")
+                
+                # BANK NIFTY
+                bank_nifty_data = get_watchlist_data([{'symbol': 'NIFTY BANK', 'exchange': 'NSE'}])
+                if not bank_nifty_data.empty:
+                    bank_nifty_row = bank_nifty_data.iloc[0]
+                    st.metric(
+                        "BANK NIFTY", 
+                        f"{bank_nifty_row['Price']:.2f}",
+                        delta=f"{bank_nifty_row['Change']:+.2f} ({bank_nifty_row['% Change']:+.2f}%)"
+                    )
+                else:
+                    st.write("**BANK NIFTY:** Data updating...")
+                
+                # India VIX
+                vix_data = get_watchlist_data([{'symbol': 'INDIA VIX', 'exchange': 'NSE'}])
+                if not vix_data.empty:
+                    vix_row = vix_data.iloc[0]
+                    vix_color = "inverse" if vix_row['Change'] > 0 else "normal"  # Higher VIX = bearish
+                    st.metric(
+                        "India VIX",
+                        f"{vix_row['Price']:.2f}",
+                        delta=f"{vix_row['Change']:+.2f} ({vix_row['% Change']:+.2f}%)",
+                        delta_color=vix_color
+                    )
+                else:
+                    st.write("**India VIX:** Data updating...")
+                    
+        except Exception as e:
+            st.error(f"Error loading Indian market data: {e}")
 
     st.markdown("---")
 
-    # Professional News Section with Multiple Sources
-    st.subheader("📰 Professional Market News & Analysis")
+    # Enhanced News Section - FIXED VERSION
+    st.subheader("📰 Latest Market News & Analysis")
     
-    # News source selection
-    col_news1, col_news2 = st.columns([2, 1])
+    # News search and filter
+    col_news1, col_news2 = st.columns([3, 1])
     with col_news1:
         news_query = st.text_input("Search news", placeholder="Enter keywords (e.g., RBI, earnings, inflation)...", key="news_search")
     with col_news2:
-        news_source = st.selectbox("Source", ["Alpha Vantage", "FMP", "All Sources"], index=2)
+        news_limit = st.selectbox("Show", [5, 10, 15], index=0, key="news_limit")
     
     try:
-        with st.spinner("📡 Fetching professional market news..."):
-            # Try professional news sources
-            news_data = get_professional_news(news_query, news_source)
+        with st.spinner("📡 Fetching latest market news..."):
+            # Get news data - ensure we handle the dictionary structure properly
+            news_result = fetch_and_analyze_news(query=news_query if news_query else None)
             
-            if news_data and not news_data['news_items'].empty:
-                display_professional_news(news_data, news_limit=5)
+            # Extract the DataFrame from the result
+            if isinstance(news_result, dict) and 'news_items' in news_result:
+                news_df = news_result['news_items']
             else:
-                st.info("🔍 No professional news found. Showing enhanced news...")
-                enhanced_news = fetch_and_analyze_news(query=news_query if news_query else None)
-                display_enhanced_news(enhanced_news, news_limit=5)
+                # If it's already a DataFrame or different structure, handle accordingly
+                news_df = news_result if isinstance(news_result, pd.DataFrame) else pd.DataFrame()
+            
+            # If no news found, use fallback
+            if news_df.empty:
+                st.info("🔍 No live news found. Showing recent market updates...")
+                fallback_result = get_fallback_news_enhanced()
+                if isinstance(fallback_result, dict) and 'news_items' in fallback_result:
+                    news_df = fallback_result['news_items']
+                else:
+                    news_df = fallback_result
+            
+        if not news_df.empty:
+            # Display news with sentiment analysis
+            news_count = 0
+            for _, news in news_df.iterrows():
+                if news_count >= news_limit:
+                    break
+                    
+                # Get sentiment score with fallback for different column names
+                sentiment_score = news.get('sentiment_score', news.get('sentiment', 0))
+                
+                # Sentiment indicators
+                if sentiment_score > 0.2:
+                    sentiment_icon = "🟢"
+                    sentiment_text = "Positive"
+                    border_color = "#28a745"
+                elif sentiment_score < -0.2:
+                    sentiment_icon = "🔴" 
+                    sentiment_text = "Negative"
+                    border_color = "#dc3545"
+                else:
+                    sentiment_icon = "🟡"
+                    sentiment_text = "Neutral"
+                    border_color = "#ffc107"
+                
+                # News card with colored border
+                st.markdown(f"""
+                <div style="border-left: 4px solid {border_color}; padding-left: 10px; margin: 10px 0;">
+                    <div style="display: flex; justify-content: between; align-items: start;">
+                        <div style="flex: 1;">
+                            <strong>{news.get('title', 'No title')}</strong>
+                            <br>
+                            <small style="color: #666;">{news.get('source', 'Unknown')} • {news.get('date', 'Unknown date')}</small>
+                        </div>
+                        <div style="margin-left: 10px;">
+                            {sentiment_icon} {sentiment_text}
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Expandable details
+                with st.expander("Read summary"):
+                    summary = news.get('summary', news.get('text', 'No summary available'))
+                    st.write(summary)
+                    st.write(f"**Sentiment Score:** {sentiment_score:.2f}")
+                    news_link = news.get('link', news.get('url', '#'))
+                    if news_link != "#":
+                        st.markdown(f"[Read full article →]({news_link})")
+                
+                news_count += 1
                 
     except Exception as e:
-        st.error(f"❌ Error loading professional news: {str(e)}")
-        st.info("📋 Showing enhanced news feed...")
-        enhanced_news = fetch_and_analyze_news(query=news_query if news_query else None)
-        display_enhanced_news(enhanced_news, news_limit=5)
-
-    # Professional Economic Calendar from FMP
-    st.markdown("---")
-    st.subheader("📅 Professional Economic Calendar (FMP)")
-    
-    try:
-        # Date range selection for economic calendar
-        col_cal1, col_cal2 = st.columns([1, 1])
-        with col_cal1:
-            start_date = st.date_input("From", value=datetime.now().date())
-        with col_cal2:
-            end_date = st.date_input("To", value=datetime.now().date() + timedelta(days=7))
-        
-        # Country filter
-        countries = st.multiselect(
-            "Filter Countries",
-            ["US", "IN", "CN", "JP", "GB", "DE", "FR", "CA", "AU"],
-            default=["US", "IN"],
-            help="Select countries to show economic events for"
-        )
-        
-        # Impact level filter
-        impact_levels = st.multiselect(
-            "Impact Levels",
-            ["High", "Medium", "Low", "Non-Economic"],
-            default=["High", "Medium"],
-            help="Filter by expected market impact"
-        )
-        
-        if st.button("📊 Load Economic Calendar", type="primary"):
-            with st.spinner("Loading economic calendar from FMP..."):
-                economic_events = get_fmp_economic_calendar(start_date, end_date, countries, impact_levels)
-                
-            if economic_events:
-                display_fmp_economic_calendar(economic_events)
-            else:
-                st.warning("No economic events found for the selected criteria.")
-        else:
-            # Show today's events by default
-            economic_events = get_fmp_economic_calendar(datetime.now().date(), datetime.now().date(), ["US", "IN"], ["High", "Medium"])
-            if economic_events:
-                display_fmp_economic_calendar(economic_events)
-            else:
-                st.info("No major economic events today. Try loading a broader date range.")
-                
-    except Exception as e:
-        st.error(f"Error loading economic calendar: {e}")
-        show_sample_economic_events()
-
-    # Refresh with professional data
-    if st.button("🔄 Refresh Professional Data", use_container_width=True, type="primary"):
-        st.cache_data.clear()
-        st.rerun()
-
-    # Last updated with source info
-    st.caption(f"🕒 Last updated: {get_ist_time().strftime('%Y-%m-%d %H:%M:%S IST')} | Sources: {'Alpha Vantage' if use_alpha_vantage else ''} {'FMP' if use_fmp else ''}")
-
-# ================ FMP ECONOMIC CALENDAR FUNCTIONS ================
-
-@st.cache_data(ttl=3600)  # Cache for 1 hour
-def get_fmp_economic_calendar(start_date, end_date, countries=None, impact_levels=None):
-    """Get economic calendar data from Financial Modeling Prep."""
-    api_key = st.secrets.get("FMP_API_KEY")
-    if not api_key:
-        st.error("FMP API key not found in secrets")
-        return None
-    
-    try:
-        # Format dates for FMP API
-        start_str = start_date.strftime("%Y-%m-%d")
-        end_str = end_date.strftime("%Y-%m-%d")
-        
-        url = f"https://financialmodelingprep.com/api/v3/economic_calendar?from={start_str}&to={end_str}&apikey={api_key}"
-        
-        response = requests.get(url, timeout=15)
-        response.raise_for_status()
-        events_data = response.json()
-        
-        if not events_data:
-            return None
-        
-        # Filter events based on selected countries and impact levels
-        filtered_events = []
-        for event in events_data:
-            # Check country filter
-            if countries and event.get('country') not in countries:
-                continue
-                
-            # Check impact level filter
-            event_impact = event.get('impact', '').capitalize()
-            if impact_levels and event_impact not in impact_levels:
-                continue
-                
-            filtered_events.append(event)
-        
-        return filtered_events
-        
-    except requests.exceptions.RequestException as e:
-        st.error(f"Network error fetching economic calendar: {e}")
-        return None
-    except Exception as e:
-        st.error(f"Error processing economic calendar data: {e}")
-        return None
-
-def display_fmp_economic_calendar(events):
-    """Display FMP economic calendar in a professional format."""
-    if not events:
-        st.info("No economic events to display.")
-        return
-    
-    # Sort events by date and time
-    events_sorted = sorted(events, key=lambda x: (
-        x.get('date', ''),
-        x.get('time', '')
-    ))
-    
-    # Group events by date
-    events_by_date = {}
-    for event in events_sorted:
-        event_date = event.get('date', '')
-        if event_date not in events_by_date:
-            events_by_date[event_date] = []
-        events_by_date[event_date].append(event)
-    
-    # Display events grouped by date
-    for date, date_events in events_by_date.items():
-        # Format date for display
+        st.error(f"❌ Error loading news feed: {str(e)}")
+        st.info("📋 Showing recent market updates...")
+        # Show fallback news even if there's an error
         try:
-            display_date = datetime.strptime(date, "%Y-%m-%d").strftime("%A, %b %d, %Y")
-        except:
-            display_date = date
-        
-        st.subheader(f"📅 {display_date}")
-        
-        for event in date_events:
-            with st.container():
-                col1, col2, col3, col4 = st.columns([1, 3, 1, 1])
-                
-                with col1:
-                    # Event time
-                    event_time = event.get('time', 'TBD')
-                    if event_time and event_time != 'TBD':
-                        try:
-                            # Convert to IST if possible
-                            if ':' in event_time:
-                                time_obj = datetime.strptime(event_time, '%H:%M:%S')
-                                ist_time = time_obj.strftime('%I:%M %p')
-                                st.write(f"**{ist_time}**")
-                            else:
-                                st.write(f"**{event_time}**")
-                        except:
-                            st.write(f"**{event_time}**")
-                    else:
-                        st.write("**TBD**")
-                
-                with col2:
-                    # Event details
-                    event_name = event.get('event', 'Unknown Event')
-                    country = event.get('country', '')
-                    country_name = get_country_name(country)
-                    
-                    st.write(f"**{event_name}**")
-                    if country_name:
-                        st.caption(f"🇺🇳 {country_name}")
-                    
-                    # Event description if available
-                    if event.get('description'):
-                        with st.expander("Details"):
-                            st.write(event['description'])
-                
-                with col3:
-                    # Impact level with color coding
-                    impact = event.get('impact', '').capitalize()
-                    impact_color = {
-                        'High': '#dc3545',
-                        'Medium': '#ffc107', 
-                        'Low': '#28a745',
-                        'Non-economic': '#6c757d'
-                    }.get(impact, '#6c757d')
-                    
-                    st.markdown(f"<div style='text-align: center; padding: 5px; background-color: {impact_color}; color: white; border-radius: 5px; font-weight: bold;'>{impact}</div>", unsafe_allow_html=True)
-                
-                with col4:
-                    # Previous and forecast values
-                    previous = event.get('previous')
-                    estimate = event.get('estimate')
-                    
-                    if previous is not None or estimate is not None:
-                        with st.expander("Values"):
-                            if previous is not None:
-                                st.write(f"Prev: {previous}")
-                            if estimate is not None:
-                                st.write(f"Est: {estimate}")
-                    
-                    # Actual value if available (for past events)
-                    actual = event.get('actual')
-                    if actual is not None:
-                        st.success(f"Actual: {actual}")
-                
+            fallback_result = get_fallback_news_enhanced()
+            if isinstance(fallback_result, dict) and 'news_items' in fallback_result:
+                fallback_df = fallback_result['news_items']
+            else:
+                fallback_df = fallback_result
+            
+            for _, news in fallback_df.head(news_limit).iterrows():
+                st.write(f"**{news.get('title', 'No title')}**")
+                st.caption(f"Source: {news.get('source', 'Unknown')} • {news.get('date', 'Unknown date')}")
                 st.markdown("---")
+        except Exception as fallback_error:
+            st.error(f"Even fallback news failed: {fallback_error}")
 
-def get_country_name(country_code):
-    """Convert country code to full country name."""
-    country_map = {
-        'US': 'United States',
-        'IN': 'India',
-        'CN': 'China',
-        'JP': 'Japan',
-        'GB': 'United Kingdom',
-        'DE': 'Germany',
-        'FR': 'France',
-        'CA': 'Canada',
-        'AU': 'Australia',
-        'BR': 'Brazil',
-        'RU': 'Russia',
-        'ZA': 'South Africa',
-        'MX': 'Mexico',
-        'KR': 'South Korea',
-        'IT': 'Italy',
-        'ES': 'Spain'
-    }
-    return country_map.get(country_code, country_code)
-
-# ================ EXISTING PROFESSIONAL DATA FUNCTIONS ================
-
-@st.cache_data(ttl=300)
-def get_alpha_vantage_global_indices():
-    """Get global indices data from Alpha Vantage."""
-    api_key = st.secrets.get("ALPHA_VANTAGE_API_KEY")
-    if not api_key:
-        return pd.DataFrame()
+    # Market Calendar Section
+    st.markdown("---")
+    st.subheader("📅 Today's Key Economic Events")
     
-    indices = {
-        "SPX": "SPX",    # S&P 500
-        "DJI": "DJI",    # Dow Jones
-        "IXIC": "IXIC",  # NASDAQ
-        "FTSE": "FTSE",  # FTSE 100
-        "GDAXI": "GDAXI", # DAX
-        "N225": "N225",  # Nikkei 225
-        "HSI": "HSI",    # Hang Seng
-    }
+    # Get today's date
+    today = datetime.now().date()
     
-    data = []
-    
-    for symbol, av_code in indices.items():
-        try:
-            url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={av_code}&apikey={api_key}"
-            response = requests.get(url, timeout=10)
-            result = response.json()
-            
-            if 'Global Quote' in result:
-                quote = result['Global Quote']
-                price = float(quote['05. price'])
-                prev_close = float(quote['08. previous close'])
-                change = price - prev_close
-                pct_change = (change / prev_close) * 100
-                
-                data.append({
-                    'Ticker': symbol,
-                    'Price': price,
-                    'Change': change,
-                    '% Change': pct_change,
-                    'Previous Close': prev_close
-                })
-                
-        except Exception as e:
-            print(f"Alpha Vantage error for {symbol}: {e}")
-            continue
-    
-    return pd.DataFrame(data)
-
-@st.cache_data(ttl=300)
-def get_fmp_global_indices():
-    """Get global indices data from Financial Modeling Prep."""
-    api_key = st.secrets.get("FMP_API_KEY")
-    if not api_key:
-        return pd.DataFrame()
-    
-    try:
-        # FMP major indices endpoint
-        url = f"https://financialmodelingprep.com/api/v3/quotes/index?apikey={api_key}"
-        response = requests.get(url, timeout=10)
-        indices_data = response.json()
-        
-        data = []
-        major_indices = ['^GSPC', '^DJI', '^IXIC', '^FTSE', '^GDAXI', '^N225', '^HSI']
-        
-        for index in indices_data:
-            if index['symbol'] in major_indices:
-                data.append({
-                    'Ticker': index['symbol'].replace('^', ''),
-                    'Price': index['price'],
-                    'Change': index['change'],
-                    '% Change': index['changesPercentage'],
-                    'Previous Close': index['price'] - index['change']
-                })
-        
-        return pd.DataFrame(data)
-        
-    except Exception as e:
-        print(f"FMP global indices error: {e}")
-        return pd.DataFrame()
-
-@st.cache_data(ttl=60)
-def get_professional_sgx_data():
-    """Get SGX Nifty data from professional sources."""
-    # Try Alpha Vantage first
-    alpha_data = get_alpha_vantage_futures()
-    if not alpha_data.empty:
-        return alpha_data
-    
-    # Try FMP as fallback
-    fmp_data = get_fmp_futures()
-    if not fmp_data.empty:
-        return fmp_data
-    
-    # Final fallback to free data
-    return get_gift_nifty_data_enhanced()
-
-def get_alpha_vantage_futures():
-    """Get futures data from Alpha Vantage."""
-    api_key = st.secrets.get("ALPHA_VANTAGE_API_KEY")
-    if not api_key:
-        return pd.DataFrame()
-    
-    try:
-        # Alpha Vantage doesn't have direct SGX Nifty, so we'll use NIFTY 50
-        url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=SNFX&apikey={api_key}"
-        response = requests.get(url, timeout=10)
-        result = response.json()
-        
-        if 'Global Quote' in result:
-            quote = result['Global Quote']
-            # Create synthetic intraday data based on the quote
-            dates = pd.date_range(start=datetime.now() - timedelta(hours=6), end=datetime.now(), freq='5min')
-            base_price = float(quote['05. price'])
-            
-            synthetic_data = []
-            for date in dates:
-                variation = random.uniform(-0.001, 0.001)  # Small variation
-                price = base_price * (1 + variation)
-                synthetic_data.append({
-                    'Open': price * 0.999,
-                    'High': price * 1.001,
-                    'Low': price * 0.998,
-                    'Close': price,
-                    'Volume': random.randint(1000, 5000)
-                })
-            
-            return pd.DataFrame(synthetic_data, index=dates)
-            
-    except Exception as e:
-        print(f"Alpha Vantage futures error: {e}")
-    
-    return pd.DataFrame()
-
-@st.cache_data(ttl=300)
-def get_professional_asian_markets():
-    """Get Asian markets data from professional sources."""
-    # Combine Alpha Vantage and FMP data
-    alpha_data = get_alpha_vantage_global_indices()
-    fmp_data = get_fmp_global_indices()
-    
-    # Filter for Asian markets
-    asian_symbols = ['N225', 'HSI', '000001.SS']
-    
-    asian_data = []
-    
-    # Add from Alpha Vantage
-    if not alpha_data.empty:
-        asian_alpha = alpha_data[alpha_data['Ticker'].isin(['N225', 'HSI'])]
-        asian_data.extend(asian_alpha.to_dict('records'))
-    
-    # Add from FMP
-    if not fmp_data.empty:
-        asian_fmp = fmp_data[fmp_data['Ticker'].isin(['N225', 'HSI'])]
-        asian_data.extend(asian_fmp.to_dict('records'))
-    
-    return pd.DataFrame(asian_data)
-
-def show_professional_indian_indicators():
-    """Show Indian market indicators using professional data."""
-    try:
-        # Get NIFTY 50 and BANK NIFTY from professional sources
-        nifty_data = get_professional_index_data('NIFTY 50')
-        bank_nifty_data = get_professional_index_data('BANKNIFTY')
-        vix_data = get_professional_index_data('INDIAVIX')
-        
-        if nifty_data:
-            st.metric("NIFTY 50", f"{nifty_data['price']:.2f}", 
-                     f"{nifty_data['change']:+.2f} ({nifty_data['pct_change']:+.2f}%)")
-        
-        if bank_nifty_data:
-            st.metric("BANK NIFTY", f"{bank_nifty_data['price']:.2f}",
-                     f"{bank_nifty_data['change']:+.2f} ({bank_nifty_data['pct_change']:+.2f}%)")
-        
-        if vix_data:
-            vix_color = "inverse" if vix_data['change'] > 0 else "normal"
-            st.metric("India VIX", f"{vix_data['price']:.2f}",
-                     f"{vix_data['change']:+.2f} ({vix_data['pct_change']:+.2f}%)",
-                     delta_color=vix_color)
-                    
-    except Exception as e:
-        st.error(f"Error loading professional Indian data: {e}")
-
-@st.cache_data(ttl=300)
-def get_professional_news(query=None, source="All Sources"):
-    """Get professional news from Alpha Vantage or FMP."""
-    news_data = {'news_items': pd.DataFrame()}
-    
-    try:
-        if source in ["Alpha Vantage", "All Sources"]:
-            alpha_news = get_alpha_vantage_news(query)
-            if not alpha_news['news_items'].empty:
-                news_data = alpha_news
-                
-        if (source in ["FMP", "All Sources"]) and news_data['news_items'].empty:
-            fmp_news = get_fmp_news(query)
-            if not fmp_news['news_items'].empty:
-                news_data = fmp_news
-                
-    except Exception as e:
-        print(f"Professional news error: {e}")
-    
-    return news_data
-
-@st.cache_data(ttl=600)
-def get_alpha_vantage_news(query=None):
-    """Get news from Alpha Vantage."""
-    api_key = st.secrets.get("ALPHA_VANTAGE_API_KEY")
-    if not api_key:
-        return {'news_items': pd.DataFrame()}
-    
-    try:
-        url = f"https://www.alphavantage.co/query?function=NEWS_SENTIMENT&apikey={api_key}"
-        if query:
-            url += f"&tickers={query}"
-        
-        response = requests.get(url, timeout=10)
-        result = response.json()
-        
-        news_items = []
-        if 'feed' in result:
-            for item in result['feed'][:10]:  # Limit to 10 items
-                news_items.append({
-                    'title': item.get('title', ''),
-                    'summary': item.get('summary', ''),
-                    'source': item.get('source', 'Alpha Vantage'),
-                    'link': item.get('url', '#'),
-                    'date': datetime.strptime(item['time_published'], '%Y%m%dT%H%M%S').date(),
-                    'sentiment_score': float(item.get('overall_sentiment_score', 0)),
-                    'sentiment_label': 'BULLISH' if item.get('overall_sentiment_label') == 'Bullish' else 'BEARISH' if item.get('overall_sentiment_label') == 'Bearish' else 'NEUTRAL',
-                    'sentiment_emoji': '📈' if item.get('overall_sentiment_label') == 'Bullish' else '📉' if item.get('overall_sentiment_label') == 'Bearish' else '➡️'
-                })
-        
-        return {
-            'news_items': pd.DataFrame(news_items),
-            'overall_sentiment': np.mean([item['sentiment_score'] for item in news_items]) if news_items else 0,
-            'total_articles': len(news_items)
-        }
-        
-    except Exception as e:
-        print(f"Alpha Vantage news error: {e}")
-        return {'news_items': pd.DataFrame()}
-
-@st.cache_data(ttl=600)
-def get_fmp_news(query=None):
-    """Get news from Financial Modeling Prep."""
-    api_key = st.secrets.get("FMP_API_KEY")
-    if not api_key:
-        return {'news_items': pd.DataFrame()}
-    
-    try:
-        url = f"https://financialmodelingprep.com/api/v3/stock_news?limit=10&apikey={api_key}"
-        if query:
-            url += f"&tickers={query}"
-        
-        response = requests.get(url, timeout=10)
-        news_items_data = response.json()
-        
-        news_items = []
-        for item in news_items_data:
-            news_items.append({
-                'title': item.get('title', ''),
-                'summary': item.get('text', ''),
-                'source': 'FMP',
-                'link': item.get('url', '#'),
-                'date': datetime.strptime(item['publishedDate'], '%Y-%m-%d %H:%M:%S').date(),
-                'sentiment_score': 0.1,  # FMP doesn't provide sentiment, use neutral
-                'sentiment_label': 'NEUTRAL',
-                'sentiment_emoji': '➡️'
-            })
-        
-        return {
-            'news_items': pd.DataFrame(news_items),
-            'overall_sentiment': 0.1,
-            'total_articles': len(news_items)
-        }
-        
-    except Exception as e:
-        print(f"FMP news error: {e}")
-        return {'news_items': pd.DataFrame()}
-
-def display_professional_news(news_data, news_limit=5):
-    """Display professional news with enhanced formatting."""
-    news_df = news_data['news_items']
-    
-    if news_df.empty:
-        return
-    
-    news_count = 0
-    for _, news in news_df.iterrows():
-        if news_count >= news_limit:
-            break
-            
-        sentiment_score = news['sentiment_score']
-        
-        # Sentiment indicators
-        if sentiment_score > 0.1:
-            sentiment_icon = "🟢"
-            sentiment_text = "Positive"
-            border_color = "#28a745"
-        elif sentiment_score < -0.1:
-            sentiment_icon = "🔴" 
-            sentiment_text = "Negative"
-            border_color = "#dc3545"
-        else:
-            sentiment_icon = "🟡"
-            sentiment_text = "Neutral"
-            border_color = "#ffc107"
-        
-        # Professional news card
-        st.markdown(f"""
-        <div style="border-left: 4px solid {border_color}; padding-left: 10px; margin: 10px 0;">
-            <div style="display: flex; justify-content: between; align-items: start;">
-                <div style="flex: 1;">
-                    <strong>{news['title']}</strong>
-                    <br>
-                    <small style="color: #666;">{news['source']} • {news['date']}</small>
-                </div>
-                <div style="margin-left: 10px;">
-                    {sentiment_icon} {sentiment_text}
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Expandable details
-        with st.expander("Read summary"):
-            if news.get('summary'):
-                st.write(news['summary'])
-            st.write(f"**Sentiment Score:** {sentiment_score:.2f}")
-            if news['link'] != "#":
-                st.markdown(f"[Read full article →]({news['link']})")
-        
-        news_count += 1
-
-# Add the missing helper functions
-def get_professional_index_data(symbol):
-    """Get professional index data (placeholder implementation)."""
-    # This would be implemented with actual API calls
-    return None
-
-def create_professional_futures_chart(data):
-    """Create professional futures chart."""
-    fig = go.Figure()
-    
-    if all(col in data.columns for col in ['Open', 'High', 'Low', 'Close']):
-        fig.add_trace(go.Candlestick(
-            x=data.index,
-            open=data['Open'],
-            high=data['High'],
-            low=data['Low'],
-            close=data['Close'],
-            name='Futures'
-        ))
-    else:
-        fig.add_trace(go.Scatter(
-            x=data.index,
-            y=data['Close' if 'Close' in data.columns else data.iloc[:, 0]],
-            mode='lines',
-            name='Futures',
-            line=dict(color='cyan')
-        ))
-    
-    fig.update_layout(
-        title="Futures Price",
-        xaxis_title="Time",
-        yaxis_title="Price",
-        template='plotly_dark',
-        height=400,
-        showlegend=False,
-        xaxis_rangeslider_visible=False
-    )
-    
-    return fig
-
-def show_nifty_fallback():
-    """Show NIFTY fallback data."""
-    instrument_df = get_instrument_df()
-    if not instrument_df.empty:
-        nifty_token = get_instrument_token('NIFTY 50', instrument_df, 'NSE')
-        if nifty_token:
-            nifty_data = get_historical_data(nifty_token, "5minute", period="1d")
-            if not nifty_data.empty:
-                st.plotly_chart(create_chart(nifty_data.tail(100), "NIFTY 50"), use_container_width=True)
-            else:
-                st.error("Unable to load NIFTY 50 data")
-        else:
-            st.error("NIFTY 50 token not found")
-    else:
-        st.error("Instrument data not available")
-
-def display_enhanced_news(news_data, news_limit=5):
-    """Display enhanced news fallback."""
-    news_df = news_data['news_items']
-    
-    if news_df.empty:
-        st.info("No news available")
-        return
-    
-    for _, news in news_df.head(news_limit).iterrows():
-        st.write(f"**{news['title']}**")
-        st.caption(f"Source: {news['source']} • {news['date']}")
-        st.markdown("---")
-
-def show_sample_economic_events():
-    """Show sample economic events."""
-    st.info("No economic events data available. Showing sample events.")
+    # Sample economic events (in a real app, this would come from an API)
     today_events = [
         {"time": "09:00 AM", "event": "GDP Growth Rate Q2", "country": "IND", "impact": "High"},
         {"time": "10:30 AM", "event": "Inflation Rate YoY", "country": "IND", "impact": "High"},
         {"time": "02:00 PM", "event": "FOMC Meeting Minutes", "country": "USA", "impact": "Medium"},
+        {"time": "06:00 PM", "event": "Crude Oil Inventories", "country": "USA", "impact": "Medium"},
     ]
     
-    for event in today_events:
-        col1, col2, col3 = st.columns([2, 3, 1])
-        with col1:
-            st.write(f"**{event['time']}**")
-        with col2:
-            st.write(f"{event['event']} ({event['country']})")
-        with col3:
-            impact_color = {"High": "#dc3545", "Medium": "#ffc107", "Low": "#28a745"}
-            st.markdown(f"<span style='color:{impact_color[event['impact']]}; font-weight:bold;'>{event['impact']}</span>", unsafe_allow_html=True)
+    if today_events:
+        for event in today_events:
+            col_event1, col_event2, col_event3 = st.columns([2, 3, 1])
+            with col_event1:
+                st.write(f"**{event['time']}**")
+            with col_event2:
+                st.write(f"{event['event']} ({event['country']})")
+            with col_event3:
+                impact_color = {"High": "#dc3545", "Medium": "#ffc107", "Low": "#28a745"}
+                st.markdown(f"<span style='color:{impact_color[event['impact']]}; font-weight:bold;'>{event['impact']}</span>", unsafe_allow_html=True)
+    else:
+        st.info("No major economic events scheduled for today.")
 
-# Add the missing get_fallback_news function for compatibility
+    # Refresh button
+    if st.button("🔄 Refresh All Data", use_container_width=True, type="primary"):
+        # Clear cache for fresh data
+        st.cache_data.clear()
+        st.rerun()
+
+    # Last updated timestamp
+    st.caption(f"🕒 Last updated: {get_ist_time().strftime('%Y-%m-%d %H:%M:%S IST')}")
+
+# FIXED: Add the missing get_fallback_news function
 def get_fallback_news():
-    """Fallback news function for compatibility."""
+    """Fallback news function that returns the same structure as get_fallback_news_enhanced"""
     return get_fallback_news_enhanced()
+
+# Enhanced helper function for global data
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def get_global_indices_data_enhanced(tickers):
+    """Enhanced version to fetch global indices data with better error handling."""
+    if not tickers:
+        return pd.DataFrame()
+    
+    data = []
+    
+    for ticker_name, yf_ticker in tickers.items():
+        try:
+            # Download data with error handling
+            stock_data = yf.download(yf_ticker, period="2d", progress=False)
+            
+            if stock_data.empty or len(stock_data) < 2:
+                continue
+                
+            # Calculate changes
+            current_close = stock_data['Close'].iloc[-1]
+            prev_close = stock_data['Close'].iloc[-2]
+            
+            change = current_close - prev_close
+            pct_change = (change / prev_close) * 100
+            
+            data.append({
+                'Ticker': ticker_name,
+                'Price': current_close,
+                'Change': change,
+                '% Change': pct_change,
+                'Previous Close': prev_close
+            })
+            
+        except Exception as e:
+            print(f"Error fetching {ticker_name}: {e}")
+            continue
+    
+    return pd.DataFrame(data)
+
+@st.cache_data(ttl=60)
+def get_gift_nifty_data_enhanced():
+    """Enhanced GIFT NIFTY data fetcher with multiple fallback sources."""
+    tickers_to_try = [
+        "NIFTY_F1",  # Primary ticker
+        "^NSEI",     # NIFTY 50 index as fallback
+        "NQ=F",      # NASDAQ futures as reference
+    ]
+    
+    for ticker in tickers_to_try:
+        try:
+            data = yf.download(ticker, period="1d", interval="5m", progress=False)
+            if not data.empty and len(data) > 1:
+                st.success(f"✓ GIFT NIFTY data loaded from {ticker}")
+                return data
+        except Exception as e:
+            continue
+    
+    # Fallback: create synthetic data if all sources fail
+    st.warning("⚠️ Using synthetic GIFT NIFTY data (live data unavailable)")
+    dates = pd.date_range(start=datetime.now() - timedelta(hours=6), end=datetime.now(), freq='5min')
+    base_price = 19500  # Approximate NIFTY level
+    synthetic_data = []
+    
+    for date in dates:
+        # Simulate price movement
+        variation = random.uniform(-0.002, 0.002)  # -0.2% to +0.2%
+        price = base_price * (1 + variation)
+        synthetic_data.append({
+            'Open': price * 0.999,
+            'High': price * 1.001,
+            'Low': price * 0.998,
+            'Close': price,
+            'Volume': random.randint(1000, 5000)
+        })
+    
+    return pd.DataFrame(synthetic_data, index=dates)
+
+def get_fallback_global_data(tickers):
+    """Provide fallback global data when live data is unavailable."""
+    fallback_data = []
+    
+    # Mock data based on typical values
+    mock_data = {
+        "S&P 500": 4500.0,
+        "Dow Jones": 34500.0, 
+        "NASDAQ": 14000.0,
+        "FTSE 100": 7500.0,
+        "Nikkei 225": 32500.0,
+        "Hang Seng": 18000.0,
+        "SGX Nifty": 19500.0
+    }
+    
+    for ticker_name in tickers.keys():
+        base_price = mock_data.get(ticker_name, 1000.0)
+        # Add some random variation
+        variation = random.uniform(-0.02, 0.02)  # -2% to +2%
+        current_price = base_price * (1 + variation)
+        change = current_price - base_price
+        pct_change = (change / base_price) * 100
+        
+        fallback_data.append({
+            'Ticker': ticker_name,
+            'Price': current_price,
+            'Change': change,
+            '% Change': pct_change
+        })
+    
+    return pd.DataFrame(fallback_data)
 
 def page_fo_analytics():
     """F&O Analytics page with comprehensive options analysis."""
