@@ -7706,11 +7706,10 @@ def page_iceberg_detector():
     *More responsive to recent market conditions*
     """)
     
-    # Market Status Display - FIRST
+    # Market Status Display
     display_market_status()
     
-    # Bot Configuration - SECOND (this should now be visible)
-    st.markdown("---")
+    # Bot Configuration
     bot_configurator = TradingBotConfigurator()
     bot_mode = bot_configurator.render_bot_configuration()
     
@@ -7822,8 +7821,7 @@ def page_iceberg_detector():
             max_value=200,
             value=120,
             step=5,
-            help="Alert when volume exceeds 5-day session average",
-            key="volume_alert_threshold_slider"
+            help="Alert when volume exceeds 5-day session average"
         )
     
     with col_vol2:
@@ -7833,8 +7831,7 @@ def page_iceberg_detector():
             max_value=50,
             value=30,  # Increased default for volume focus
             step=5,
-            help="Weight of volume patterns in detection",
-            key="volume_impact_weight_slider"
+            help="Weight of volume patterns in detection"
         )
     
     with col_vol3:
@@ -7848,7 +7845,7 @@ def page_iceberg_detector():
     col_controls1, col_controls2, col_controls3 = st.columns([1, 1, 1])
     
     with col_controls1:
-        analyze_clicked = st.button("🔍 Analyze 5-Day Patterns", type="primary", use_container_width=True, key="analyze_button")
+        analyze_clicked = st.button("🔍 Analyze 5-Day Patterns", type="primary", use_container_width=True)
     
     with col_controls2:
         auto_refresh = st.checkbox("🔄 Auto-refresh", value=False, key="iceberg_refresh")
@@ -7941,8 +7938,6 @@ def display_market_status():
             weekday = now.weekday()
             if weekday >= 5:  # Weekend
                 days_until_monday = (7 - weekday) % 7
-                if days_until_monday == 0:  # Sunday
-                    days_until_monday = 1
                 next_market_day = now + timedelta(days=days_until_monday)
                 st.write(f"**Opens:** {next_market_day.strftime('%A')} 9:15 AM")
             else:
@@ -7951,7 +7946,6 @@ def display_market_status():
                     st.write("**Opens:** Today 9:15 AM")
                 else:
                     st.write("**Opens:** Tomorrow 9:15 AM")
-
 
 def prepare_live_market_data_5day(symbol, actual_symbol, instrument_token, instrument_df, historical_data):
     """Prepare market data with 5-day volume focus"""
@@ -14464,8 +14458,7 @@ class TradingBotConfigurator:
                 "Bot Mode",
                 options=list(self.bot_modes.keys()),
                 format_func=lambda x: self.bot_modes[x]['name'],
-                help="Select trading automation level",
-                key="bot_mode_select"
+                help="Select trading automation level"
             )
         
         with col2:
@@ -14474,8 +14467,7 @@ class TradingBotConfigurator:
                 min_value=1,
                 max_value=10,
                 value=3,
-                help="Maximum simultaneous positions",
-                key="max_positions_slider"
+                help="Maximum simultaneous positions"
             )
         
         with col3:
@@ -14485,8 +14477,7 @@ class TradingBotConfigurator:
                 max_value=5.0,
                 value=1.0,
                 step=0.1,
-                help="Maximum risk per trade as % of capital",
-                key="risk_per_trade_slider"
+                help="Maximum risk per trade as % of capital"
             )
         
         # Bot Parameters based on mode
@@ -14506,16 +14497,14 @@ class TradingBotConfigurator:
                 "Preferred Session",
                 ['FIRST_HOUR', 'MORNING', 'AFTERNOON', 'CLOSING', 'ALL_DAY'],
                 format_func=lambda x: x.replace('_', ' ').title(),
-                help="Preferred trading session",
-                key="session_preference_select"
+                help="Preferred trading session"
             )
         
         with col_t2:
             avoid_volatility = st.checkbox(
                 "Avoid High Volatility",
                 value=True,
-                help="Avoid trading during high volatility periods",
-                key="avoid_volatility_check"
+                help="Avoid trading during high volatility periods"
             )
         
         with col_t3:
@@ -14523,12 +14512,11 @@ class TradingBotConfigurator:
                 "Weekend Mode",
                 ['USE_LAST_DATA', 'PAUSE_TRADING', 'ANALYSIS_ONLY'],
                 format_func=lambda x: x.replace('_', ' ').title(),
-                help="Behavior during weekends/non-market days",
-                key="weekend_mode_select"
+                help="Behavior during weekends/non-market days"
             )
         
         # Advanced Parameters
-        with st.expander("⚙️ Advanced Parameters", expanded=False):
+        with st.expander("⚙️ Advanced Parameters"):
             col_a1, col_a2 = st.columns(2)
             
             with col_a1:
@@ -14537,8 +14525,7 @@ class TradingBotConfigurator:
                     min_value=50,
                     max_value=95,
                     value=70,
-                    help="Minimum confidence level for trades",
-                    key="min_confidence_slider"
+                    help="Minimum confidence level for trades"
                 )
                 
                 volume_threshold = st.slider(
@@ -14547,8 +14534,7 @@ class TradingBotConfigurator:
                     max_value=3.0,
                     value=1.5,
                     step=0.1,
-                    help="Volume spike threshold for entry",
-                    key="volume_threshold_slider"
+                    help="Volume spike threshold for entry"
                 )
             
             with col_a2:
@@ -14558,8 +14544,7 @@ class TradingBotConfigurator:
                     max_value=5.0,
                     value=2.0,
                     step=0.1,
-                    help="Auto stop loss percentage",
-                    key="stop_loss_slider"
+                    help="Auto stop loss percentage"
                 )
                 
                 take_profit_pct = st.slider(
@@ -14568,12 +14553,11 @@ class TradingBotConfigurator:
                     max_value=10.0,
                     value=4.0,
                     step=0.5,
-                    help="Auto take profit percentage",
-                    key="take_profit_slider"
+                    help="Auto take profit percentage"
                 )
         
         # Save Configuration
-        if st.button("💾 Save Bot Configuration", type="primary", key="save_bot_config"):
+        if st.button("💾 Save Bot Configuration", type="primary"):
             bot_config = {
                 'mode': bot_mode,
                 'max_positions': max_positions,
@@ -14601,30 +14585,26 @@ class TradingBotConfigurator:
             manual_entry = st.checkbox(
                 "Manual Entry Confirmation",
                 value=True,
-                help="Require manual confirmation for trade entry",
-                key="manual_entry_check"
+                help="Require manual confirmation for trade entry"
             )
             
             auto_exit = st.checkbox(
                 "Automated Exit",
                 value=True,
-                help="Automated stop loss and take profit",
-                key="auto_exit_check"
+                help="Automated stop loss and take profit"
             )
         
         with col2:
             trailing_stop = st.checkbox(
                 "Trailing Stop Loss",
                 value=True,
-                help="Use trailing stop loss for profits",
-                key="trailing_stop_check"
+                help="Use trailing stop loss for profits"
             )
             
             partial_exits = st.checkbox(
                 "Partial Profit Booking",
                 value=True,
-                help="Book partial profits at target levels",
-                key="partial_exits_check"
+                help="Book partial profits at target levels"
             )
     
     def render_full_auto_config(self):
@@ -14638,8 +14618,7 @@ class TradingBotConfigurator:
                 "Entry Signals",
                 ['ICEBERG_BUY', 'VOLUME_SPIKE', 'MOMENTUM_BREAKOUT', 'SUPPORT_BOUNCE'],
                 default=['ICEBERG_BUY', 'VOLUME_SPIKE'],
-                help="Signals that trigger automated entry",
-                key="entry_signals_multiselect"
+                help="Signals that trigger automated entry"
             )
             
             max_daily_trades = st.slider(
@@ -14647,8 +14626,7 @@ class TradingBotConfigurator:
                 min_value=1,
                 max_value=20,
                 value=5,
-                help="Maximum trades per day",
-                key="max_daily_trades_slider"
+                help="Maximum trades per day"
             )
         
         with col2:
@@ -14657,15 +14635,13 @@ class TradingBotConfigurator:
                 min_value=5,
                 max_value=60,
                 value=15,
-                help="Wait time between consecutive trades",
-                key="cooldown_period_slider"
+                help="Wait time between consecutive trades"
             )
             
             auto_position_sizing = st.checkbox(
                 "Auto Position Sizing",
                 value=True,
-                help="Automatically calculate position size based on volatility",
-                key="auto_position_sizing_check"
+                help="Automatically calculate position size based on volatility"
             )
     
     def render_monitor_config(self):
@@ -14678,30 +14654,26 @@ class TradingBotConfigurator:
             alert_level = st.selectbox(
                 "Alert Level",
                 ['ALL', 'HIGH_CONFIDENCE', 'EXTREME_ONLY'],
-                help="When to send alerts",
-                key="alert_level_select"
+                help="When to send alerts"
             )
             
             sound_alerts = st.checkbox(
                 "Sound Alerts",
                 value=True,
-                help="Enable sound notifications",
-                key="sound_alerts_check"
+                help="Enable sound notifications"
             )
         
         with col2:
             email_alerts = st.checkbox(
                 "Email Alerts",
                 value=False,
-                help="Send email notifications for alerts",
-                key="email_alerts_check"
+                help="Send email notifications for alerts"
             )
             
             auto_screenshot = st.checkbox(
                 "Auto Screenshot",
                 value=True,
-                help="Automatically save charts for alerts",
-                key="auto_screenshot_check"
+                help="Automatically save charts for alerts"
             )
 
 # ==================== VOLUME ANALYSIS FUNCTIONS ====================
@@ -14957,14 +14929,21 @@ def is_market_hours():
     except:
         return False
 
-def get_market_holidays(year):
-    """NSE holidays (update yearly)."""
-    holidays_by_year = {
-        2024: ['2024-01-22', '2024-01-26', '2024-03-08', '2024-03-25', '2024-03-29', '2024-04-11', '2024-04-17', '2024-05-01', '2024-05-20', '2024-06-17', '2024-07-17', '2024-08-15', '2024-10-02', '2024-11-01', '2024-11-15', '2024-12-25'],
-        2025: ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18', '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05', '2025-12-25'],
-        2026: ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01', '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25']
-    }
-    return holidays_by_year.get(year, [])
+def get_market_holidays():
+    """Get list of market holidays - can be expanded"""
+    holidays = []
+    current_year = datetime.now().year
+    
+    # Add major Indian market holidays (example)
+    # You can expand this list with actual holidays
+    holidays.extend([
+        # Add actual holidays here
+        # datetime(current_year, 1, 26).date(),  # Republic Day
+        # datetime(current_year, 3, 25).date(),  # Holi
+        # etc.
+    ])
+    
+    return holidays
 
 def get_market_closed_message():
     """Get appropriate market closed message"""
