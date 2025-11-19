@@ -880,41 +880,12 @@ def get_instrument_df():
         except Exception as e:
             st.error(f"Error loading Zerodha instruments: {e}")
             return pd.DataFrame()
-    
-    elif broker == "Upstox":
-        access_token = st.session_state.get('upstox_access_token')
-        if not access_token:
-            st.error("Upstox access token not found. Please login again.")
-            return pd.DataFrame()
         
         # Try the most common exchanges first
         exchanges_to_try = ['NSE', 'BSE', 'NFO', 'MCX', 'CDS']
         all_instruments = []
         
-        for exchange in exchanges_to_try:
-            try:
-                exchange_instruments = get_upstox_instruments(access_token, exchange)
-                if not exchange_instruments.empty:
-                    all_instruments.append(exchange_instruments)
-            except Exception as e:
-                st.error(f"Failed to load instruments from {exchange}: {e}")
-                continue
-        
-        if all_instruments:
-            combined_df = pd.concat(all_instruments, ignore_index=True)
-            st.success(f"Successfully loaded {len(combined_df)} instruments from Upstox")
-            return combined_df
-        else:
-            st.error("""
-            Could not load any instruments from Upstox. Possible reasons:
-            1. Your Upstox account may not have access to these market segments
-            2. There might be temporary API issues
-            3. Your API key might not have the required permissions
             
-            Please use the debug button to check available exchanges.
-            """)
-            return pd.DataFrame()
-    
     else:
         st.warning(f"Instrument list for {broker} not implemented.")
         return pd.DataFrame()
@@ -956,11 +927,7 @@ def get_historical_data(instrument_token, interval, period=None, from_date=None,
         except Exception as e:
             st.error(f"Kite API Error (Historical): {e}")
             return pd.DataFrame()
-    
-    elif broker == "Upstox":
-        # Use Upstox REST API
-        access_token = st.session_state.get('upstox_access_token')
-        return get_upstox_historical_data(access_token, instrument_token, interval, period)
+ 
     
     else:
         st.warning(f"Historical data for {broker} not implemented.")
