@@ -336,7 +336,7 @@ def initialize_session_state():
     if 'run_iceberg_analysis' not in st.session_state:
         st.session_state.run_iceberg_analysis = False
     if 'login_animation_complete' not in st.session_state: st.session_state.login_animation_complete = False
-    if 'authenticated' not in st.session_state: st.session_state.authenticated = False
+    if 'authenticated' not in st.session_state: st.session_state.authenticated = True
     if 'two_factor_setup_complete' not in st.session_state: st.session_state.two_factor_setup_complete = False
     if 'pyotp_secret' not in st.session_state: st.session_state.pyotp_secret = None
     if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
