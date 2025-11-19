@@ -210,37 +210,37 @@ def apply_custom_styling():
 # Centralized data source configuration
 ML_DATA_SOURCES = {
     "NIFTY 50": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/NIFTY50.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/Block_Vista-Terminal/main/NIFTY50.csv",
         "tradingsymbol": "NIFTY 50",
         "exchange": "NSE"
     },
     "BANK NIFTY": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/BANKNIFTY.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/Block_Vista-Terminal/main/BANKNIFTY.csv",
         "tradingsymbol": "BANKNIFTY",
         "exchange": "NFO"
     },
     "NIFTY Financial Services": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/FINNIFTY.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/Block_Vista-Terminal/main/FINNIFTY.csv",
         "tradingsymbol": "FINNIFTY",
         "exchange": "NFO"
     },
     "GOLD": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/GOLD.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/Block_Vista-Terminal/main/GOLD.csv",
         "tradingsymbol": "GOLDM",
         "exchange": "MCX"
     },
     "USDINR": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/USDINR.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/Block_Vista-Terminal/main/USDINR.csv",
         "tradingsymbol": "USDINR",
         "exchange": "CDS"
     },
     "SENSEX": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SENSEX.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/Block_Vista-Terminal/main/SENSEX.csv",
         "tradingsymbol": "SENSEX",
         "exchange": "BSE"
     },
     "S&P 500": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SP500.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/Block_Vista-Terminal/main/SP500.csv",
         "tradingsymbol": "^GSPC",
         "exchange": "yfinance"
     }
