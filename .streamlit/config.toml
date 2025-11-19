@@ -1,2 +1,12 @@
+[theme]
+base="dark"
+primaryColor="#16F2B3"
+backgroundColor="#06090F"
+secondaryBackgroundColor="#0E1621"
+textColor="#E2E8F0"
+font="monospace"
+
 [server]
-fileWatcherType = "poll"
+headless=true
+enableCORS=false
+port=8502
