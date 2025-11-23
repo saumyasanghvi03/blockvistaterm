@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom';
+
 export default function Footer() {
     return (
         <footer className="footer">
@@ -17,10 +19,10 @@ export default function Footer() {
                 <div className="footer-section">
                     <h4>Product</h4>
                     <ul>
-                        <li><a href="#">Features</a></li>
-                        <li><a href="#">Pricing</a></li>
-                        <li><a href="#">Security</a></li>
-                        <li><a href="#">API Docs</a></li>
+                        <li><Link to="/features">Features</Link></li>
+                        <li><Link to="/pricing">Pricing</Link></li>
+                        <li><Link to="/security">Security</Link></li>
+                        <li><Link to="/api-docs">API Docs</Link></li>
                     </ul>
                 </div>
 
@@ -28,10 +30,10 @@ export default function Footer() {
                 <div className="footer-section">
                     <h4>Company</h4>
                     <ul>
-                        <li><a href="#">About</a></li>
-                        <li><a href="#">Blog</a></li>
-                        <li><a href="#">Careers</a></li>
-                        <li><a href="#">Contact</a></li>
+                        <li><Link to="/about">About</Link></li>
+                        <li><Link to="/blog">Blog</Link></li>
+                        <li><Link to="/careers">Careers</Link></li>
+                        <li><Link to="/contact">Contact</Link></li>
                     </ul>
                 </div>
 
@@ -39,10 +41,10 @@ export default function Footer() {
                 <div className="footer-section">
                     <h4>Legal</h4>
                     <ul>
-                        <li><a href="#">Privacy</a></li>
-                        <li><a href="#">Terms</a></li>
-                        <li><a href="#">Compliance</a></li>
-                        <li><a href="#">Security</a></li>
+                        <li><Link to="/legal#privacy">Privacy</Link></li>
+                        <li><Link to="/legal#terms">Terms</Link></li>
+                        <li><Link to="/legal#compliance">Compliance</Link></li>
+                        <li><Link to="/legal#security">Security</Link></li>
                     </ul>
                 </div>
             </div>
@@ -61,7 +63,7 @@ export default function Footer() {
                 fontSize: '0.9rem'
             }}>
                 <div>
-                    © 2024 BlockVista Terminal. All rights reserved.
+                    © 2025-2027 BlockVista Terminal. All rights reserved.
                 </div>
                 <div style={{ display: 'flex', gap: '1.5rem' }}>
                     <a href="#" style={{ color: 'inherit', textDecoration: 'none' }}>Twitter</a>

@@ -7,6 +7,12 @@ import About from './pages/About';
 import Products from './pages/Products';
 import Pricing from './pages/Pricing';
 import Contact from './pages/Contact';
+import Features from './pages/Features';
+import Security from './pages/Security';
+import ApiDocs from './pages/ApiDocs';
+import Blog from './pages/Blog';
+import Careers from './pages/Careers';
+import Legal from './pages/Legal';
 
 function App() {
     return (
@@ -26,6 +32,12 @@ function App() {
                         <Route path="/products" element={<Products />} />
                         <Route path="/pricing" element={<Pricing />} />
                         <Route path="/contact" element={<Contact />} />
+                        <Route path="/features" element={<Features />} />
+                        <Route path="/security" element={<Security />} />
+                        <Route path="/api-docs" element={<ApiDocs />} />
+                        <Route path="/blog" element={<Blog />} />
+                        <Route path="/careers" element={<Careers />} />
+                        <Route path="/legal" element={<Legal />} />
                     </Routes>
                 </main>
 
