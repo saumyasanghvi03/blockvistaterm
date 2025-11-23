@@ -1,0 +1,47 @@
+# robots.txt - Allow AI models and search engines to crawl
+
+# Allow all crawlers by default
+User-agent: *
+Allow: /
+
+# Specific AI/LLM Crawlers
+# OpenAI (ChatGPT, GPT-4)
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: GPTBot
+Allow: /
+
+# Google (Gemini, Bard)
+User-agent: Google-Extended
+Allow: /
+
+# Anthropic (Claude)
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+# Common Crawl (used by many AI models for training)
+User-agent: CCBot
+Allow: /
+
+# Other AI Crawlers
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Bytespider  # ByteDance/TikTok
+Allow: /
+
+User-agent: Applebot-Extended  # Apple Intelligence
+Allow: /
+
+User-agent: FacebookBot
+Allow: /
+
+User-agent: cohere-ai
+Allow: /
+
+# Sitemap location
+Sitemap: https://blockvistaterm.vercel.app/sitemap.xml
