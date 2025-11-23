@@ -15,7 +15,13 @@ export default function Navbar() {
                 <Link to="/about" className="nav-link">About</Link>
                 <Link to="/products" className="nav-link">Products</Link>
                 <Link to="/pricing" className="nav-link">Pricing</Link>
+                <Link to="/features" className="nav-link">Features</Link>
+                <Link to="/security" className="nav-link">Security</Link>
+                <Link to="/api-docs" className="nav-link">API Docs</Link>
+                <Link to="/blog" className="nav-link">Blog</Link>
+                <Link to="/careers" className="nav-link">Careers</Link>
                 <Link to="/contact" className="nav-link">Contact</Link>
+                <Link to="/legal" className="nav-link">Legal</Link>
             </div>
 
             <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>

@@ -14,7 +14,8 @@ Vercel is optimized for frontend frameworks and is the easiest to set up.
     git add .
     git commit -m "Initial commit"
     git branch -M main
-    git remote add origin https://github.com/YOUR_USERNAME/blockvista-terminal.git
+    git remote add origin https://github.com/saumyasanghvi03/BlockVistaTerminalwebsite.git
+    
     git push -u origin main
     ```
 

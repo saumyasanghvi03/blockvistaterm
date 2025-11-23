@@ -1,45 +1,23 @@
-# Implementation Plan - Missing Pages & Legal Section
+# Resolve Git Push Failure
 
-This plan outlines the steps to create the missing pages and the common legal information page for BlockVista Terminal.
-
-## User Review Required
-
-> [!IMPORTANT]
-> I will create a single `Legal` page that contains sections for Privacy, Terms, and Compliance. `Security` will be a standalone page as it is also listed under "Product".
+## Goal Description
+The user cannot push the latest changes of the `blockvista-terminal` workspace to the GitHub repository `https://github.com/saumyasanghvi03/BlockVistaTerminalwebsite`. The `git push` command fails with hints about missing upstream branch or remote mismatch.
 
 ## Proposed Changes
-
-### 1. Create New Page Components
-I will create the following files in `src/pages/`:
-
--   **`Features.tsx`**: Detailed breakdown of platform features.
--   **`Security.tsx`**: Information about security measures (encryption, 2FA, etc.).
--   **`ApiDocs.tsx`**: Documentation landing page or API reference.
--   **`Blog.tsx`**: A list of blog posts (mocked for now).
--   **`Careers.tsx`**: Job openings and company culture.
--   **`Legal.tsx`**: A tabbed or sectioned page containing:
-    -   Privacy Policy
-    -   Terms of Service
-    -   Compliance Info
-
-### 2. Update Routing (`App.tsx`)
-Add the following routes:
--   `/features` -> `Features`
--   `/security` -> `Security`
--   `/api-docs` -> `ApiDocs`
--   `/blog` -> `Blog`
--   `/careers` -> `Careers`
--   `/legal` -> `Legal`
-
-### 3. Update Footer (`src/components/Footer.tsx`)
-Update the `href` attributes to point to the new routes instead of `#`.
+1. **Verify remote URL** – Ensure the remote `origin` points to the correct repository.
+2. **Ensure local `main` branch exists** – Create or rename the branch to `main` if it does not exist.
+3. **Set upstream tracking** – Link the local `main` to `origin/main`.
+4. **Pull any remote changes** – Run `git pull --rebase origin main` to synchronize.
+5. **Push the commits** – Execute `git push -u origin main`.
+6. **Optional cleanup** – If a different default branch (e.g., `master`) exists on the remote, rename it or push to that branch accordingly.
 
 ## Verification Plan
+- Run `git remote -v` and confirm the URL matches the target repo.
+- Run `git branch` to confirm `* main` is the current branch.
+- Execute the sequence of git commands listed above and capture their output.
+- After the final `git push`, run `git status` to ensure the working tree is clean and the branch is up‑to‑date with `origin/main`.
+- Verify on GitHub that the latest commit appears in the repository's commit history.
 
-### Automated Tests
--   None (Visual verification).
+---
 
-### Manual Verification
--   Click each link in the Footer and Navbar.
--   Verify the content of each new page renders correctly.
--   Check the "Legal" page allows navigation between its sections (Privacy, Terms, etc.).
+**Note**: No code changes are required; this is purely a Git workflow fix.
